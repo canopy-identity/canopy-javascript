@@ -37,7 +37,7 @@ function harness(body: unknown = { data: { ok: true } }) {
     apiKey: "cnpy_test",
     baseUrl: "https://api.test",
     timeoutMs: 0,
-    fetch: fetch as unknown as typeof globalThis.fetch,
+    fetch,
   });
 
   return { canopy, calls };

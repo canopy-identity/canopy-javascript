@@ -70,8 +70,7 @@ function generate(): string {
  * teaches people to ignore the check.
  */
 function tryGenerate():
-  | { ok: true; output: string }
-  | { ok: false; reason: string } {
+  { ok: true; output: string } | { ok: false; reason: string } {
   try {
     return { ok: true, output: generate() };
   } catch (error) {

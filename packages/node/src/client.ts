@@ -385,7 +385,7 @@ function parseRetryAfter(header: string | null): number | null {
 function backoffMs(attempt: number, lastError: unknown): number {
   const advised =
     lastError && typeof lastError === "object" && "retryAfterMs" in lastError
-      ? Number((lastError as { retryAfterMs: unknown }).retryAfterMs)
+      ? Number(lastError.retryAfterMs)
       : NaN;
 
   if (Number.isFinite(advised)) {

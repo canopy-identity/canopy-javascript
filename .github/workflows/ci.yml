@@ -28,13 +28,24 @@ jobs:
       - run: npm run generate:check
       - run: npm run test
       - run: npm run build
-      # The package must stay dependency-free: anything that appears here is a
-      # supply-chain surface every customer inherits.
-      - name: No runtime dependencies
+      # @canopy-io/node must stay dependency-free: anything that appears there
+      # is a supply-chain surface every customer inherits. Framework adapters
+      # are exempt — they exist to depend on their framework — so this asserts
+      # per package rather than across the workspace, and fails loudly if the
+      # package it is meant to guard ever stops being found.
+      - name: No runtime dependencies in @canopy-io/node
         run: |
-          deps=$(node -e "const d=require('./package.json').dependencies; process.stdout.write(Object.keys(d ?? {}).join(','))")
-          if [ -n "$deps" ]; then
-            echo "Runtime dependencies present: $deps"
-            exit 1
-          fi
-          echo "confirmed: zero runtime dependencies"
+          node - <<'JS'
+          const { readFileSync } = require("node:fs");
+          const pkg = JSON.parse(readFileSync("packages/node/package.json", "utf8"));
+          if (pkg.name !== "@canopy-io/node") {
+            console.error(`expected @canopy-io/node at packages/node, found ${pkg.name}`);
+            process.exit(1);
+          }
+          const deps = Object.keys(pkg.dependencies ?? {});
+          if (deps.length > 0) {
+            console.error(`runtime dependencies present: ${deps.join(", ")}`);
+            process.exit(1);
+          }
+          console.log("confirmed: zero runtime dependencies");
+          JS

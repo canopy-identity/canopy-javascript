@@ -1,0 +1,58 @@
+{
+  "name": "@canopy-io/node",
+  "version": "0.1.0",
+  "description": "Official TypeScript SDK for Canopy — hierarchical identity and access management.",
+  "license": "MIT",
+  "author": "Canopy Identity Inc.",
+  "homepage": "https://github.com/canopy-identity/canopy-javascript#readme",
+  "bugs": "https://github.com/canopy-identity/canopy-javascript/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/canopy-identity/canopy-javascript.git",
+    "directory": "packages/node"
+  },
+  "keywords": [
+    "canopy",
+    "authorization",
+    "rbac",
+    "iam",
+    "permissions",
+    "identity",
+    "sdk"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate": "tsx scripts/generate-types.ts",
+    "generate:check": "tsx scripts/generate-types.ts --check"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  }
+}

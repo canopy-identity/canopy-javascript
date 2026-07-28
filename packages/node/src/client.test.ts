@@ -29,7 +29,7 @@ function stubFetch(responses: (Response | Error)[]): {
     return Promise.resolve(next as Response);
   });
 
-  return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+  return { fetch, calls };
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {
@@ -227,10 +227,10 @@ describe("errors", () => {
 describe("retry policy", () => {
   beforeEach(() => {
     // Backoff is real time; keep the suite fast without faking the clock.
-    vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+    vi.spyOn(globalThis, "setTimeout").mockImplementation((fn: () => void) => {
       fn();
       return 0 as unknown as ReturnType<typeof setTimeout>;
-    }) as unknown as typeof setTimeout);
+    });
   });
 
   it("retries a 429 even on POST, because nothing was processed", async () => {
