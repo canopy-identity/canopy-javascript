@@ -2,7 +2,7 @@
 
 Official TypeScript SDK for [Canopy](https://canopy-io.com) — hierarchical identity and access management for B2B SaaS.
 
-> **Status: pre-release, not yet published to npm.** The client, pagination and the four main resources are built and tested. 27 of 81 operations have a typed wrapper; the rest are reachable through `canopy.client.request` with the same envelope handling, error typing and retry policy.
+> **Status: 0.1.0.** The client, pagination and the four main resources are built and tested. 27 of 81 operations have a typed wrapper; the rest are reachable through `canopy.client.request` with the same envelope handling, error typing and retry policy.
 
 ## Install
 
