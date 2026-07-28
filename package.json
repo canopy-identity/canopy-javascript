@@ -4,11 +4,11 @@
   "description": "Official TypeScript SDK for Canopy — hierarchical identity and access management.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
-  "homepage": "https://github.com/canopy-identity/canopy-node#readme",
-  "bugs": "https://github.com/canopy-identity/canopy-node/issues",
+  "homepage": "https://github.com/canopy-identity/canopy-javascript#readme",
+  "bugs": "https://github.com/canopy-identity/canopy-javascript/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/canopy-identity/canopy-node.git"
+    "url": "git+https://github.com/canopy-identity/canopy-javascript.git"
   },
   "keywords": [
     "canopy",
