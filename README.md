@@ -5,6 +5,7 @@ Official client libraries for [Canopy](https://canopy-io.com) — hierarchical i
 ## Packages
 
 - **[`@canopy-io/node`](packages/node)** — the server client. Authentication, the response envelope, pagination, typed errors and retry policy, with zero runtime dependencies.
+- **[`@canopy-io/nestjs`](packages/nestjs)** — the NestJS integration. Registers the client, and turns a permission check into a decorator on the route.
 
 Everything here is TypeScript, published to npm under the `@canopy-io` scope, and typed from the same [OpenAPI specification](https://canopy-io.com/openapi/api.json) that renders Canopy's API reference — so a package cannot silently describe an API that has moved on.
 
