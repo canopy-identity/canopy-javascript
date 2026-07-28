@@ -42,6 +42,28 @@ export interface CanopyModuleOptions<
   resolveNode?: RequestResolver<TRequest>;
 
   /**
+   * Deadline for the guard's own permission check, per attempt. Defaults to
+   * 5s — far tighter than the client-wide 30s, which is sized for
+   * administrative CRUD rather than for a call on the request path.
+   *
+   * Bounds one attempt; `evaluateMaxRetries` bounds how many. Together they
+   * cap what a guarded route can wait at roughly
+   * `evaluateTimeoutMs × (evaluateMaxRetries + 1)`, plus backoff — about 10s
+   * with the defaults.
+   */
+  evaluateTimeoutMs?: number;
+
+  /**
+   * Retries for the guard's own permission check. Defaults to 1, rather than
+   * the client-wide 2, because these attempts happen while an inbound request
+   * waits. Set 0 to fail on the first unanswered attempt.
+   *
+   * Applies only to the guard; other calls through the injected client keep
+   * the client-wide `maxRetries`.
+   */
+  evaluateMaxRetries?: number;
+
+  /**
    * Register the module globally so feature modules need not import it.
    * Defaults to false, matching `@nestjs/config`.
    */

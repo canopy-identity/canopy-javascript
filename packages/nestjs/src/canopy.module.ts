@@ -16,8 +16,8 @@ import { CANOPY_CLIENT, CANOPY_OPTIONS } from "./tokens.js";
  * ```ts
  * CanopyModule.forRoot<AuthedRequest>({
  *   apiKey: process.env.CANOPY_API_KEY,
- *   resolveIdentity: (request) => request.user.sub,
- *   resolveNode: (request) => request.params.orgId,
+ *   resolveIdentity: (request) => request.user?.sub,
+ *   resolveNode: (request) => request.params?.orgId,
  * })
  * ```
  *
