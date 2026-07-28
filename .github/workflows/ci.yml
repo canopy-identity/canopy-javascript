@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, typecheck, spec drift, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      # Fails when the committed types no longer match the published spec.
+      # Skips (exit 0, loudly) when the spec cannot be reached, so a network
+      # blip does not read as "the API changed".
+      - run: npm run generate:check
+      - run: npm run test
+      - run: npm run build
+      # The package must stay dependency-free: anything that appears here is a
+      # supply-chain surface every customer inherits.
+      - name: No runtime dependencies
+        run: |
+          deps=$(node -e "const d=require('./package.json').dependencies; process.stdout.write(Object.keys(d ?? {}).join(','))")
+          if [ -n "$deps" ]; then
+            echo "Runtime dependencies present: $deps"
+            exit 1
+          fi
+          echo "confirmed: zero runtime dependencies"

@@ -1,0 +1,79 @@
+{
+  "name": "@canopy-io/sdk",
+  "version": "0.0.0",
+  "description": "Official TypeScript SDK for Canopy — hierarchical identity and access management.",
+  "license": "MIT",
+  "author": "Canopy Identity Inc.",
+  "homepage": "https://github.com/canopy-identity/canopy-sdk-js#readme",
+  "bugs": "https://github.com/canopy-identity/canopy-sdk-js/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/canopy-identity/canopy-sdk-js.git"
+  },
+  "keywords": [
+    "canopy",
+    "authorization",
+    "rbac",
+    "iam",
+    "permissions",
+    "identity",
+    "sdk"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "generate": "tsx scripts/generate-types.ts",
+    "generate:check": "tsx scripts/generate-types.ts --check",
+    "verify": "npm run lint && npm run typecheck && npm run generate:check && npm run test && npm run build",
+    "changeset": "changeset",
+    "release": "npm run build && changeset publish"
+  },
+  "volta": {
+    "node": "20.19.0",
+    "npm": "10.8.2"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.1",
+    "@eslint/js": "^9.39.2",
+    "@types/node": "^22.20.1",
+    "eslint": "^9.39.2",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.6.2",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^4.0.18"
+  }
+}
