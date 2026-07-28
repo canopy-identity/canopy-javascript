@@ -40,10 +40,17 @@ export class CanopyError extends Error {
   readonly data: unknown;
   /** The path and method that failed, for logging. */
   readonly request: { method: string; path: string };
+  /**
+   * How long to wait before retrying, in milliseconds, when the server said so
+   * via `Retry-After` — populated on a 429, and on any other response that
+   * carries the header. Undefined when the server gave no guidance.
+   */
+  readonly retryAfterMs: number | undefined;
 
   constructor(
     body: CanopyErrorBody,
     request: { method: string; path: string },
+    retryAfterMs?: number,
   ) {
     super(body.message);
 
@@ -52,6 +59,7 @@ export class CanopyError extends Error {
     this.details = body.details;
     this.data = body.data;
     this.request = request;
+    this.retryAfterMs = retryAfterMs;
   }
 
   /** A 429. `retryAfterMs` is populated when the server said how long to wait. */
@@ -66,8 +74,13 @@ export class CanopyError extends Error {
 }
 
 /**
- * The request never produced a response — DNS failure, connection reset,
- * timeout, or an aborted signal.
+ * The request never produced a response — DNS failure, connection reset, or a
+ * timeout.
+ *
+ * Not this: a caller's own cancellation. Aborting the `signal` passed to a
+ * request rejects with that abort (`AbortError`, or whatever `signal.reason`
+ * holds) and is never retried, because the caller stopping is an intent rather
+ * than a failure to report.
  *
  * Kept separate from `CanopyError` because there is no status code and no
  * server opinion to report: nothing is known about whether the operation

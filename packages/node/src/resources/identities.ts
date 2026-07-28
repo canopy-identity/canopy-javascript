@@ -72,13 +72,29 @@ export class Identities {
     );
   }
 
-  /** Every role this identity holds, and where. */
+  /**
+   * Every role this identity holds, and where — across all pages.
+   *
+   * Paginated (20 per page by default), so this returns a `Paginator` rather
+   * than one response. Reading a single page here would under-report what an
+   * identity can do, which is the dangerous direction to be wrong in.
+   *
+   * ```ts
+   * for await (const assignment of canopy.identities.assignments(id)) { … }
+   * ```
+   */
   assignments(
     id: string,
-  ): Promise<ResponseBody<"ApiIdentitiesController_getIdentityAssignments">> {
-    return this.client.request(
-      "GET",
-      `/api/v1/identities/${encodeURIComponent(id)}/assignments`,
+    query: QueryParams<"ApiIdentitiesController_getIdentityAssignments"> = {},
+  ): Paginator<IdentityAssignmentItem> {
+    return paginate<IdentityAssignmentItem>(
+      (params) =>
+        this.client.request(
+          "GET",
+          `/api/v1/identities/${encodeURIComponent(id)}/assignments`,
+          { query: params },
+        ),
+      { ...query },
     );
   }
 
@@ -101,6 +117,11 @@ export class Identities {
 
 export type IdentityItem = ItemOf<
   ResponseBody<"ApiIdentitiesController_listIdentities">
+>;
+
+/** One role grant from an identity's assignments collection. */
+export type IdentityAssignmentItem = ItemOf<
+  ResponseBody<"ApiIdentitiesController_getIdentityAssignments">
 >;
 
 type ItemOf<T> = T extends { items: (infer Item)[] } ? Item : never;

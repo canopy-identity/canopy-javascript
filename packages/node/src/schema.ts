@@ -62,3 +62,32 @@ export type QueryParams<Id extends OperationId> = operations[Id] extends {
 /** Shorthand for a named schema, e.g. `Schema<"EvaluateResponseDto">`. */
 export type Schema<Name extends keyof components["schemas"]> =
   components["schemas"][Name];
+
+/**
+ * Optimistic concurrency, on the operations whose spec declares `If-Match`.
+ *
+ * Pass the `version` you read off the resource. If someone else has changed it
+ * since, the API answers 409 rather than letting the write silently clobber
+ * theirs — so this is how a read-modify-write is made safe.
+ */
+export interface ConcurrencyOptions {
+  ifMatch?: string;
+}
+
+/**
+ * The `If-Match` header for a call that supports it, shaped to be spread into
+ * `RequestOptions`.
+ *
+ * Spreadable rather than returning `headers: undefined`, which
+ * `exactOptionalPropertyTypes` rejects — an absent property and one explicitly
+ * set to undefined are not the same thing here.
+ */
+export function withConcurrency(
+  options: ConcurrencyOptions = {},
+): { headers: Record<string, string> } | Record<string, never> {
+  if (options.ifMatch === undefined) {
+    return {};
+  }
+
+  return { headers: { "If-Match": options.ifMatch } };
+}

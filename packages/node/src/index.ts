@@ -10,6 +10,7 @@ export { Canopy } from "./canopy.js";
 
 export { CanopyClient, isCursorPagination } from "./client.js";
 export type {
+  CallOptions,
   CanopyClientOptions,
   Collection,
   CursorPagination,
@@ -33,13 +34,18 @@ export type { CanopyErrorBody } from "./errors.js";
 export { Assignments } from "./resources/assignments.js";
 export type { AssignmentItem } from "./resources/assignments.js";
 export { Identities } from "./resources/identities.js";
-export type { IdentityItem } from "./resources/identities.js";
+export type {
+  IdentityAssignmentItem,
+  IdentityItem,
+} from "./resources/identities.js";
 export { Permissions } from "./resources/permissions.js";
 export type { PermissionItem } from "./resources/permissions.js";
 export { Roles } from "./resources/roles.js";
 export type { RoleItem } from "./resources/roles.js";
 
+export { withConcurrency } from "./schema.js";
 export type {
+  ConcurrencyOptions,
   OperationId,
   QueryParams,
   RequestBody,

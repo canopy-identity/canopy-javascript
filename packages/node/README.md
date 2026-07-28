@@ -72,7 +72,8 @@ The client is `fetch` and nothing else, so it runs unchanged on Node, in browser
 **The hand-written layer exists for correctness, not convenience.**
 Writing a `fetch` call against a documented REST API is easy, and an LLM will do it for you. What neither gets reliably right is the part this package owns:
 
-- **Which operations are safe to retry.** GET, HEAD, PUT and DELETE are idempotent by HTTP definition and are retried on a 5xx; POST is not, and a blind retry there can create a second role assignment. A 429 is retried regardless, because the request was refused before anything happened.
+- **Which operations are safe to retry.** GET, HEAD, PUT and DELETE are idempotent by HTTP definition and are retried on a 5xx; POST is not, and a blind retry there can create a second role assignment. A 429 is retried regardless, because the request was refused before anything happened. A caller's own cancellation is never retried — aborting a `signal` rejects with that abort, while timeouts and transport failures throw `CanopyConnectionError`.
+- **The protocol headers that make a write safe.** `If-Match` carries a resource's current `version`, so a concurrent edit answers 409 instead of being silently overwritten; `Idempotency-Key` makes a replayed bulk create return the original result rather than creating rows twice.
 - **Two pagination styles behind one shape.** The audit log is cursor-paginated; everything else is offset. The top-level response is identical either way, so a hand-rolled loop silently reads only the first page of one of them — or never terminates.
 - **The five-shape response envelope.** `{ data }`, `{ items }`, `{ items, pagination }`, `{ summary, results }` for partial success, `{ error }`, and bare 204.
 - **Typed error codes.** `catch (e) { if (e.code === "rbac.assignment_conflict") }` branches on a contract rather than on a message that may be reworded.

@@ -1,6 +1,12 @@
 import type { CanopyClient } from "../client.js";
 import { paginate, type Paginator } from "../pagination.js";
-import type { QueryParams, RequestBody, ResponseBody } from "../schema.js";
+import { withConcurrency } from "../schema.js";
+import type {
+  ConcurrencyOptions,
+  QueryParams,
+  RequestBody,
+  ResponseBody,
+} from "../schema.js";
 
 /** Named bundles of permissions. */
 export class Roles {
@@ -29,21 +35,28 @@ export class Roles {
     return this.client.request("POST", "/api/v1/roles", { body: input });
   }
 
+  /**
+   * Pass `ifMatch` with the role's current `version` to make a
+   * read-modify-write safe — a concurrent edit answers 409 instead of being
+   * silently overwritten.
+   */
   update(
     id: string,
     input: RequestBody<"ApiRolesController_updateRole">,
+    options: ConcurrencyOptions = {},
   ): Promise<ResponseBody<"ApiRolesController_updateRole">> {
     return this.client.request(
       "PATCH",
       `/api/v1/roles/${encodeURIComponent(id)}`,
-      { body: input },
+      { body: input, ...withConcurrency(options) },
     );
   }
 
-  delete(id: string): Promise<void> {
+  delete(id: string, options: ConcurrencyOptions = {}): Promise<void> {
     return this.client.request(
       "DELETE",
       `/api/v1/roles/${encodeURIComponent(id)}`,
+      withConcurrency(options),
     );
   }
 
