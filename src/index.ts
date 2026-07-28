@@ -17,6 +17,9 @@ export type {
   RequestOptions,
 } from "./client.js";
 
+export { paginate, Paginator } from "./pagination.js";
+export type { PageFetcher, PageParams, PaginateOptions } from "./pagination.js";
+
 export {
   CanopyConnectionError,
   CanopyError,
