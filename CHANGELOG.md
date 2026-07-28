@@ -1,4 +1,4 @@
-# @canopy-io/sdk
+# @canopy-io/node
 
 ## 0.1.0
 

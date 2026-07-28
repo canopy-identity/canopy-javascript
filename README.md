@@ -1,4 +1,4 @@
-# @canopy-io/sdk
+# @canopy-io/node
 
 Official TypeScript SDK for [Canopy](https://canopy-io.com) — hierarchical identity and access management for B2B SaaS.
 
@@ -7,15 +7,17 @@ Official TypeScript SDK for [Canopy](https://canopy-io.com) — hierarchical ide
 ## Install
 
 ```bash
-npm install @canopy-io/sdk
+npm install @canopy-io/node
 ```
 
 Requires Node 18 or later. Ships ESM and CommonJS, and has **zero runtime dependencies**.
 
+Despite the name, it is not Node-only: the client is `fetch` and nothing else, so the same build runs in browsers, on Cloudflare Workers and on Deno.
+
 ## Usage
 
 ```ts
-import { Canopy, isCanopyError } from "@canopy-io/sdk";
+import { Canopy, isCanopyError } from "@canopy-io/node";
 
 const canopy = new Canopy({ apiKey: process.env.CANOPY_API_KEY });
 

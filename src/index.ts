@@ -1,5 +1,5 @@
 /**
- * `@canopy-io/sdk` — the official TypeScript client for Canopy.
+ * `@canopy-io/node` — the official TypeScript client for Canopy.
  *
  * Types are generated from Canopy's published OpenAPI document, so every
  * request and response shape here is the one the API actually serves.

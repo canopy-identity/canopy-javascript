@@ -1,5 +1,5 @@
 {
-  "name": "@canopy-io/sdk",
+  "name": "@canopy-io/node",
   "version": "0.1.0",
   "description": "Official TypeScript SDK for Canopy — hierarchical identity and access management.",
   "license": "MIT",
