@@ -6,6 +6,8 @@
  * See `scripts/generate-types.ts`.
  */
 
+export { Canopy } from "./canopy.js";
+
 export { CanopyClient, isCursorPagination } from "./client.js";
 export type {
   CanopyClientOptions,
@@ -27,5 +29,22 @@ export {
   isCanopyError,
 } from "./errors.js";
 export type { CanopyErrorBody } from "./errors.js";
+
+export { Assignments } from "./resources/assignments.js";
+export type { AssignmentItem } from "./resources/assignments.js";
+export { Identities } from "./resources/identities.js";
+export type { IdentityItem } from "./resources/identities.js";
+export { Permissions } from "./resources/permissions.js";
+export type { PermissionItem } from "./resources/permissions.js";
+export { Roles } from "./resources/roles.js";
+export type { RoleItem } from "./resources/roles.js";
+
+export type {
+  OperationId,
+  QueryParams,
+  RequestBody,
+  ResponseBody,
+  Schema,
+} from "./schema.js";
 
 export type { components, operations, paths } from "./generated/types.js";

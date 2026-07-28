@@ -1,0 +1,121 @@
+import type { CanopyClient } from "../client.js";
+import { paginate, type Paginator } from "../pagination.js";
+import type { QueryParams, RequestBody, ResponseBody } from "../schema.js";
+
+/**
+ * Permissions, and the authorization decision itself.
+ *
+ * `evaluate` is the call an integrator makes on every request, so it is the one
+ * worth reading first.
+ */
+export class Permissions {
+  constructor(private readonly client: CanopyClient) {}
+
+  /**
+   * Ask whether an identity holds a permission.
+   *
+   * With `scope: "node"` the engine walks the node's lineage, so a permission
+   * granted on an ancestor is inherited at `node_id`. With `scope: "app_wide"`
+   * it answers the coarse "anywhere in this Application" question and returns
+   * `effective_node_id: null` — that answer must never be used to guard a
+   * resource that belongs to a specific node, which is why the scope is a
+   * required field rather than a default.
+   */
+  evaluate(
+    input: RequestBody<"ApiPermissionsController_evaluate">,
+  ): Promise<ResponseBody<"ApiPermissionsController_evaluate">> {
+    return this.client.request("POST", "/api/v1/permissions/evaluate", {
+      body: input,
+    });
+  }
+
+  /**
+   * Evaluate many decisions in one round trip.
+   *
+   * Prefer this to a loop over `evaluate` when rendering a screen: the checks
+   * are answered together instead of paying request latency for each.
+   */
+  evaluateBulk(
+    input: RequestBody<"ApiPermissionsController_evaluateBulk">,
+  ): Promise<ResponseBody<"ApiPermissionsController_evaluateBulk">> {
+    return this.client.request("POST", "/api/v1/permissions/evaluate/bulk", {
+      body: input,
+    });
+  }
+
+  /**
+   * The same decision with its reasoning — which role granted it, which node
+   * it was inherited from. For debugging an unexpected allow or deny, not for
+   * the enforcement path.
+   */
+  explain(
+    input: RequestBody<"ApiPermissionsController_explain">,
+  ): Promise<ResponseBody<"ApiPermissionsController_explain">> {
+    return this.client.request("POST", "/api/v1/permissions/evaluate/explain", {
+      body: input,
+    });
+  }
+
+  /**
+   * Every permission in the Environment, page by page.
+   *
+   * `query` is not optional: this endpoint requires `source`, and the generated
+   * types are what said so — an earlier draft of this method defaulted it to
+   * `{}` and stopped compiling.
+   */
+  list(
+    query: QueryParams<"ApiPermissionsController_listPermissions">,
+  ): Paginator<PermissionItem> {
+    return paginate<PermissionItem>(
+      (params) =>
+        this.client.request("GET", "/api/v1/permissions", { query: params }),
+      { ...query },
+    );
+  }
+
+  get(
+    id: string,
+  ): Promise<ResponseBody<"ApiPermissionsController_getPermission">> {
+    return this.client.request(
+      "GET",
+      `/api/v1/permissions/${encodeURIComponent(id)}`,
+    );
+  }
+
+  /** Define permissions. The request takes a batch, not a single key. */
+  create(
+    input: RequestBody<"ApiPermissionsController_createPermissions">,
+  ): Promise<ResponseBody<"ApiPermissionsController_createPermissions">> {
+    return this.client.request("POST", "/api/v1/permissions", { body: input });
+  }
+
+  update(
+    id: string,
+    input: RequestBody<"ApiPermissionsController_updatePermission">,
+  ): Promise<ResponseBody<"ApiPermissionsController_updatePermission">> {
+    return this.client.request(
+      "PATCH",
+      `/api/v1/permissions/${encodeURIComponent(id)}`,
+      { body: input },
+    );
+  }
+
+  delete(id: string): Promise<void> {
+    return this.client.request(
+      "DELETE",
+      `/api/v1/permissions/${encodeURIComponent(id)}`,
+    );
+  }
+}
+
+/**
+ * One item from the permissions collection.
+ *
+ * Read off the list response rather than named directly, so it follows the
+ * spec instead of being a second declaration of it.
+ */
+export type PermissionItem = ItemOf<
+  ResponseBody<"ApiPermissionsController_listPermissions">
+>;
+
+type ItemOf<T> = T extends { items: (infer Item)[] } ? Item : never;
