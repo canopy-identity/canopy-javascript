@@ -2,7 +2,7 @@
 
 Official TypeScript SDK for [Canopy](https://canopy-io.com) — hierarchical identity and access management for B2B SaaS.
 
-> **Status: pre-release.** The generated types are complete and usable. The ergonomic client (`client.ts`, resources, pagination) is in progress — see [Roadmap](#roadmap).
+> **Status: pre-release, not yet published to npm.** The client, pagination and the four main resources are built and tested. 27 of 81 operations have a typed wrapper; the rest are reachable through `canopy.client.request` with the same envelope handling, error typing and retry policy.
 
 ## Install
 
@@ -11,6 +11,51 @@ npm install @canopy-io/sdk
 ```
 
 Requires Node 18 or later. Ships ESM and CommonJS, and has **zero runtime dependencies**.
+
+## Usage
+
+```ts
+import { Canopy, isCanopyError } from "@canopy-io/sdk";
+
+const canopy = new Canopy({ apiKey: process.env.CANOPY_API_KEY });
+
+// The call every integrator makes on every request.
+const { allowed } = await canopy.permissions.evaluate({
+  identity_id: identityId,
+  permission: "documents.read",
+  scope: "node",
+  node_id: nodeId,
+});
+
+// Pagination is handled for you, whichever style the endpoint uses.
+for await (const identity of canopy.identities.list({ take: 50 })) {
+  console.log(identity.email);
+}
+
+// Errors carry a stable code, not just a message.
+try {
+  await canopy.assignments.create({
+    identity_id: identityId,
+    node_id: nodeId,
+    role_id: roleId,
+  });
+} catch (error) {
+  if (isCanopyError(error) && error.code === "rbac.assignment_conflict") {
+    // Already assigned — not a failure worth surfacing.
+  } else {
+    throw error;
+  }
+}
+```
+
+Anything without a typed wrapper is still reachable, with the same envelope
+handling and retry policy:
+
+```ts
+const page = await canopy.client.request("GET", "/api/v1/audit-events", {
+  query: { limit: 50 },
+});
+```
 
 ## Design
 
@@ -25,19 +70,19 @@ The client is `fetch` and nothing else, so it runs unchanged on Node, in browser
 **The hand-written layer exists for correctness, not convenience.**
 Writing a `fetch` call against a documented REST API is easy, and an LLM will do it for you. What neither gets reliably right is the part this package owns:
 
-- **Which operations are safe to retry.** The spec marks them (`x-canopy-idempotent`). Guessing wrong on a POST means a duplicate role assignment.
-- **Two pagination styles behind one shape.** The audit log is cursor-paginated; everything else is offset. The top-level response is identical either way, so a hand-rolled loop silently breaks on one of them.
+- **Which operations are safe to retry.** GET, HEAD, PUT and DELETE are idempotent by HTTP definition and are retried on a 5xx; POST is not, and a blind retry there can create a second role assignment. A 429 is retried regardless, because the request was refused before anything happened.
+- **Two pagination styles behind one shape.** The audit log is cursor-paginated; everything else is offset. The top-level response is identical either way, so a hand-rolled loop silently reads only the first page of one of them — or never terminates.
 - **The five-shape response envelope.** `{ data }`, `{ items }`, `{ items, pagination }`, `{ summary, results }` for partial success, `{ error }`, and bare 204.
-- **Typed error codes.** The spec declares them per operation (`x-canopy-errors`), so `catch (e) { if (e.code === "rbac.assignment_conflict") }` type-checks instead of being a string guess.
-- **Webhook signature verification.** Security-critical, and easy to get subtly wrong — timing-unsafe comparison, missing timestamp check.
+- **Typed error codes.** `catch (e) { if (e.code === "rbac.assignment_conflict") }` branches on a contract rather than on a message that may be reworded.
+- **Webhook signature verification.** Security-critical, and easy to get subtly wrong — timing-unsafe comparison, missing timestamp check. _(Not built yet — see the roadmap.)_
 
 ## Roadmap
 
 - [x] Package scaffold, dual ESM/CJS build, generated types
-- [ ] Client core — auth, envelope unwrapping, typed errors, idempotency-aware retry
-- [ ] Pagination — one async iterator covering offset and cursor
-- [ ] Resource wrappers — `permissions`, `identities`, `roles`, `assignments`
-- [ ] Spec-coverage test — every `operationId` reachable from the SDK
+- [x] Client core — auth, envelope unwrapping, typed errors, retry
+- [x] Pagination — one async iterator covering offset and cursor
+- [x] Resource wrappers — `permissions`, `identities`, `roles`, `assignments`
+- [x] Spec-drift guard — fails when the API's surface changes
 - [ ] Webhook signature verification
 
 Other languages are deliberately **not** planned here. Point your own generator at the published spec — that serves Python, Go and the rest better than a partly-maintained SDK would.

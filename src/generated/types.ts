@@ -2252,8 +2252,8 @@ export type $defs = Record<string, never>;
 export interface operations {
     ApiPermissionsController_listPermissions: {
         parameters: {
-            query: {
-                source: string;
+            query?: {
+                source?: string;
             };
             header?: never;
             path?: never;
@@ -6107,9 +6107,9 @@ export interface operations {
     };
     ApiRolesController_listRoles: {
         parameters: {
-            query: {
-                include_inactive: string;
-                type: string;
+            query?: {
+                include_inactive?: string;
+                type?: string;
             };
             header?: never;
             path?: never;

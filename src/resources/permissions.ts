@@ -56,15 +56,9 @@ export class Permissions {
     });
   }
 
-  /**
-   * Every permission in the Environment, page by page.
-   *
-   * `query` is not optional: this endpoint requires `source`, and the generated
-   * types are what said so — an earlier draft of this method defaulted it to
-   * `{}` and stopped compiling.
-   */
+  /** Every permission in the Environment, page by page. */
   list(
-    query: QueryParams<"ApiPermissionsController_listPermissions">,
+    query: QueryParams<"ApiPermissionsController_listPermissions"> = {},
   ): Paginator<PermissionItem> {
     return paginate<PermissionItem>(
       (params) =>

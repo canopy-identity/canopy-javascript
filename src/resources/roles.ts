@@ -6,17 +6,8 @@ import type { QueryParams, RequestBody, ResponseBody } from "../schema.js";
 export class Roles {
   constructor(private readonly client: CanopyClient) {}
 
-  /**
-   * `query` is required only because the published spec marks
-   * `include_inactive` and `type` as required query parameters. The controller
-   * declares both optional, so this is a spec inaccuracy rather than a real
-   * constraint — it will relax to optional here the moment the spec is
-   * corrected and the types are regenerated. Kept faithful to the spec on
-   * purpose: one source of truth beats a hand-written signature that quietly
-   * disagrees with it.
-   */
   list(
-    query: QueryParams<"ApiRolesController_listRoles">,
+    query: QueryParams<"ApiRolesController_listRoles"> = {},
   ): Paginator<RoleItem> {
     return paginate<RoleItem>(
       (params) =>
