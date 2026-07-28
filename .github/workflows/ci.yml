@@ -20,6 +20,12 @@ jobs:
           node-version: 20.19.0
           cache: npm
       - run: npm ci
+      # Build first, and in dependency order. @canopy-io/nestjs resolves
+      # @canopy-io/node through its published `types` entry, which only exists
+      # once that package has been built — so on a clean checkout every step
+      # that reads types fails until this has run. `npm run build --workspaces`
+      # is not enough: it runs alphabetically, which would build nestjs first.
+      - run: npm run build
       - run: npm run lint
       - run: npm run typecheck
       # Fails when the committed types no longer match the published spec.
@@ -27,7 +33,6 @@ jobs:
       # blip does not read as "the API changed".
       - run: npm run generate:check
       - run: npm run test
-      - run: npm run build
       # @canopy-io/node must stay dependency-free: anything that appears there
       # is a supply-chain surface every customer inherits. Framework adapters
       # are exempt — they exist to depend on their framework — so this asserts

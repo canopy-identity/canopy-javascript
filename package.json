@@ -15,7 +15,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace @canopy-io/node && npm run build --workspace @canopy-io/nestjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
@@ -24,7 +24,7 @@
     "format:check": "prettier --check .",
     "generate": "npm run generate --workspaces --if-present",
     "generate:check": "npm run generate:check --workspaces --if-present",
-    "verify": "npm run lint && npm run typecheck && npm run generate:check && npm run test && npm run build",
+    "verify": "npm run build && npm run lint && npm run typecheck && npm run generate:check && npm run test",
     "changeset": "changeset",
     "release": "npm run build && changeset publish"
   },

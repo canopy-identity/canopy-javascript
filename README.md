@@ -18,6 +18,8 @@ npm ci
 npm run verify   # lint, typecheck, spec drift, test, build — across every package
 ```
 
+`verify` builds first, and builds `@canopy-io/node` before `@canopy-io/nestjs`. That order is load-bearing rather than incidental: the NestJS package resolves the client through its published `types` entry, which does not exist until the client has been built, so on a fresh clone every step that reads types fails without it. `npm run build --workspaces` would not do — it runs alphabetically, which is the wrong order here.
+
 Root scripts fan out across the workspace. To work on one package, target it:
 
 ```bash
