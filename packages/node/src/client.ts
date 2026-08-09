@@ -36,6 +36,16 @@ export function isCursorPagination(
 }
 
 /** A collection response, paginated or not. */
+/**
+ * The answer to a conditional read.
+ *
+ * A discriminated union rather than an optional body, so a caller cannot
+ * mistake "nothing changed" for "changed to nothing" — the two are opposite
+ * instructions to whatever is holding the cached copy.
+ */
+export type ConditionalResult<T> =
+  { modified: true; data: T; etag: string | null } | { modified: false };
+
 export interface Collection<T> {
   items: T[];
   pagination?: Pagination;
@@ -160,6 +170,9 @@ const DEFAULT_MAX_BACKOFF_MS = 30_000;
 /** Idempotent by HTTP definition (RFC 9110 §9.2.2). */
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE"]);
 
+/** `304`. A success for a conditional read, and not a 2xx. */
+const NOT_MODIFIED = 304;
+
 /**
  * The transport every resource is built on: one place that knows how to
  * authenticate, unwrap Canopy's response envelope, turn a failure into a typed
@@ -218,6 +231,67 @@ export class CanopyClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
+    const response = await this.perform(method, path, options);
+
+    return this.unwrap<T>(response, method.toUpperCase(), path);
+  }
+
+  /**
+   * A conditional read: send the validator you already hold, and find out
+   * whether anything changed.
+   *
+   * The sibling of `If-Match`, which this client already sends for optimistic
+   * concurrency. `304 Not Modified` is a *success* — it means the copy you
+   * have is current — but it is not a 2xx, so `request` would raise it as an
+   * error. Hence a separate entry point with a return type that says which
+   * happened rather than one that has to be inspected.
+   *
+   * Use it to hold something expensive and revalidate cheaply — the hierarchy
+   * behind local authorization is the case this exists for.
+   */
+  async requestConditional<T>(
+    method: string,
+    path: string,
+    etag: string | undefined,
+    options: RequestOptions = {},
+  ): Promise<ConditionalResult<T>> {
+    const conditional: RequestOptions = etag
+      ? { ...options, headers: { ...options.headers, "If-None-Match": etag } }
+      : options;
+
+    const response = await this.perform(
+      method,
+      path,
+      conditional,
+      (status) => status === NOT_MODIFIED || (status >= 200 && status < 300),
+    );
+
+    if (response.status === NOT_MODIFIED) {
+      return { modified: false };
+    }
+
+    return {
+      modified: true,
+      data: await this.unwrap<T>(response, method.toUpperCase(), path),
+      etag: response.headers.get("etag"),
+    };
+  }
+
+  /**
+   * Everything up to the response: retries, backoff, cancellation and the
+   * status check, without deciding what the body means.
+   *
+   * Split out so a conditional read can accept `304` where an ordinary one
+   * must not, rather than either duplicating the retry policy or teaching
+   * `unwrap` about statuses that carry no body.
+   */
+  private async perform(
+    method: string,
+    path: string,
+    options: RequestOptions = {},
+    accept: (status: number) => boolean = (status) =>
+      status >= 200 && status < 300,
+  ): Promise<Response> {
     const url = this.buildUrl(path, options.query);
     const upper = method.toUpperCase();
     const retryable = options.idempotent ?? IDEMPOTENT_METHODS.has(upper);
@@ -250,11 +324,11 @@ export class CanopyClient {
           continue;
         }
 
-        if (!response.ok) {
+        if (!accept(response.status)) {
           throw await this.toError(response, upper, path);
         }
 
-        return await this.unwrap<T>(response, upper, path);
+        return response;
       } catch (error) {
         // A typed API error is the server's answer, not a transport problem —
         // it is never retried here, only by the branch above.

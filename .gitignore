@@ -6,3 +6,6 @@ coverage
 .env
 .env.*
 !.env.example
+
+# Local planning notes — the canopy repo ignores these by the same convention.
+PLAN.md

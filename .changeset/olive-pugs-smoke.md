@@ -1,5 +1,5 @@
 ---
-"@canopy-io/node": minor
+"@canopy-io/node": patch
 ---
 
 Cancellation, per-request headers, per-call deadlines, and two correctness fixes on the authorization path.

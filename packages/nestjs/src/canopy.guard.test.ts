@@ -7,7 +7,7 @@ import {
 import type { Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Canopy } from "@canopy-io/node";
+import type { LocalAuthorizer } from "@canopy-io/node";
 
 import { CanopyGuard } from "./canopy.guard.js";
 import type { CanopyModuleOptions } from "./options.js";
@@ -85,9 +85,9 @@ function harness(config: {
     config.evaluate ?? (() => Promise.resolve({ allowed: true })),
   );
 
-  const canopy = {
-    permissions: { evaluate },
-  } as unknown as Canopy;
+  // The guard now asks the authorizer, which answers from its own caches and
+  // only reaches the network on a miss.
+  const authorizer = { evaluate } as unknown as LocalAuthorizer;
 
   const reflector = {
     getAllAndOverride: () => config.requirement,
@@ -116,7 +116,7 @@ function harness(config: {
       : { evaluateMaxRetries: config.evaluateMaxRetries }),
   };
 
-  const guard = new CanopyGuard(reflector, canopy, options);
+  const guard = new CanopyGuard(reflector, authorizer, options);
 
   const context = {
     getHandler: () => () => undefined,
@@ -291,6 +291,7 @@ describe("reporting why a check failed", () => {
       code,
       isAuthFailure: statusCode === 401 || statusCode === 403,
       isRateLimited: statusCode === 429,
+      request: { method: "GET", path: "/api/v1/identities/idn_1/grants" },
     });
   }
 
@@ -334,8 +335,27 @@ describe("reporting why a check failed", () => {
   });
 
   /** An identity Canopy has never heard of is a decision: deny. */
+  /**
+   * The failure that must never look like policy.
+   *
+   * A 404 with no error code is "no such route" — an SDK pointed at a Canopy
+   * that does not serve the grants endpoint. Reported as a denial it would take
+   * down every guarded route in the application at once while reading as
+   * ordinary authorization, so it is a `500` that names the path instead.
+   */
+  it("reports a missing grants endpoint as a misconfiguration, not a denial", async () => {
+    const { run } = failWith(canopyError(404, null));
+
+    const result = await run();
+
+    expect(result).toBeInstanceOf(InternalServerErrorException);
+    expect((result as Error).message).toContain(
+      "/api/v1/identities/idn_1/grants",
+    );
+  });
+
   it("denies when the identity is unknown to Canopy", async () => {
-    const { run, logged } = failWith(canopyError(404));
+    const { run, logged } = failWith(canopyError(404, "identity.not_found"));
 
     expect(await run()).toBeInstanceOf(ForbiddenException);
 
@@ -418,89 +438,11 @@ describe("a resolver that throws", () => {
 describe("bounding the call", () => {
   const REQUEST = { user: { sub: "idn_1" }, params: { nodeId: "nod_1" } };
 
-  it("applies a 5s deadline rather than the client-wide 30s", async () => {
-    const { guard, context, evaluate } = harness({
-      requirement: NODE_REQUIREMENT,
-      request: REQUEST,
-    });
+  // The deadline and retry cap moved to the authorizer, which the module
+  // builds from these same options. They still bound a call on the request
+  // path — but only a cache miss now, not every request, so there is nothing
+  // left for the guard itself to pass. See `authorizer.test.ts`.
 
-    await guard.canActivate(context);
-
-    expect(evaluate.mock.calls[0]?.[1]?.timeoutMs).toBe(5_000);
-  });
-
-  it("honours a configured evaluateTimeoutMs", async () => {
-    const { guard, context, evaluate } = harness({
-      requirement: NODE_REQUIREMENT,
-      request: REQUEST,
-      evaluateTimeoutMs: 750,
-    });
-
-    await guard.canActivate(context);
-
-    expect(evaluate.mock.calls[0]?.[1]?.timeoutMs).toBe(750);
-  });
-
-  /**
-   * The deadline alone would not bound the wait — the client would still take
-   * `maxRetries + 1` of them. Capping attempts is what makes the ceiling real.
-   */
-  it("caps attempts below the client-wide default", async () => {
-    const { guard, context, evaluate } = harness({
-      requirement: NODE_REQUIREMENT,
-      request: REQUEST,
-    });
-
-    await guard.canActivate(context);
-
-    expect(evaluate.mock.calls[0]?.[1]?.maxRetries).toBe(1);
-  });
-
-  /**
-   * The wait between attempts is set by Canopy's `Retry-After` and sits outside
-   * the deadline. Uncapped, a 429 could hold the inbound request for as long as
-   * that header says — making the stated ceiling meaningless.
-   */
-  it("caps the wait between attempts at one deadline", async () => {
-    const { guard, context, evaluate } = harness({
-      requirement: NODE_REQUIREMENT,
-      request: REQUEST,
-    });
-
-    await guard.canActivate(context);
-
-    expect(evaluate.mock.calls[0]?.[1]?.maxBackoffMs).toBe(5_000);
-  });
-
-  it("scales the backoff cap with a configured deadline", async () => {
-    const { guard, context, evaluate } = harness({
-      requirement: NODE_REQUIREMENT,
-      request: REQUEST,
-      evaluateTimeoutMs: 750,
-    });
-
-    await guard.canActivate(context);
-
-    expect(evaluate.mock.calls[0]?.[1]?.maxBackoffMs).toBe(750);
-  });
-
-  it("honours a configured evaluateMaxRetries", async () => {
-    const { guard, context, evaluate } = harness({
-      requirement: NODE_REQUIREMENT,
-      request: REQUEST,
-      evaluateMaxRetries: 0,
-    });
-
-    await guard.canActivate(context);
-
-    expect(evaluate.mock.calls[0]?.[1]?.maxRetries).toBe(0);
-  });
-
-  /**
-   * The regression that would matter most: a request stream emits `close` on
-   * every normal request, so watching the wrong object would abort healthy
-   * checks. Nothing is aborted while the response is still open.
-   */
   it("does not abort a healthy request", async () => {
     const response = fakeResponse();
     const { guard, context, evaluate } = harness({

@@ -478,6 +478,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/identities/{id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get where an identity holds each permission
+         * @description Returns, for the current Environment, every permission the identity holds mapped to the hierarchy nodes its grants were made at — the nodes themselves, **not** expanded through their descendants. A grant already means "this node and everything beneath it", so a caller answers a node-scoped question by walking up from the node in question and looking for one of these roots, using a copy of the tree fetched once from `GET /api/v1/nodes` and shared across identities. Answers both scopes without a further call: the permission appearing at all is the Application-wide answer, and the walk is the node-scoped one. Scheduled assignments outside their effective window are excluded. Returns `404` when the identity has no membership in this Environment.
+         */
+        get: operations["ApiIdentitiesController_getIdentityGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/identity-invites": {
         parameters: {
             query?: never;
@@ -600,6 +620,26 @@ export interface paths {
          * @description Creates a hierarchy node in the active Application's current Environment. Authorization is evaluated against `hierarchy.manage` on the parent node when `parent_node_id` is supplied, or Application-wide when creating the root. The node type and the parent/child relationship are validated against the Environment's hierarchy schema, only one root node is permitted per Environment (a second returns `409`), and the configured `max_depth` is enforced; a missing `slug` is derived from the name. Returns `201` with the created node and writes a `node.created` audit row.
          */
         post: operations["ApiNodesController_createNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/parents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the hierarchy as parent edges
+         * @description Returns the same hierarchy `GET /api/v1/nodes` describes, scoped identically, but as a flat list of `{ id, parent_node_id }` and nothing else. Intended for a client that evaluates authorization locally: it walks upward from a node and reads none of the tree's names, statuses, access flags or counts. At fifty thousand nodes the tree is roughly 18.6 MB against 4 MB of edges, on a read that runs at every consuming process's startup. Supports the same `If-None-Match` revalidation, with a validator distinct from the tree's — a tag from one representation never satisfies a request for the other.
+         */
+        get: operations["ApiNodesController_listNodeParents"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1550,6 +1590,12 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        IdentityGrantResponseDto: {
+            /** @example reports.view */
+            permission: string;
+            /** @description Hierarchy node ids the permission was granted at. Not expanded through descendants. */
+            nodes: string[];
+        };
         IdentityInviteResponseDto: {
             id: string;
             email: string;
@@ -1706,6 +1752,11 @@ export interface components {
         ScopedHierarchyTreeResponseDto: {
             tree: components["schemas"]["HierarchyTreeNodeDto"][];
             scope: components["schemas"]["HierarchyScopeDto"];
+        };
+        NodeParentEdgeResponseDto: {
+            id: string;
+            /** @description Null for the root node, which has no parent. */
+            parent_node_id?: string | null;
         };
         NodeAccessResponseDto: {
             id: string;
@@ -4561,6 +4612,114 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description Identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Identity not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiIdentitiesController_getIdentityGrants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grant map returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["IdentityGrantResponseDto"][];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Identity not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/grants",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiIdentityInvitesController_listInvites: {
@@ -5108,7 +5267,10 @@ export interface operations {
     ApiNodesController_listNodes: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description An `ETag` from a previous response. Answers `304 Not Modified` when the hierarchy has not changed since, so a client holding a cached tree can revalidate on a short interval without re-reading it. */
+                "If-None-Match"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -5122,6 +5284,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ScopedHierarchyTreeResponseDto"];
                 };
+            };
+            /** @description The hierarchy is unchanged since the supplied `ETag`. No body; keep using the cached tree. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Invalid or expired token */
             401: {
@@ -5267,6 +5436,80 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiNodesController_listNodeParents: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description An `ETag` from a previous response. Answers `304 Not Modified` when the hierarchy has not changed since, so a client holding a cached tree can revalidate on a short interval without re-reading it. */
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Parent edges returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["NodeParentEdgeResponseDto"][];
+                    };
+                };
+            };
+            /** @description The hierarchy is unchanged since the supplied `ETag`. No body; keep using the cached tree. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
                      *       }
                      *     }
                      */

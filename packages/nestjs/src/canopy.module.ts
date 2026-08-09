@@ -1,13 +1,19 @@
 import { type DynamicModule, Module, type Provider } from "@nestjs/common";
 
-import { Canopy } from "@canopy-io/node";
+import { Canopy, LocalAuthorizer, TokenVerifier } from "@canopy-io/node";
 
 import { CanopyGuard } from "./canopy.guard.js";
+import { CanopyTokenGuard } from "./canopy-token.guard.js";
 import type {
   CanopyModuleAsyncOptions,
   CanopyModuleOptions,
 } from "./options.js";
-import { CANOPY_CLIENT, CANOPY_OPTIONS } from "./tokens.js";
+import {
+  CANOPY_AUTHORIZER,
+  CANOPY_CLIENT,
+  CANOPY_OPTIONS,
+  CANOPY_TOKEN_VERIFIER,
+} from "./tokens.js";
 
 /**
  * Wires one configured `Canopy` client and the guard that uses it into a Nest
@@ -25,6 +31,46 @@ import { CANOPY_CLIENT, CANOPY_OPTIONS } from "./tokens.js";
  * `fetch` wrapper with credentials — so there is nothing to gain from building
  * one per request and a connection pool to lose.
  */
+
+/**
+ * Per-attempt deadline for a cache miss on the request path.
+ *
+ * Five seconds rather than the client's 30: this call sits on the request path,
+ * so its deadline is time an inbound request spends waiting. An authorization
+ * service that has not answered in five seconds is not going to save the
+ * request.
+ */
+const DEFAULT_EVALUATE_TIMEOUT_MS = 5_000;
+
+/**
+ * Retries for a cache miss on the request path.
+ *
+ * One, not the client's two. A deadline bounds an attempt; this bounds how many
+ * of them an inbound request can wait through. One retry still absorbs a
+ * transient blip, and caps the worst case at roughly two deadlines rather than
+ * three.
+ */
+const DEFAULT_EVALUATE_MAX_RETRIES = 1;
+
+/**
+ * The authorizer both registration paths build.
+ *
+ * The guard's `evaluateTimeoutMs` / `evaluateMaxRetries` still apply, but to
+ * far fewer calls: they bound a cache miss rather than every request.
+ */
+function buildAuthorizer<TRequest>(
+  client: Canopy,
+  options: CanopyModuleOptions<TRequest>,
+): LocalAuthorizer {
+  return new LocalAuthorizer(client.client, {
+    ...(options.authorizationTtlMs === undefined
+      ? {}
+      : { ttlMs: options.authorizationTtlMs }),
+    timeoutMs: options.evaluateTimeoutMs ?? DEFAULT_EVALUATE_TIMEOUT_MS,
+    maxRetries: options.evaluateMaxRetries ?? DEFAULT_EVALUATE_MAX_RETRIES,
+  });
+}
+
 @Module({})
 export class CanopyModule {
   static forRoot<TRequest = unknown>(
@@ -36,14 +82,31 @@ export class CanopyModule {
         provide: CANOPY_CLIENT,
         useFactory: () => new Canopy(options),
       },
+      {
+        provide: CANOPY_TOKEN_VERIFIER,
+        useFactory: () => new TokenVerifier(options.verify),
+      },
+      {
+        provide: CANOPY_AUTHORIZER,
+        useFactory: (client: Canopy) => buildAuthorizer(client, options),
+        inject: [CANOPY_CLIENT],
+      },
       CanopyGuard,
+      CanopyTokenGuard,
     ];
 
     return {
       module: CanopyModule,
       global: options.isGlobal ?? false,
       providers,
-      exports: [CANOPY_CLIENT, CANOPY_OPTIONS, CanopyGuard],
+      exports: [
+        CANOPY_CLIENT,
+        CANOPY_OPTIONS,
+        CANOPY_TOKEN_VERIFIER,
+        CANOPY_AUTHORIZER,
+        CanopyGuard,
+        CanopyTokenGuard,
+      ],
     };
   }
 
@@ -66,7 +129,20 @@ export class CanopyModule {
           new Canopy(resolved),
         inject: [CANOPY_OPTIONS],
       },
+      {
+        provide: CANOPY_TOKEN_VERIFIER,
+        useFactory: (resolved: CanopyModuleOptions<TRequest>) =>
+          new TokenVerifier(resolved.verify),
+        inject: [CANOPY_OPTIONS],
+      },
+      {
+        provide: CANOPY_AUTHORIZER,
+        useFactory: (client: Canopy, resolved: CanopyModuleOptions<TRequest>) =>
+          buildAuthorizer(client, resolved),
+        inject: [CANOPY_CLIENT, CANOPY_OPTIONS],
+      },
       CanopyGuard,
+      CanopyTokenGuard,
     ];
 
     return {
@@ -76,7 +152,14 @@ export class CanopyModule {
       // explicit `imports: undefined` is not the same as no `imports` at all.
       ...(options.imports ? { imports: options.imports } : {}),
       providers,
-      exports: [CANOPY_CLIENT, CANOPY_OPTIONS, CanopyGuard],
+      exports: [
+        CANOPY_CLIENT,
+        CANOPY_OPTIONS,
+        CANOPY_TOKEN_VERIFIER,
+        CANOPY_AUTHORIZER,
+        CanopyGuard,
+        CanopyTokenGuard,
+      ],
     };
   }
 }

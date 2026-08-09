@@ -23,7 +23,7 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-const EXPECTED_OPERATION_COUNT = 81;
+const EXPECTED_OPERATION_COUNT = 83;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;

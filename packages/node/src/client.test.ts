@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CanopyClient, isCursorPagination } from "./client.js";
-import { CanopyConnectionError, CanopyError, isCanopyError } from "./errors.js";
+import {
+  CanopyConnectionError,
+  CanopyError,
+  isCanopyConnectionError,
+  isCanopyError,
+} from "./errors.js";
 
 /** A fetch stub that replays queued responses and records what it was called with. */
 function stubFetch(responses: (Response | Error)[]): {
@@ -320,6 +325,37 @@ describe("cancellation", () => {
 
     expect((error as Error).name).toBe("AbortError");
     expect(calls).toHaveLength(1);
+  });
+
+  /**
+   * The same guarantee on a method that is never retried.
+   *
+   * Worth its own case because the two paths are held up by different code. A
+   * retryable request aborted in flight is stopped at the top of the next
+   * attempt; a non-retryable one never reaches that point, and would surface as
+   * a `CanopyConnectionError` — reporting a deliberate cancellation as a
+   * transport failure — if the abort were not re-checked before that branch.
+   */
+  it("surfaces the abort itself on a request that is never retried", async () => {
+    const controller = new AbortController();
+
+    const fetch = vi.fn(() => {
+      controller.abort();
+
+      return Promise.reject(
+        Object.assign(new Error("aborted"), { name: "AbortError" }),
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const error = await client(fetch, { maxRetries: 3 })
+      .request("POST", "/api/v1/roles", {
+        body: { name: "r" },
+        signal: controller.signal,
+      })
+      .catch((e: unknown) => e);
+
+    expect((error as Error).name).toBe("AbortError");
+    expect(isCanopyConnectionError(error)).toBe(false);
   });
 
   /** A timeout is not a caller abort, so it still retries. */

@@ -11,39 +11,32 @@ import {
 import { Reflector } from "@nestjs/core";
 
 import {
-  type Canopy,
+  isCanopyAuthorizerError,
   isCanopyError,
+  type LocalAuthorizer,
   type RequestBody,
-  type ResponseBody,
 } from "@canopy-io/node";
 
 import type { CanopyModuleOptions } from "./options.js";
 import type { PermissionRequirement } from "./require-permission.decorator.js";
-import { CANOPY_CLIENT, CANOPY_OPTIONS, CANOPY_PERMISSION } from "./tokens.js";
+import {
+  CANOPY_AUTHORIZER,
+  CANOPY_OPTIONS,
+  CANOPY_PERMISSION,
+} from "./tokens.js";
 
 /** Read off the generated operation, so it follows the API rather than restating it. */
 type EvaluateQuery = RequestBody<"ApiPermissionsController_evaluate">;
-type EvaluateDecision = ResponseBody<"ApiPermissionsController_evaluate">;
 
 /**
- * Per-attempt deadline for the guard's own check.
+ * Only the verdict, not the API's full explain payload.
  *
- * Five seconds rather than the client's 30: this call sits on the request path,
- * so its deadline is time an inbound request spends waiting. An authorization
- * service that has not answered in five seconds is not going to save the
- * request.
+ * A decision reached in-process cannot report `granting_roles` or an effective
+ * node — that reasoning lives on the server. The guard has never needed it, and
+ * typing the narrow thing keeps that honest rather than implying a richer
+ * answer than exists.
  */
-const DEFAULT_EVALUATE_TIMEOUT_MS = 5_000;
-
-/**
- * Retries for the guard's own check.
- *
- * One, not the client's two. A deadline bounds an attempt; this bounds how many
- * of them an inbound request can wait through. One retry still absorbs a
- * transient blip, and caps the worst case at roughly two deadlines rather than
- * three.
- */
-const DEFAULT_EVALUATE_MAX_RETRIES = 1;
+type Verdict = { allowed: boolean };
 
 interface Cancellation {
   signal: AbortSignal;
@@ -112,7 +105,7 @@ export class CanopyGuard implements CanActivate {
 
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
-    @Inject(CANOPY_CLIENT) private readonly canopy: Canopy,
+    @Inject(CANOPY_AUTHORIZER) private readonly authorizer: LocalAuthorizer,
     @Inject(CANOPY_OPTIONS)
     private readonly options: CanopyModuleOptions<unknown>,
   ) {}
@@ -164,24 +157,18 @@ export class CanopyGuard implements CanActivate {
     identityId: string,
     request: unknown,
     cancellation: Cancellation | undefined,
-  ): Promise<EvaluateDecision> {
+  ): Promise<Verdict> {
     const query = this.buildQuery(requirement, identityId, request);
 
     try {
-      const timeoutMs =
-        this.options.evaluateTimeoutMs ?? DEFAULT_EVALUATE_TIMEOUT_MS;
-
-      return await this.canopy.permissions.evaluate(query, {
-        // Bounded on purpose: this call is holding an inbound request open, so
-        // the attempt, the number of attempts, and the waiting in between are
-        // all capped. Without the last one a `Retry-After` on a 429 sets the
-        // wait, and a header could hold the request far past the deadline.
-        timeoutMs,
-        maxRetries:
-          this.options.evaluateMaxRetries ?? DEFAULT_EVALUATE_MAX_RETRIES,
-        maxBackoffMs: timeoutMs,
-        ...(cancellation ? { signal: cancellation.signal } : {}),
-      });
+      // Answered in-process. The authorizer holds the identity's grant roots
+      // and a shared copy of the hierarchy, so the common case reaches no
+      // network at all; only a cold or expired entry does, and its deadline
+      // and retries are bounded by the same options as before.
+      return await this.authorizer.evaluate(
+        query,
+        cancellation ? { signal: cancellation.signal } : {},
+      );
     } catch (error) {
       // The caller hung up mid-check. There is no one left to answer, and this
       // is not Canopy failing — so it must not be logged or reported as though
@@ -213,6 +200,16 @@ export class CanopyGuard implements CanActivate {
    * that will never succeed and hides a misconfiguration behind an outage.
    */
   private toHttpException(error: unknown): Error {
+    // The authorizer could not see far enough to decide — a credential that
+    // cannot read the hierarchy, most likely. Not an outage: no retry fixes a
+    // missing scope, and reporting it as one would bury a misconfiguration
+    // under what looks like a blip.
+    if (isCanopyAuthorizerError(error)) {
+      return new InternalServerErrorException(
+        `Authorization is misconfigured: ${error.message}`,
+      );
+    }
+
     if (!isCanopyError(error)) {
       // Never answered: unreachable, reset, or past the deadline.
       return new ServiceUnavailableException(
@@ -227,11 +224,22 @@ export class CanopyGuard implements CanActivate {
       );
     }
 
-    // Something the decision needed was not found. Deny rather than 500 — the
-    // guard's whole thesis is that an undecidable request does not proceed —
-    // but say nothing about *what* was missing: the evaluate contract does not
-    // declare a 404 at all, and the sibling `explain` raises one for a missing
-    // node just as readily as a missing identity.
+    // A 404 with no error code is Nest's own "no such route", which here means
+    // this Canopy does not serve the endpoint the authorizer reads — an SDK
+    // newer than the API it is pointed at. Denying would be catastrophic and
+    // silent: every guarded route in the application would answer 403 with
+    // nothing to suggest the cause is a version mismatch rather than policy.
+    if (error.statusCode === 404 && error.code === null) {
+      return new InternalServerErrorException(
+        `Authorization is misconfigured: ${error.request.method} ${error.request.path} is not served by this Canopy. ` +
+          "The SDK requires an API that exposes the identity grants endpoint.",
+      );
+    }
+
+    // A 404 that does carry a code is a real answer — the identity is not in
+    // this Environment. Deny rather than 500, the guard's whole thesis being
+    // that an undecidable request does not proceed, but say nothing about what
+    // was missing.
     if (error.statusCode === 404) {
       return new ForbiddenException("Could not evaluate the permission.");
     }
