@@ -1,0 +1,104 @@
+name: Release
+
+# Publishes to npm when development is merged into main.
+#
+# main only ever receives the `development -> main` PR merge, so a push to
+# main is exactly "a release was approved". Versioning is per-package, derived
+# from the changesets accumulated on development.
+#
+# Loop guard: the version commit carries "[skip ci]", so pushing it back to
+# main does not re-trigger this workflow.
+on:
+  push:
+    branches: [main]
+
+# Never run two releases at once; never cancel an in-flight publish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push the version commit + tags back to main
+  id-token: write # OIDC trusted publishing + provenance (no npm token needed)
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history + tags so changesets can see what was already released.
+          fetch-depth: 0
+
+      # Node 24 ships npm >= 11.5.1, which is required for OIDC trusted
+      # publishing. Using it directly (rather than upgrading npm on Node 20)
+      # guarantees the npm that changesets invokes for publish understands OIDC.
+      #
+      # NOTE: no `registry-url` here on purpose. setup-node's registry-url
+      # writes an .npmrc with an (empty) `_authToken`, which makes npm publish
+      # with no/empty credentials instead of performing the OIDC trusted-
+      # publishing exchange. npm defaults to registry.npmjs.org anyway, and
+      # OIDC needs no token configured.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: "npm"
+
+      - run: npm ci
+
+      # Surfaces the publish environment in the log: npm must be >= 11.5.1 and
+      # the OIDC request URL must be present for trusted publishing to engage.
+      - name: Publish environment check
+        run: |
+          echo "node: $(node -v)"
+          echo "npm:  $(npm -v)"
+          echo "OIDC request URL present: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+
+      # Same gate as CI — never publish something that doesn't pass verify.
+      - run: npm run verify
+
+      # Nothing to do when main moved without any pending changeset — a docs
+      # merge, or a re-run after the version commit landed. Checked before the
+      # version step so the job ends green rather than committing an empty bump.
+      - name: Check for pending changesets
+        id: pending
+        run: |
+          if ls .changeset/*.md 2>/dev/null | grep -qv 'README.md'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No pending changesets — nothing to release."
+          fi
+
+      - name: Configure git identity
+        if: steps.pending.outputs.found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Apply the changesets: bump versions, write changelogs, consume the
+      # changeset files. Committed before publishing so the tags changesets
+      # creates point at the commit that actually carries those versions.
+      - name: Version
+        if: steps.pending.outputs.found == 'true'
+        run: |
+          npx changeset version
+          git add -A
+          git commit -m "chore(release): version packages [skip ci]"
+
+      # Publish the changed packages. Auth is via OIDC trusted publishing — npm
+      # detects the OIDC environment automatically, so no NODE_AUTH_TOKEN is
+      # needed. Provenance is on because this repo is public; sigstore
+      # provenance only supports public source repositories and npm rejects the
+      # publish (422) if it is enabled on a private one.
+      - name: Publish
+        if: steps.pending.outputs.found == 'true'
+        env:
+          NPM_CONFIG_PROVENANCE: "true"
+        run: npx changeset publish
+
+      # changesets commits nothing and tags locally; push the version commit and
+      # its tags. The commit carries [skip ci], so this push won't loop.
+      - name: Push version commit and tags
+        if: steps.pending.outputs.found == 'true'
+        run: git push --follow-tags origin HEAD:${{ github.ref_name }}
