@@ -1,6 +1,9 @@
 import type { InjectionToken, ModuleMetadata } from "@nestjs/common";
 
-import type { CanopyClientOptions } from "@canopy-io/node";
+import type {
+  CanopyClientOptions,
+  TokenVerifierOptions,
+} from "@canopy-io/node";
 
 /**
  * Pulls a value out of the incoming request.
@@ -62,6 +65,41 @@ export interface CanopyModuleOptions<
    * the client-wide `maxRetries`.
    */
   evaluateMaxRetries?: number;
+
+  /**
+   * How long an authorization answer is reused, in milliseconds. Defaults to
+   * 60s.
+   *
+   * The guard answers checks in-process from the identity's grant roots and a
+   * shared copy of the hierarchy, so this is the delay between an access
+   * change and it taking effect — a staleness budget, not a performance dial.
+   * Shortening it below the gap between a user's requests stops saving
+   * anything, because every request then finds the cache expired.
+   *
+   * Set it to **`0`** to switch caching off entirely and have every guarded
+   * request read fresh. That reinstates a round trip per request — the cost
+   * this exists to remove — so it is for applications that cannot tolerate a
+   * stale allow at all, not a cautious default.
+   */
+  authorizationTtlMs?: number;
+
+  /**
+   * Token verification, for `CanopyTokenGuard`. Everything
+   * `TokenVerifierOptions` accepts is accepted here.
+   *
+   * Only read when you actually use that guard; a project with its own auth
+   * layer leaves this unset and nothing changes.
+   */
+  verify?: TokenVerifierOptions;
+
+  /**
+   * Request property `CanopyTokenGuard` attaches verified claims to. Defaults
+   * to `canopyToken`.
+   *
+   * Not `user`: that is Passport's, and quietly overwriting it in an app that
+   * already has one would be a hard afternoon for somebody.
+   */
+  attachTokenAs?: string;
 
   /**
    * Register the module globally so feature modules need not import it.

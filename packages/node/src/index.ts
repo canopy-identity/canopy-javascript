@@ -13,6 +13,7 @@ export type {
   CallOptions,
   CanopyClientOptions,
   Collection,
+  ConditionalResult,
   CursorPagination,
   OffsetPagination,
   Pagination,
@@ -20,16 +21,30 @@ export type {
   RequestOptions,
 } from "./client.js";
 
+export { LocalAuthorizer } from "./authorizer.js";
+export type {
+  LocalAuthorizationQuery,
+  LocalAuthorizerOptions,
+  LocalAuthorizerStats,
+} from "./authorizer.js";
+
 export { paginate, Paginator } from "./pagination.js";
 export type { PageFetcher, PageParams, PaginateOptions } from "./pagination.js";
 
 export {
+  CanopyAuthorizerError,
   CanopyConnectionError,
   CanopyError,
+  CanopyTokenError,
+  isCanopyAuthorizerError,
   isCanopyConnectionError,
   isCanopyError,
+  isCanopyTokenError,
 } from "./errors.js";
 export type { CanopyErrorBody } from "./errors.js";
+
+export { TokenVerifier } from "./verify.js";
+export type { CanopyTokenClaims, TokenVerifierOptions } from "./verify.js";
 
 export { Assignments } from "./resources/assignments.js";
 export type { AssignmentItem } from "./resources/assignments.js";

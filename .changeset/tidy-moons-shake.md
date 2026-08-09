@@ -1,5 +1,5 @@
 ---
-"@canopy-io/nestjs": minor
+"@canopy-io/nestjs": patch
 ---
 
 Bound the permission check so a slow or unreachable Canopy cannot hold a request open.

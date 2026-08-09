@@ -26,13 +26,37 @@ import { RequirePermission } from "./require-permission.decorator.js";
 
 type FetchResult = { status: number; body: unknown };
 
-let nextResponse: () => FetchResult = () => ({
+/**
+ * What Canopy answers, keyed by the read the authorizer actually makes.
+ *
+ * The guard no longer asks a question per request — it reads the identity's
+ * grant roots and the hierarchy once, then decides in-process. So the fake has
+ * to answer those two reads rather than an evaluate, and the tests below stay
+ * about the guard's behaviour rather than about which call it makes.
+ */
+let grants: () => FetchResult = () => ({
   status: 200,
-  body: { data: { allowed: true } },
+  body: { items: [{ permission: "orders.refund", nodes: ["nod_1"] }] },
 });
 
-const fakeFetch = (() => {
-  const { status, body } = nextResponse();
+const TREE = {
+  items: [
+    { id: "nod_root", parent_node_id: null },
+    { id: "nod_1", parent_node_id: "nod_root" },
+  ],
+};
+
+const fakeFetch = ((input: string | URL | Request) => {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.href
+        : input.url;
+
+  const { status, body } = url.includes("/nodes")
+    ? { status: 200, body: TREE }
+    : grants();
 
   return Promise.resolve(
     new Response(JSON.stringify(body), {
@@ -40,7 +64,18 @@ const fakeFetch = (() => {
       headers: { "content-type": "application/json" },
     }),
   );
-}) as unknown as typeof globalThis.fetch;
+}) satisfies typeof globalThis.fetch;
+
+/** Grant roots holding both permissions the controller guards. */
+const HOLDS_BOTH: FetchResult = {
+  status: 200,
+  body: {
+    items: [
+      { permission: "orders.refund", nodes: ["nod_1"] },
+      { permission: "reports.view", nodes: ["nod_root"] },
+    ],
+  },
+};
 
 interface TestRequest {
   headers: Record<string, string | undefined>;
@@ -121,7 +156,7 @@ describe("a real request through the guard", () => {
   });
 
   it("allows a guarded route when Canopy allows", async () => {
-    nextResponse = () => ({ status: 200, body: { data: { allowed: true } } });
+    grants = () => HOLDS_BOTH;
 
     const response = await call("/orgs/nod_1/refund", "idn_1");
 
@@ -130,15 +165,15 @@ describe("a real request through the guard", () => {
   });
 
   it("returns 403 when Canopy denies", async () => {
-    nextResponse = () => ({ status: 200, body: { data: { allowed: false } } });
+    grants = () => ({ status: 200, body: { items: [] } });
 
-    const response = await call("/orgs/nod_1/refund", "idn_1");
+    const response = await call("/orgs/nod_1/refund", "idn_2");
 
     expect(response.status).toBe(403);
   });
 
   it("returns 403 when the request carries no identity", async () => {
-    nextResponse = () => ({ status: 200, body: { data: { allowed: true } } });
+    grants = () => HOLDS_BOTH;
 
     const response = await call("/orgs/nod_1/refund");
 
@@ -150,20 +185,22 @@ describe("a real request through the guard", () => {
    * become an allow, and must not be reported as a policy denial either.
    */
   it("returns 503, not 403 and not 200, when Canopy errors", async () => {
-    nextResponse = () => ({
+    grants = () => ({
       status: 500,
       body: { error: { code: "internal", message: "boom" } },
     });
 
-    const response = await call("/orgs/nod_1/refund", "idn_1");
+    // A fresh identity, so the failure is on the read rather than answered
+    // from an entry a previous test warmed.
+    const response = await call("/orgs/nod_1/refund", "idn_boom");
 
     expect(response.status).toBe(503);
   });
 
   it("evaluates an app_wide route without needing a node in the path", async () => {
-    nextResponse = () => ({ status: 200, body: { data: { allowed: true } } });
+    grants = () => HOLDS_BOTH;
 
-    const response = await call("/reports", "idn_1");
+    const response = await call("/reports", "idn_appwide");
 
     expect(response.status).toBe(200);
   });

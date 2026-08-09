@@ -12,5 +12,17 @@ export const CANOPY_OPTIONS = "CANOPY_OPTIONS";
 /** The configured `Canopy` client. */
 export const CANOPY_CLIENT = "CANOPY_CLIENT";
 
+/**
+ * The configured `LocalAuthorizer`.
+ *
+ * Shared deliberately: it holds one copy of the hierarchy for the whole
+ * process, so a second instance would double both the memory and the traffic
+ * it exists to avoid.
+ */
+export const CANOPY_AUTHORIZER = "CANOPY_AUTHORIZER";
+
+/** The configured `TokenVerifier`, shared so its key cache is shared too. */
+export const CANOPY_TOKEN_VERIFIER = "CANOPY_TOKEN_VERIFIER";
+
 /** Metadata key holding what `@RequirePermission` recorded on a handler. */
 export const CANOPY_PERMISSION = "CANOPY_PERMISSION";

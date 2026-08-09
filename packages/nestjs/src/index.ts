@@ -11,6 +11,7 @@
 
 export { CanopyModule } from "./canopy.module.js";
 export { CanopyGuard } from "./canopy.guard.js";
+export { CanopyTokenGuard } from "./canopy-token.guard.js";
 export { InjectCanopy } from "./inject-canopy.decorator.js";
 export { RequirePermission } from "./require-permission.decorator.js";
 export type {
@@ -23,8 +24,19 @@ export type {
   CanopyModuleOptions,
   RequestResolver,
 } from "./options.js";
-export { CANOPY_CLIENT, CANOPY_OPTIONS, CANOPY_PERMISSION } from "./tokens.js";
+export {
+  CANOPY_AUTHORIZER,
+  CANOPY_CLIENT,
+  CANOPY_OPTIONS,
+  CANOPY_PERMISSION,
+  CANOPY_TOKEN_VERIFIER,
+} from "./tokens.js";
 
-// Re-exported so a consumer can type a service against the client without
-// also depending on @canopy-io/node directly.
-export type { Canopy } from "@canopy-io/node";
+// Re-exported so a consumer can type a service against the client, or read
+// verified claims off a request, without also depending on @canopy-io/node
+// directly.
+export type {
+  Canopy,
+  CanopyTokenClaims,
+  LocalAuthorizer,
+} from "@canopy-io/node";

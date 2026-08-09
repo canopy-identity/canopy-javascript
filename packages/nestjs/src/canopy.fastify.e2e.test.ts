@@ -27,17 +27,30 @@ interface TestRequest {
   params: Record<string, string>;
 }
 
-/** Set per test: how the faked Canopy answers. */
-let respond: (signal: AbortSignal | undefined) => Promise<Response> = () =>
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/** Set per test: which grant roots the identity holds. */
+let respond: () => Promise<Response> = () =>
   Promise.resolve(
-    new Response(JSON.stringify({ data: { allowed: true } }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
+    json({ items: [{ permission: "orders.refund", nodes: ["nod_1"] }] }),
   );
 
-const fakeFetch = ((_url: unknown, init?: RequestInit) =>
-  respond(init?.signal ?? undefined)) as unknown as typeof globalThis.fetch;
+const fakeFetch = ((url: unknown) => {
+  const href = String(url);
+
+  if (href.includes("/nodes")) {
+    return Promise.resolve(
+      json({ items: [{ id: "nod_1", parent_node_id: null }] }),
+    );
+  }
+
+  return respond();
+}) as unknown as typeof globalThis.fetch;
 
 @Controller()
 @UseGuards(CanopyGuard)
@@ -100,60 +113,28 @@ describe("the guard on a real Fastify app", () => {
     expect(await response.json()).toEqual({ ok: true });
   });
 
-  it("denies when Canopy denies", async () => {
-    respond = () =>
-      Promise.resolve(
-        new Response(JSON.stringify({ data: { allowed: false } }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
+  it("denies when the identity holds the permission nowhere", async () => {
+    respond = () => Promise.resolve(json({ items: [] }));
 
+    // A different identity from the allowed case: grant roots are cached per
+    // identity for the life of the app, so reusing one would be answered from
+    // the warm entry and never reach the fake.
     const response = await fetch(`${base}/orgs/nod_1/refund`, {
-      headers: { "x-identity": "idn_1" },
+      headers: { "x-identity": "idn_denied" },
     });
 
     expect(response.status).toBe(403);
   });
 
   /**
-   * The one a stub cannot prove. A real client hangs up on a real Fastify
-   * `Reply`; if the guard did not find the response on `.raw`, nothing would
-   * abort and the check would run to its deadline instead.
+   * Cancellation is no longer plumbed down to `fetch`, and deliberately so: a
+   * read in flight may be shared with other requests, and cancelling it
+   * because one caller hung up would abort a fetch the others are waiting on.
+   * The authorizer races the caller's signal instead — proven in
+   * `authorizer.test.ts` — and that the guard finds the Fastify stream on
+   * `.raw` to produce that signal is proven in `canopy.guard.test.ts`.
+   *
+   * What remains worth checking here is that a real Fastify pipeline reaches
+   * the guard at all, which the two cases above cover.
    */
-  it("aborts the in-flight check when the caller hangs up", async () => {
-    const aborted = new Promise<boolean>((resolve) => {
-      respond = (signal) => {
-        if (!signal) {
-          resolve(false);
-
-          return Promise.resolve(
-            new Response(JSON.stringify({ data: { allowed: true } }), {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            }),
-          );
-        }
-
-        signal.addEventListener("abort", () => resolve(true), { once: true });
-
-        // Never settles on its own: only the disconnect can end this.
-        return new Promise<Response>(() => undefined);
-      };
-    });
-
-    const controller = new AbortController();
-
-    const inflight = fetch(`${base}/orgs/nod_1/refund`, {
-      headers: { "x-identity": "idn_1" },
-      signal: controller.signal,
-    }).catch(() => undefined);
-
-    // Give Fastify time to route and reach the guard before hanging up.
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    controller.abort();
-    await inflight;
-
-    await expect(aborted).resolves.toBe(true);
-  });
 });
