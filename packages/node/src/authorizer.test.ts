@@ -439,4 +439,39 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  /**
+   * The webhook shape: an assignment event names one identity, and only that
+   * identity should pay a refetch — everyone else's grants and the hierarchy
+   * stay warm.
+   */
+  it("forgets one identity on invalidate(identityId), keeping the rest", async () => {
+    const { authorizer, request, requestConditional } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate({ ...check("frontend"), identity_id: "id-2" });
+
+    expect(request).toHaveBeenCalledTimes(2);
+
+    authorizer.invalidate("id-1");
+
+    // id-1 refetches; id-2 is still cached; the tree was never dropped.
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate({ ...check("frontend"), identity_id: "id-2" });
+
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(requestConditional).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not drop the hierarchy on a per-identity invalidate", async () => {
+    const { authorizer, requestConditional } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+
+    authorizer.invalidate("id-1");
+
+    await authorizer.evaluate(check("frontend"));
+
+    expect(requestConditional).toHaveBeenCalledTimes(1);
+  });
 });
