@@ -244,10 +244,32 @@ export class LocalAuthorizer {
   }
 
   /**
-   * Drop everything held. Not needed in normal operation, where entries expire
-   * on their own; useful in tests and after a known change.
+   * Drop what is held so the next evaluate refetches.
+   *
+   * With an `identityId`, only that identity's grants are dropped — the
+   * cached hierarchy and every other identity's entries stay warm. This is
+   * the shape an assignment webhook wants: the event names the identity
+   * whose authority moved, and nothing else needs to pay a refetch for it.
+   *
+   * With no argument, everything goes: grants and the hierarchy tree. Not
+   * needed in normal operation, where entries expire on their own; useful in
+   * tests and after a change whose reach you cannot name (a role's
+   * permissions edited, a node moved).
+   *
+   * Multi-instance honesty: an invalidation reaches THIS process only. A
+   * webhook lands on one instance behind a load balancer; the others serve
+   * their cached grants until their own TTL expires. Unless the app fans the
+   * event out over its own pub/sub, the fleet-wide revocation guarantee is
+   * the TTL, and webhook-driven invalidation is a latency optimization on
+   * top of it — size the TTL to the revocation latency you can promise.
    */
-  invalidate(): void {
+  invalidate(identityId?: string): void {
+    if (identityId !== undefined) {
+      this.grants.delete(identityId);
+
+      return;
+    }
+
     this.grants.clear();
     this.tree = undefined;
   }
