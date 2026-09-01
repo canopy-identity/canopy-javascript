@@ -66,6 +66,26 @@ export interface paths {
         patch: operations["ApiPermissionsController_updatePermission"];
         trace?: never;
     };
+    "/api/v1/permissions/{id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get where a permission is used
+         * @description Returns the roles that grant a permission, each with the number of distinct identities holding that role, plus `role_count` and the distinct `identity_count` the permission reaches overall. Because a permission is only ever held through a role, this is the full blast radius of deleting it — the listed roles are exactly the ones a delete would strip it from. Deactivated roles are included; `identity_count` is not the sum of the per-role counts, since one identity may hold several granting roles. Returns `404` when no permission with that id exists in the Environment. Requires the `rbac.view_roles` permission.
+         */
+        get: operations["ApiPermissionsController_getPermissionUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/permissions/evaluate": {
         parameters: {
             query?: never;
@@ -1338,6 +1358,24 @@ export interface components {
             /** @description One or more permissions to register */
             permissions: components["schemas"]["PermissionItemDto"][];
         };
+        PermissionUsageRoleDto: {
+            id: string;
+            name: string;
+            description?: string | null;
+            is_system_role: boolean;
+            /** @description Deactivated roles still carry the grant, so they are listed too — deleting the permission strips it from them as well. */
+            is_active: boolean;
+            /** @description Number of distinct identities assigned this role, across all nodes. */
+            member_count: number;
+        };
+        PermissionUsageDto: {
+            permission_id: string;
+            /** @description Number of roles that grant this permission. */
+            role_count: number;
+            /** @description Distinct identities that hold this permission through any granting role. Lower than the sum of `member_count` when an identity holds more than one granting role. */
+            identity_count: number;
+            roles: components["schemas"]["PermissionUsageRoleDto"][];
+        };
         UpdatePermissionDto: {
             /** @description Updated name */
             name?: string;
@@ -1345,18 +1383,6 @@ export interface components {
             description?: string | null;
             /** @description Updated category */
             category?: string;
-        };
-        EvaluatePermissionDto: {
-            /** @description Identity ID (from the `identities` table — the end user being evaluated, not an admin). */
-            identity_id: string;
-            permission: string;
-            /**
-             * @description Required. `node` asks 'does this identity have the permission *at* `node_id`?' (lineage walk). `app_wide` asks the coarse-grained 'does this identity have the permission *anywhere* in the org?' question — useful for UI gating, **never** for resource-scoped enforcement. `node` requires `node_id`; `app_wide` forbids it.
-             * @enum {string}
-             */
-            scope: "node" | "app_wide";
-            /** @description Required when `scope` is `node`; must be omitted when `scope` is `app_wide`. */
-            node_id?: string;
         };
         EvaluateResponseDto: {
             allowed: boolean;
@@ -1370,6 +1396,18 @@ export interface components {
             effective_node_id?: string | null;
             granting_roles: string[];
             denial_reason?: string | null;
+        };
+        EvaluatePermissionDto: {
+            /** @description Identity ID (from the `identities` table — the end user being evaluated, not an admin). */
+            identity_id: string;
+            permission: string;
+            /**
+             * @description Required. `node` asks 'does this identity have the permission *at* `node_id`?' (lineage walk). `app_wide` asks the coarse-grained 'does this identity have the permission *anywhere* in the org?' question — useful for UI gating, **never** for resource-scoped enforcement. `node` requires `node_id`; `app_wide` forbids it.
+             * @enum {string}
+             */
+            scope: "node" | "app_wide";
+            /** @description Required when `scope` is `node`; must be omitted when `scope` is `app_wide`. */
+            node_id?: string;
         };
         EvaluateCheckDto: {
             /** @description Identity ID (from the `identities` table — the end user being evaluated, not an admin). */
@@ -1385,13 +1423,6 @@ export interface components {
         };
         BulkEvaluatePermissionDto: {
             checks: components["schemas"]["EvaluateCheckDto"][];
-        };
-        ExplainPermissionDto: {
-            /** @description Identity ID (from the `identities` table — the end user being explained, not an admin). */
-            identity_id: string;
-            permission: string;
-            /** @description The hierarchy node to explain the decision at. The lineage from the root to this node is walked and returned in the trace. */
-            node_id: string;
         };
         PermissionTraceAssignmentDto: {
             assignment_id: string;
@@ -1428,6 +1459,13 @@ export interface components {
             /** @description Root-first lineage of the target node, each with the identity's assignments observed at that node. */
             lineage: components["schemas"]["PermissionTraceNodeDto"][];
         };
+        ExplainPermissionDto: {
+            /** @description Identity ID (from the `identities` table — the end user being explained, not an admin). */
+            identity_id: string;
+            permission: string;
+            /** @description The hierarchy node to explain the decision at. The lineage from the root to this node is walked and returned in the trace. */
+            node_id: string;
+        };
         PageMetaDto: {
             /** @description Current page number (1-based) */
             page: number;
@@ -1460,6 +1498,10 @@ export interface components {
             name: string;
             node_id: string;
             node_name: string;
+            /** @description When this assignment starts; null means it is already active */
+            effective_from: string | null;
+            /** @description When this assignment expires; null means it never does */
+            effective_to: string | null;
         };
         IdentityRowDto: {
             id: string;
@@ -1631,29 +1673,6 @@ export interface components {
             expired_count: number;
             revoked_count: number;
         };
-        CreateIdentityInviteDto: {
-            /** @description OAuth client ID — determines which app the invite links to. If omitted, uses Canopy hosted fallback. */
-            client_id?: string;
-            /**
-             * @description Optional. `activate` (default) creates a net-new identity OR — if an identity with this email already exists in the Account but has no active membership in this App — auto-derives an `add_to_app` invite that adds them to this App without touching their existing password. `password_reset` is the explicit admin-driven credential-rotation flow for an existing identity; it cannot carry a role/node assignment. The legacy `onboard` value is accepted and treated as `activate`.
-             * @enum {string}
-             */
-            intent?: "activate" | "password_reset" | "onboard";
-            email: string;
-            /** @description Required for `activate`. Ignored for `add_to_app` (the existing identity's name wins) and for `password_reset`. */
-            first_name?: string;
-            /** @description Required for `activate`. Ignored for `add_to_app` and `password_reset`. */
-            last_name?: string;
-            /** @description Role ID — required if node_id is provided */
-            role_id?: string;
-            /** @description Node ID — required if role_id is provided */
-            node_id?: string;
-            /**
-             * @description Whether Canopy should send the invite email. Set false to suppress delivery and handle it yourself — the API response includes accept_url with the tokenized link. Defaults to true.
-             * @default true
-             */
-            send_email: boolean;
-        };
         ApiIdentityInviteResponseDto: {
             id: string;
             email: string;
@@ -1682,6 +1701,29 @@ export interface components {
             /** @description Tokenized URL the invitee would land on. Returned so callers that pass send_email=false can deliver it themselves. */
             accept_url: string;
         };
+        CreateIdentityInviteDto: {
+            /** @description OAuth client ID — determines which app the invite links to. If omitted, uses Canopy hosted fallback. */
+            client_id?: string;
+            /**
+             * @description Optional. `activate` (default) creates a net-new identity OR — if an identity with this email already exists in the Account but has no active membership in this App — auto-derives an `add_to_app` invite that adds them to this App without touching their existing password. `password_reset` is the explicit admin-driven credential-rotation flow for an existing identity; it cannot carry a role/node assignment. The legacy `onboard` value is accepted and treated as `activate`.
+             * @enum {string}
+             */
+            intent?: "activate" | "password_reset" | "onboard";
+            email: string;
+            /** @description Required for `activate`. Ignored for `add_to_app` (the existing identity's name wins) and for `password_reset`. */
+            first_name?: string;
+            /** @description Required for `activate`. Ignored for `add_to_app` and `password_reset`. */
+            last_name?: string;
+            /** @description Role ID — required if node_id is provided */
+            role_id?: string;
+            /** @description Node ID — required if role_id is provided */
+            node_id?: string;
+            /**
+             * @description Whether Canopy should send the invite email. Set false to suppress delivery and handle it yourself — the API response includes accept_url with the tokenized link. Defaults to true.
+             * @default true
+             */
+            send_email: boolean;
+        };
         BulkCreateIdentityInvitesDto: {
             invites: components["schemas"]["CreateIdentityInviteDto"][];
         };
@@ -1689,20 +1731,6 @@ export interface components {
             message: string;
             /** @description Tokenized URL for the regenerated invite. Resend rotates the token, which invalidates any accept_url returned from the original create call. Self-delivery callers must replace the stored URL with this one. */
             accept_url: string;
-        };
-        CreateNodeDto: {
-            /** @description Parent node ID (null for root) */
-            parent_node_id?: string;
-            /** @description Node type (org-defined, e.g. 'department', 'team') */
-            node_type: string;
-            /** @description Display name for the node */
-            name: string;
-            /** @description Optional free-text description shown under the node name */
-            description?: string;
-            /** @description URL-friendly slug (auto-generated if omitted) */
-            slug?: string;
-            /** @description Arbitrary metadata */
-            metadata?: Record<string, unknown>;
         };
         NodeResponseDto: {
             id: string;
@@ -1721,6 +1749,20 @@ export interface components {
             updated_at: string;
             /** @description Optimistic-lock version. Send back as the `If-Match` header when updating, moving, or deleting to detect concurrent edits. */
             version: number;
+        };
+        CreateNodeDto: {
+            /** @description Parent node ID (null for root) */
+            parent_node_id?: string;
+            /** @description Node type (org-defined, e.g. 'department', 'team') */
+            node_type: string;
+            /** @description Display name for the node */
+            name: string;
+            /** @description Optional free-text description shown under the node name */
+            description?: string;
+            /** @description URL-friendly slug (auto-generated if omitted) */
+            slug?: string;
+            /** @description Arbitrary metadata */
+            metadata?: Record<string, unknown>;
         };
         HierarchyTreeNodeDto: {
             id: string;
@@ -1961,6 +2003,44 @@ export interface components {
             /** @description Whether this row should appear on a future end-user `My security activity` surface. Not consumed by current reads. */
             identity_visible: boolean;
         };
+        ExportJobDto: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description `pending` (enqueued), `processing` (worker rendering), `completed` (file ready), or `failed` (see `error`).
+             * @enum {string}
+             */
+            status: "pending" | "processing" | "completed" | "failed";
+            /**
+             * @description The audit surface the export was taken from.
+             * @enum {string}
+             */
+            surface: "admin" | "identities";
+            /**
+             * @description Wire format of the rendered file.
+             * @enum {string}
+             */
+            format: "csv" | "ndjson";
+            /** Format: uuid */
+            application_id?: string | null;
+            /** Format: uuid */
+            environment_id?: string | null;
+            /** @description Rows written, set once the job completes. */
+            row_count?: number | null;
+            /** @description Failure detail, present only when `status` is `failed`. */
+            error?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the stored file + this record become eligible for sweep.
+             */
+            expires_at?: string | null;
+            /** @description Short-lived signed download URL. Present only on the single-job read of a completed job; `null` otherwise. */
+            download_url?: string | null;
+        };
         AuditExportQueryDto: {
             /**
              * Format: date-time
@@ -2008,44 +2088,6 @@ export interface components {
              * @enum {string}
              */
             format: "csv" | "ndjson";
-        };
-        ExportJobDto: {
-            /** Format: uuid */
-            id: string;
-            /**
-             * @description `pending` (enqueued), `processing` (worker rendering), `completed` (file ready), or `failed` (see `error`).
-             * @enum {string}
-             */
-            status: "pending" | "processing" | "completed" | "failed";
-            /**
-             * @description The audit surface the export was taken from.
-             * @enum {string}
-             */
-            surface: "admin" | "identities";
-            /**
-             * @description Wire format of the rendered file.
-             * @enum {string}
-             */
-            format: "csv" | "ndjson";
-            /** Format: uuid */
-            application_id?: string | null;
-            /** Format: uuid */
-            environment_id?: string | null;
-            /** @description Rows written, set once the job completes. */
-            row_count?: number | null;
-            /** @description Failure detail, present only when `status` is `failed`. */
-            error?: string | null;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            completed_at?: string | null;
-            /**
-             * Format: date-time
-             * @description When the stored file + this record become eligible for sweep.
-             */
-            expires_at?: string | null;
-            /** @description Short-lived signed download URL. Present only on the single-job read of a completed job; `null` otherwise. */
-            download_url?: string | null;
         };
         AuditLogDetailResponseDto: {
             id: string;
@@ -2139,11 +2181,6 @@ export interface components {
             /** @description Node type used when the root node is auto-created. Must be one of `node_types`. */
             root_node_type: string;
         };
-        CreateWebhookDto: {
-            url: string;
-            event_types: string[];
-            description?: string;
-        };
         WebhookCreatedResponseDto: {
             id: string;
             /** @enum {string} */
@@ -2156,6 +2193,11 @@ export interface components {
             created_at: string;
             /** @description HMAC secret — only shown once on creation */
             secret: string;
+        };
+        CreateWebhookDto: {
+            url: string;
+            event_types: string[];
+            description?: string;
         };
         WebhookResponseDto: {
             id: string;
@@ -2192,21 +2234,6 @@ export interface components {
             description?: string | null;
             is_active?: boolean;
         };
-        CreateApiKeyDto: {
-            /** @description API key name */
-            name: string;
-            /** @description API key description */
-            description?: string;
-            /**
-             * @description Required. `scoped` enforces the `scopes` array on every authorization check (deny if the requested permission isn't listed). `full_access` bypasses RBAC entirely within the key's Application — every permission is granted. Pick `scoped` whenever possible; `full_access` should be a deliberate choice (use cases: bootstrap automation, trusted backend services that legitimately need App-wide access). `scoped` requires a non-empty `scopes` array; `full_access` forbids `scopes`.
-             * @enum {string}
-             */
-            access_mode: "scoped" | "full_access";
-            /** @description Permission scopes this key is authorized for. Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
-            scopes?: string[];
-            /** @description Expiration date (ISO 8601). Omit for no expiration. */
-            expires_at?: string;
-        };
         ApiKeyCreatedResponseDto: {
             id: string;
             name: string;
@@ -2224,6 +2251,21 @@ export interface components {
             expires_at?: string | null;
             /** Format: date-time */
             created_at: string;
+        };
+        CreateApiKeyDto: {
+            /** @description API key name */
+            name: string;
+            /** @description API key description */
+            description?: string;
+            /**
+             * @description Required. `scoped` enforces the `scopes` array on every authorization check (deny if the requested permission isn't listed). `full_access` bypasses RBAC entirely within the key's Application — every permission is granted. Pick `scoped` whenever possible; `full_access` should be a deliberate choice (use cases: bootstrap automation, trusted backend services that legitimately need App-wide access). `scoped` requires a non-empty `scopes` array; `full_access` forbids `scopes`.
+             * @enum {string}
+             */
+            access_mode: "scoped" | "full_access";
+            /** @description Permission scopes this key is authorized for. Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
+            scopes?: string[];
+            /** @description Expiration date (ISO 8601). Omit for no expiration. */
+            expires_at?: string;
         };
         ApiKeyResponseDto: {
             id: string;
@@ -2386,7 +2428,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PermissionResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["PermissionResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -2450,7 +2494,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PermissionResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["PermissionResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -2609,7 +2655,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PermissionResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["PermissionResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -2677,6 +2725,93 @@ export interface operations {
             };
         };
     };
+    ApiPermissionsController_getPermissionUsage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Granting roles and identity reach returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PermissionUsageDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No permission with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No permission with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
     ApiPermissionsController_evaluate: {
         parameters: {
             query?: never;
@@ -2696,7 +2831,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EvaluateResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["EvaluateResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -2830,7 +2967,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PermissionTraceDto"];
+                    "application/json": {
+                        data: components["schemas"]["PermissionTraceDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -2993,7 +3132,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdentityResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["IdentityResponseDto"];
+                    };
                 };
             };
             /** @description Password rejected — appeared in a known data breach (HaveIBeenPwned check) */
@@ -3177,7 +3318,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdentitiesSummaryDto"];
+                    "application/json": {
+                        data: components["schemas"]["IdentitiesSummaryDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -3365,7 +3508,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdentityResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["IdentityResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -3537,7 +3682,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdentityResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["IdentityResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -3622,7 +3769,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdentityDetailResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["IdentityDetailResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -3707,7 +3856,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["MessageResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -3792,7 +3943,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["MessageResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -4151,7 +4304,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AccountIdentityMfaResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["AccountIdentityMfaResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -4319,7 +4474,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdentityAuthStateResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["IdentityAuthStateResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -4821,7 +4978,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiIdentityInviteResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["ApiIdentityInviteResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -4883,7 +5042,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["IdentityInvitesSummaryDto"];
+                    "application/json": {
+                        data: components["schemas"]["IdentityInvitesSummaryDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -5071,7 +5232,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiIdentityInviteResendResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["ApiIdentityInviteResendResponseDto"];
+                    };
                 };
             };
             /** @description Invite is no longer pending */
@@ -5282,7 +5445,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ScopedHierarchyTreeResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["ScopedHierarchyTreeResponseDto"];
+                    };
                 };
             };
             /** @description The hierarchy is unchanged since the supplied `ETag`. No body; keep using the cached tree. */
@@ -5355,7 +5520,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["NodeResponseDto"];
+                    };
                 };
             };
             /** @description Invalid parent-child relationship */
@@ -5535,7 +5702,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeAccessResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["NodeAccessResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -5736,7 +5905,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["NodeResponseDto"];
+                    };
                 };
             };
             /** @description Invalid parent-child relationship */
@@ -5863,7 +6034,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HierarchyTreeNodeDto"];
+                    "application/json": {
+                        data: components["schemas"]["HierarchyTreeNodeDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -6067,7 +6240,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["NodeResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -6280,7 +6455,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NodeIdentitiesSummaryDto"];
+                    "application/json": {
+                        data: components["schemas"]["NodeIdentitiesSummaryDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -6434,7 +6611,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoleResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["RoleResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -6519,7 +6698,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoleResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["RoleResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -6720,7 +6901,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoleResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["RoleResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -6917,7 +7100,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["MessageResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -7082,7 +7267,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AssignmentsSummaryDto"];
+                    "application/json": {
+                        data: components["schemas"]["AssignmentsSummaryDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -7148,7 +7335,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AssignmentResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
                 };
             };
             /** @description System roles cannot be assigned to identities — they are reserved for platform administration */
@@ -7341,7 +7530,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AssignmentResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
                 };
             };
             /** @description System roles cannot be assigned to identities — they are reserved for platform administration */
@@ -7513,7 +7704,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["MessageResponseDto"];
+                    };
                 };
             };
             /** @description System roles cannot be assigned to identities — they are reserved for platform administration */
@@ -7901,7 +8094,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExportJobDto"];
+                    "application/json": {
+                        data: components["schemas"]["ExportJobDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -7965,7 +8160,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExportJobDto"];
+                    "application/json": {
+                        data: components["schemas"]["ExportJobDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -8133,7 +8330,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuditLogDetailResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["AuditLogDetailResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -8310,7 +8509,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HierarchySchemaResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["HierarchySchemaResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -8380,7 +8581,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HierarchySchemaResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["HierarchySchemaResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -8543,7 +8746,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WebhookCreatedResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["WebhookCreatedResponseDto"];
+                    };
                 };
             };
             /** @description One or more event types are not supported */
@@ -8791,7 +8996,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WebhookResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["WebhookResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -8963,7 +9170,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WebhookResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["WebhookResponseDto"];
+                    };
                 };
             };
             /** @description One or more event types are not supported */
@@ -9147,7 +9356,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiKeyCreatedResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["ApiKeyCreatedResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -9298,7 +9509,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiKeyResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["ApiKeyResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
@@ -9383,7 +9596,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiKeyCreatedResponseDto"];
+                    "application/json": {
+                        data: components["schemas"]["ApiKeyCreatedResponseDto"];
+                    };
                 };
             };
             /** @description Invalid or expired token */
