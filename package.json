@@ -23,6 +23,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "generate": "npm run generate --workspaces --if-present",
+    "check:packaging": "attw --pack packages/node && attw --pack packages/nestjs",
     "generate:check": "npm run generate:check --workspaces --if-present",
     "verify": "npm run build && npm run lint && npm run typecheck && npm run generate:check && npm run test",
     "changeset": "changeset",
@@ -33,6 +34,7 @@
     "npm": "10.8.2"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
     "@changesets/cli": "^2.31.1",
     "@eslint/js": "^9.39.2",
     "@types/node": "^22.20.1",
