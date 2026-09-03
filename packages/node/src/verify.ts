@@ -149,7 +149,62 @@ export interface CanopyTokenClaims {
   permissions?: string[];
   /** True when `permissions` was truncated; query the API for the full set. */
   permissions_overflow?: boolean;
+  /**
+   * The organization this session is acting in — present only on identity
+   * tokens minted in an Environment running the `organizations` access
+   * model, for an identity that belongs to at least one organization.
+   * Always minted together with `org_role`; read the pair through
+   * {@link orgContext} rather than separately.
+   */
+  org_id?: string;
+  /** The name of the single role the identity holds in `org_id`. */
+  org_role?: string;
   [claim: string]: unknown;
+}
+
+/**
+ * The organization context a verified token carries: which organization the
+ * session is acting in, and the one role it holds there.
+ */
+export interface CanopyOrgContext {
+  /** The organization's id — also a hierarchy node id, usable as `node_id`. */
+  orgId: string;
+  /** The role's name (not its id): what `org_role` carries. */
+  orgRole: string;
+}
+
+/**
+ * The organization context of a verified token, or `null` when it has none.
+ *
+ * `null` is an ordinary answer, not a failure: it is every token from an
+ * Environment not running the organizations model, and every identity that
+ * belongs to no organization yet. Branch on it rather than on the raw claims —
+ * Canopy mints `org_id` and `org_role` together, and this helper refuses a
+ * half-present pair instead of letting one claim be read as though the other
+ * were there.
+ *
+ * ```ts
+ * const claims = await verifier.verify(token);
+ * const org = orgContext(claims);
+ *
+ * if (org) {
+ *   // acting inside org.orgId as org.orgRole
+ * }
+ * ```
+ */
+export function orgContext(claims: CanopyTokenClaims): CanopyOrgContext | null {
+  const { org_id, org_role } = claims;
+
+  if (
+    typeof org_id !== "string" ||
+    org_id === "" ||
+    typeof org_role !== "string" ||
+    org_role === ""
+  ) {
+    return null;
+  }
+
+  return { orgId: org_id, orgRole: org_role };
 }
 
 interface JwksKey {

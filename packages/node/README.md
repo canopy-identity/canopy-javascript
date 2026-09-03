@@ -113,6 +113,25 @@ new TokenVerifier({ audience: process.env.CANOPY_OAUTH_CLIENT_ID });
 Self-hosted instances set `issuer`. Getting it wrong fails closed: tokens are
 rejected, never mistakenly accepted.
 
+In an Environment running the **organizations** access model, an identity
+token also names the organization the session is acting in and the one role
+held there. Read the pair through `orgContext` rather than off the raw claims —
+Canopy mints the two together, and the helper refuses a half-present pair:
+
+```ts
+import { orgContext } from "@canopy-io/node";
+
+const org = orgContext(claims);
+
+if (org) {
+  org.orgId; // the organization — also a hierarchy node id
+  org.orgRole; // the single role held there, by name
+}
+```
+
+`null` is an ordinary answer: every token from an Environment not running the
+organizations model, and every identity that belongs to no organization yet.
+
 ### Authorizing without a call per request
 
 Asking "may this identity act _here_" on every request puts Canopy in your

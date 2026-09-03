@@ -7,9 +7,12 @@ import { CANOPY_PERMISSION } from "./tokens.js";
  *
  * `node` walks the node's lineage, so a role granted on an ancestor is
  * inherited at the node being touched. `app_wide` asks only whether the
- * identity holds the permission anywhere in the Environment.
+ * identity holds the permission anywhere in the Environment. `org` is the
+ * node question asked at the organization the caller's token is acting in —
+ * the `org_id` claim — so the route needs no `resolveNode` and no node in
+ * its path.
  */
-export type PermissionScope = "node" | "app_wide";
+export type PermissionScope = "node" | "app_wide" | "org";
 
 /** What `@RequirePermission` records for the guard to read back. */
 export interface PermissionRequirement {
@@ -26,6 +29,11 @@ export interface RequirePermissionOptions {
    * menu item and wrong for guarding a resource that belongs to one — a
    * distinction that is easy to get backwards if the looser check is the
    * default.
+   *
+   * `org` evaluates at the organization on the caller's verified token
+   * (`org_id`), read from the claims `CanopyTokenGuard` attaches or from
+   * `resolveOrg` if configured. A caller acting in no organization is denied
+   * — an org-scoped route has no meaning outside one.
    */
   readonly scope?: PermissionScope;
 }

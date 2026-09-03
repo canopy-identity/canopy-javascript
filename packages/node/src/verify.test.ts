@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isCanopyTokenError } from "./errors.js";
-import { type CanopyTokenClaims, TokenVerifier } from "./verify.js";
+import { type CanopyTokenClaims, orgContext, TokenVerifier } from "./verify.js";
 
 /**
  * These tests are mostly about tokens that must be REFUSED.
@@ -577,5 +577,48 @@ describe("TokenVerifier — claims the type promises", () => {
 
       expect((await verifier.verify(token)).type).toBe(type);
     }
+  });
+});
+
+describe("orgContext", () => {
+  const base: CanopyTokenClaims = {
+    sub: "idn_1",
+    type: "identity",
+    iss: ISSUER,
+    exp: Math.floor(Date.now() / 1000) + 60,
+  };
+
+  it("returns the pair when both claims are present", () => {
+    expect(
+      orgContext({ ...base, org_id: "org_acme", org_role: "billing-admin" }),
+    ).toEqual({ orgId: "org_acme", orgRole: "billing-admin" });
+  });
+
+  it("returns null for a token with no org claims", () => {
+    expect(orgContext(base)).toBeNull();
+  });
+
+  it("refuses a half-present pair rather than reading one claim alone", () => {
+    expect(orgContext({ ...base, org_id: "org_acme" })).toBeNull();
+    expect(orgContext({ ...base, org_role: "billing-admin" })).toBeNull();
+  });
+
+  it("treats empty strings as absent", () => {
+    expect(
+      orgContext({ ...base, org_id: "", org_role: "billing-admin" }),
+    ).toBeNull();
+    expect(
+      orgContext({ ...base, org_id: "org_acme", org_role: "" }),
+    ).toBeNull();
+  });
+
+  it("refuses non-string values a forged or future token might carry", () => {
+    const forged = {
+      ...base,
+      org_id: 42,
+      org_role: "billing-admin",
+    } as unknown as CanopyTokenClaims;
+
+    expect(orgContext(forged)).toBeNull();
   });
 });

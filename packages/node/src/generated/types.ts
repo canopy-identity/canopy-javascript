@@ -637,7 +637,7 @@ export interface paths {
         put?: never;
         /**
          * Create a hierarchy node
-         * @description Creates a hierarchy node in the active Application's current Environment. Authorization is evaluated against `hierarchy.manage` on the parent node when `parent_node_id` is supplied, or Application-wide when creating the root. The node type and the parent/child relationship are validated against the Environment's hierarchy schema, only one root node is permitted per Environment (a second returns `409`), and the configured `max_depth` is enforced; a missing `slug` is derived from the name. Returns `201` with the created node and writes a `node.created` audit row.
+         * @description Creates a hierarchy node in the active Application's current Environment. Prerequisite: the Environment must have a hierarchy schema — define it first via `PATCH /api/v1/hierarchy-schema` (or the Console's enable-hierarchy wizard), or this endpoint returns `400` ("Hierarchy schema is not configured"). Authorization is evaluated against `hierarchy.manage` on the parent node when `parent_node_id` is supplied, or Application-wide when creating the root. The node type and the parent/child relationship are validated against the schema, only one root node is permitted per Environment (a second returns `409`), and the configured `max_depth` is enforced; a missing `slug` is derived from the name. Returns `201` with the created node and writes a `node.created` audit row.
          */
         post: operations["ApiNodesController_createNode"];
         delete?: never;
@@ -2346,7 +2346,8 @@ export interface operations {
     ApiPermissionsController_listPermissions: {
         parameters: {
             query?: {
-                source?: string;
+                /** @description Filter by permission origin. */
+                source?: "system" | "custom";
             };
             header?: never;
             path?: never;
@@ -6528,8 +6529,10 @@ export interface operations {
     ApiRolesController_listRoles: {
         parameters: {
             query?: {
-                include_inactive?: string;
-                type?: string;
+                /** @description Include deactivated roles in the list. */
+                include_inactive?: "true" | "false";
+                /** @description Filter by role origin. */
+                type?: "system" | "custom";
             };
             header?: never;
             path?: never;

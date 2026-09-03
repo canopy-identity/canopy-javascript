@@ -270,6 +270,26 @@ export class CanopyGuard implements CanActivate {
       };
     }
 
+    // An organization is a hierarchy node, and a membership is a role
+    // assignment at it — so the org question IS the node question, asked at
+    // the node the caller's token says it is acting in.
+    if (requirement.scope === "org") {
+      const orgId = this.resolveOrg(request);
+
+      if (!orgId) {
+        throw new ForbiddenException(
+          `No organization on the request. ${requirement.permission} is checked inside the caller's active organization, and this caller is not acting in one.`,
+        );
+      }
+
+      return {
+        identity_id: identityId,
+        permission: requirement.permission,
+        scope: "node",
+        node_id: orgId,
+      };
+    }
+
     const nodeId = this.options.resolveNode
       ? resolveSafely(this.options.resolveNode, request)
       : undefined;
@@ -286,6 +306,28 @@ export class CanopyGuard implements CanActivate {
       scope: "node",
       node_id: nodeId,
     };
+  }
+
+  /**
+   * The organization the request acts in: `resolveOrg` when configured,
+   * otherwise the `org_id` claim off the verified token `CanopyTokenGuard`
+   * attached. Both sources trace back to a verified token — the org id
+   * decides whose grants answer the check, so it must never be readable off
+   * anything the caller controls directly.
+   */
+  private resolveOrg(request: unknown): string | null | undefined {
+    if (this.options.resolveOrg) {
+      return resolveSafely(this.options.resolveOrg, request);
+    }
+
+    const attachedAs = this.options.attachTokenAs ?? "canopyToken";
+    const claims = (request as Record<string, unknown> | null | undefined)?.[
+      attachedAs
+    ];
+
+    const orgId = (claims as { org_id?: unknown } | undefined)?.org_id;
+
+    return typeof orgId === "string" && orgId !== "" ? orgId : undefined;
   }
 }
 

@@ -18,7 +18,7 @@ Requires NestJS 10 or 11 and Node 18 or later. `@canopy-io/node` comes with it.
 - **`@RequirePermission` on the route.** The check is a declaration on the handler rather than a call inside it. A route without it passes through untouched, so the guard can be registered globally and opted into.
 - **`CanopyGuard`** answers that declaration **in your own process**, at the node the request names — inheriting a role granted on a parent without you modelling the walk.
 - **No network call per request.** The guard holds the identity's grant roots and one shared copy of your hierarchy, refreshed at most once a minute, so a guarded route normally reaches no network at all.
-- **Two scopes.** `node` is the default and the strict question; `app_wide` asks only whether the identity holds the permission anywhere in the Environment.
+- **Three scopes.** `node` is the default and the strict question; `app_wide` asks only whether the identity holds the permission anywhere in the Environment; `org` asks the node question at the organization the caller's token is acting in.
 - **`CanopyTokenGuard`** verifies a Canopy-issued bearer token locally against the published signing keys and attaches the claims, for applications with no auth layer in front. Additive — skip it if you already run Passport or your own JWT middleware.
 - **`@InjectCanopy()`** hands you the full `@canopy-io/node` client for everything the guard does not cover.
 - **Fails closed, with the status telling you which failure it was.** `403` for a denial, `503` for an undecidable one, `500` for a broken integration.
@@ -102,6 +102,23 @@ The default is `node`, which is the strict question: does this identity hold the
 ```
 
 `app_wide` asks only whether the identity holds the permission anywhere in the Environment, and returns no effective node. It is right for deciding whether to show a menu item and wrong for guarding a resource that belongs to a node — which is why it is opt-in rather than the default.
+
+```ts
+@RequirePermission("invoices.view", { scope: "org" })
+```
+
+`org` is for Environments running the **organizations** access model, where a
+token carries the organization the session is acting in (`org_id`) and the one
+role held there (`org_role`). The guard reads `org_id` off the verified claims
+`CanopyTokenGuard` attached and evaluates at that node — an organization _is_ a
+hierarchy node, and a membership is a role assignment at it, so no `resolveNode`
+and no node in the route's path are needed. A caller acting in no organization
+is denied: an org-scoped route has no meaning outside one.
+
+If your own auth layer verifies tokens and parks the claims somewhere other
+than `attachTokenAs`, configure `resolveOrg` — and feed it only a value read
+off a _verified_ token, because it decides which organization's grants answer
+the check.
 
 ## If Canopy issues your tokens
 

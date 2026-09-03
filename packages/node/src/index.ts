@@ -43,8 +43,12 @@ export {
 } from "./errors.js";
 export type { CanopyErrorBody } from "./errors.js";
 
-export { TokenVerifier } from "./verify.js";
-export type { CanopyTokenClaims, TokenVerifierOptions } from "./verify.js";
+export { orgContext, TokenVerifier } from "./verify.js";
+export type {
+  CanopyOrgContext,
+  CanopyTokenClaims,
+  TokenVerifierOptions,
+} from "./verify.js";
 
 export { Assignments } from "./resources/assignments.js";
 export type { AssignmentItem } from "./resources/assignments.js";
