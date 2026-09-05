@@ -1,5 +1,25 @@
 # @canopy-io/node
 
+## 0.3.0
+
+### Minor Changes
+
+- 8ad7dd0: Organizations support. Identity tokens minted in an Environment with the
+  organizations container on carry `org_id` and `org_role`; both are now
+  declared on `CanopyTokenClaims`, and the new `orgContext(claims)` helper
+  returns the verified pair (or `null` for a token acting in no organization,
+  refusing a half-present pair). `@RequirePermission` gains `scope: "org"`: the
+  guard evaluates at the token's `org_id` node through the existing
+  `LocalAuthorizer` — an organization is a hierarchy node and a membership is a
+  role assignment at it — reading the claim off what `CanopyTokenGuard`
+  attached, overridable with the new `resolveOrg` module option. A caller
+  acting in no organization is denied without a network call.
+- e4ca3ef: Organizations as a container: `canopy.organizations` wraps the tenant API
+  (organizations, members, invitations, the per-organization sign-in policy,
+  and SSO connection binding), `CanopyTokenClaims` declares `amr`, types are
+  regenerated against the current spec, and the wording no longer describes
+  organizations as an access model. The published spec now carries 102 operations (was 84), all additive.
+
 ## 0.2.0
 
 ### Minor Changes

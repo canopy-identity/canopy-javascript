@@ -1,6 +1,6 @@
 {
   "name": "@canopy-io/nestjs",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Official NestJS integration for Canopy — hierarchical identity and access management.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
@@ -56,7 +56,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@canopy-io/node": "^0.2.0"
+    "@canopy-io/node": "^0.3.0"
   },
   "peerDependencies": {
     "@nestjs/common": "^10.0.0 || ^11.0.0",
