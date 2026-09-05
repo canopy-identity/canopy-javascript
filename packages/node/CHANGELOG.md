@@ -1,5 +1,30 @@
 # @canopy-io/node
 
+## 0.2.0
+
+### Minor Changes
+
+- 13ecf63: `LocalAuthorizer.invalidate(identityId?)` — with an identity id, only that
+  identity's cached grants are dropped; the hierarchy and every other identity
+  stay warm. This is the shape an assignment webhook wants: invalidate exactly
+  the identity the event names. With no argument the behaviour is unchanged
+  (drop everything). The jsdoc now also states the multi-instance guarantee
+  honestly: an invalidation reaches one process, so behind a load balancer the
+  fleet-wide revocation guarantee remains the TTL.
+
+### Patch Changes
+
+- b873daa: Fix type resolution for CommonJS consumers on `node16`/`nodenext`: the
+  `exports` map now declares per-condition `types`, pointing `require` at the
+  `index.d.cts` the build already emitted. Previously a `require()` that worked
+  at runtime was rejected by TypeScript (TS1479), forcing dynamic-import and
+  `resolution-mode` workarounds. Verified with `arethetypeswrong` across
+  node10, node16-CJS, node16-ESM and bundler resolution.
+- 003761a: Regenerate the request/response types from the published OpenAPI document.
+  Additive: picks up the permission-usage endpoint
+  (`GET /api/v1/permissions/{id}/usage`) and refreshed operation descriptions.
+  No existing caller shape changed.
+
 ## 0.1.1
 
 ### Patch Changes

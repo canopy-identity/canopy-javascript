@@ -1,5 +1,20 @@
 # @canopy-io/nestjs
 
+## 0.1.2
+
+### Patch Changes
+
+- b873daa: Fix type resolution for CommonJS consumers on `node16`/`nodenext`: the
+  `exports` map now declares per-condition `types`, pointing `require` at the
+  `index.d.cts` the build already emitted. Previously a `require()` that worked
+  at runtime was rejected by TypeScript (TS1479), forcing dynamic-import and
+  `resolution-mode` workarounds. Verified with `arethetypeswrong` across
+  node10, node16-CJS, node16-ESM and bundler resolution.
+- Updated dependencies [b873daa]
+- Updated dependencies [13ecf63]
+- Updated dependencies [003761a]
+  - @canopy-io/node@0.2.0
+
 ## 0.1.1
 
 ### Patch Changes
