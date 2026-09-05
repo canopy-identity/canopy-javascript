@@ -1,6 +1,7 @@
 import { CanopyClient, type CanopyClientOptions } from "./client.js";
 import { Assignments } from "./resources/assignments.js";
 import { Identities } from "./resources/identities.js";
+import { Organizations } from "./resources/organizations.js";
 import { Permissions } from "./resources/permissions.js";
 import { Roles } from "./resources/roles.js";
 
@@ -19,7 +20,7 @@ import { Roles } from "./resources/roles.js";
  * ```
  *
  * `client` is public because the wrapped resources cover the paths integrators
- * hit most, not all 81 operations. Anything not wrapped is still reachable —
+ * hit most, not all 102 operations. Anything not wrapped is still reachable —
  * `canopy.client.request("GET", "/api/v1/audit-events")` — with the same
  * envelope handling, typed errors and retry policy, so no endpoint is a dead
  * end while the ergonomic surface catches up.
@@ -30,6 +31,7 @@ export class Canopy {
   readonly identities: Identities;
   readonly roles: Roles;
   readonly assignments: Assignments;
+  readonly organizations: Organizations;
 
   constructor(options: CanopyClientOptions) {
     this.client = new CanopyClient(options);
@@ -37,5 +39,6 @@ export class Canopy {
     this.identities = new Identities(this.client);
     this.roles = new Roles(this.client);
     this.assignments = new Assignments(this.client);
+    this.organizations = new Organizations(this.client);
   }
 }
