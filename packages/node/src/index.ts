@@ -57,6 +57,12 @@ export type {
   IdentityAssignmentItem,
   IdentityItem,
 } from "./resources/identities.js";
+export { Organizations } from "./resources/organizations.js";
+export type {
+  OrganizationInviteItem,
+  OrganizationItem,
+  OrganizationMemberItem,
+} from "./resources/organizations.js";
 export { Permissions } from "./resources/permissions.js";
 export type { PermissionItem } from "./resources/permissions.js";
 export { Roles } from "./resources/roles.js";

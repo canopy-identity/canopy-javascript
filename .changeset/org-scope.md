@@ -3,8 +3,8 @@
 "@canopy-io/nestjs": minor
 ---
 
-Organizations support. Identity tokens minted in an Environment running the
-organizations access model carry `org_id` and `org_role`; both are now
+Organizations support. Identity tokens minted in an Environment with the
+organizations container on carry `org_id` and `org_role`; both are now
 declared on `CanopyTokenClaims`, and the new `orgContext(claims)` helper
 returns the verified pair (or `null` for a token acting in no organization,
 refusing a half-present pair). `@RequirePermission` gains `scope: "org"`: the

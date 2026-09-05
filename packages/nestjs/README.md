@@ -107,7 +107,7 @@ The default is `node`, which is the strict question: does this identity hold the
 @RequirePermission("invoices.view", { scope: "org" })
 ```
 
-`org` is for Environments running the **organizations** access model, where a
+`org` is for Environments with the **organizations** container on, where a
 token carries the organization the session is acting in (`org_id`) and the one
 role held there (`org_role`). The guard reads `org_id` off the verified claims
 `CanopyTokenGuard` attached and evaluates at that node — an organization _is_ a

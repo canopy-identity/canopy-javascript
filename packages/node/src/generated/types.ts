@@ -814,6 +814,222 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/organizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List organizations
+         * @description Lists the Environment's organizations with `member_count` and `pending_invite_count` per row, paginated and searchable by name or slug (`q`). Empty while the Environment has organizations disabled. Requires the `hierarchy.view` permission.
+         */
+        get: operations["ApiOrganizationsController_listOrganizations"];
+        put?: never;
+        /**
+         * Create an organization
+         * @description Creates an organization from a `name` (slug auto-derived, display-only) with optional `description` and `metadata`. The Environment must have organizations enabled (`409 organization.not_enabled` otherwise); the container is independent of the access model, so flat and hierarchy Environments both hold organizations. Requires the `hierarchy.manage` permission and emits `organization.created`.
+         */
+        post: operations["ApiOrganizationsController_createOrganization"];
+        /**
+         * Delete every organization
+         * @description Deletes every live organization in the Environment the way the single delete does: memberships and every assignment beneath each organization are removed, pending invitations bound to the organization or its tree are revoked, and each organization is soft-deleted with its subtree. Member identities are untouched. This is the step before switching the container off. Responds `204 No Content`, requires the `hierarchy.manage` permission, and emits `organization.deleted_all` with the counts.
+         */
+        delete: operations["ApiOrganizationsController_deleteAllOrganizations"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an organization
+         * @description Returns a single organization by `id` with `member_count` and `pending_invite_count`. Returns `404` when the id does not name a live organization in the current Environment. Requires the `hierarchy.view` permission at the organization.
+         */
+        get: operations["ApiOrganizationsController_getOrganization"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an organization
+         * @description Deletes an organization by `id`: removes every membership and every assignment beneath the organization, revokes every pending invitation bound to it or its tree, and soft-deletes the organization with its subtree. Member identities themselves are untouched and keep their memberships in other organizations. Supports optimistic concurrency via the `If-Match` header (`409` on a version mismatch). Responds `204 No Content`, requires the `hierarchy.manage` permission at the organization, and emits `organization.deleted`.
+         */
+        delete: operations["ApiOrganizationsController_deleteOrganization"];
+        options?: never;
+        head?: never;
+        /**
+         * Update an organization
+         * @description Updates an organization's `name`, `description`, and/or `metadata` by `id`. The slug is frozen at create and never changes. Supports optimistic concurrency via the `If-Match` header carrying the organization's current version (`409` on a version mismatch). Requires the `hierarchy.manage` permission at the organization and emits `organization.updated`.
+         */
+        patch: operations["ApiOrganizationsController_updateOrganization"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an organization's authentication policy
+         * @description Returns the organization's own authentication policy (null fields inherit the Environment) alongside the effective policy its members sign in under. Requires the `hierarchy.view` permission at the organization.
+         */
+        get: operations["ApiOrganizationsController_getPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update an organization's authentication policy
+         * @description Sets the organization's own authentication policy. A field set to `null` inherits the Environment again. The policy can only tighten the Environment's settings: `mfa_required` can be true where the Environment leaves MFA optional, `mfa_factor_allowlist` must be a subset of the Environment's, `mfa_after_sso` can be `require` where the Environment exempts, and `require_sso` refuses password and code logins for members. Returns `400` (`organization.policy_loosens`) when a value would loosen the Environment, `409` when `If-Match` does not match the policy version. Requires the `hierarchy.manage` permission at the organization and emits `organization.policy.updated`.
+         */
+        patch: operations["ApiOrganizationsController_updatePolicy"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/sso-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an organization's SSO connections
+         * @description Lists the end-user SSO connections bound to this organization, oldest first, each with the membership role a just-in-time provisioned login receives. Requires the `hierarchy.view` permission at the organization. The response is an unpaginated `{ items }` array.
+         */
+        get: operations["ApiOrganizationsController_listSsoConnections"];
+        put?: never;
+        /**
+         * Bind an SSO connection to an organization
+         * @description Binds an `end_user` SSO connection to the organization: a login through the connection lands in this organization, joining as a member with `default_role_id` when the identity is provisioned or is not yet a member, and the session starts here. The connection must already be bound to the organization's Environment (that binding routes the email domain), and the role must belong to the Environment (`400` otherwise). A connection binds to one organization per Environment (`409`). Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.bound`.
+         */
+        post: operations["ApiOrganizationsController_bindSsoConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/sso-connections/{connectionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unbind an SSO connection from an organization
+         * @description Removes the binding; logins through the connection fall back to the Environment's placement. Existing memberships are untouched. Returns `404` when the connection is not bound to this organization. Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.unbound`.
+         */
+        delete: operations["ApiOrganizationsController_unbindSsoConnection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an organization's members
+         * @description Lists the organization's members: each row is the member's identity, their single role in this organization, effective dates, when they joined, and `node_assignments`, the grants the member also holds at nodes beneath the organization (empty in a flat Environment). Paginated; `q` searches name and email. Requires the `rbac.view_assignments` permission at the organization.
+         */
+        get: operations["ApiOrganizationsController_listMembers"];
+        put?: never;
+        /**
+         * Add a member to an organization
+         * @description Adds a member: assigns `role_id` to `identity_id` at the organization. The identity must already hold an active membership in this Environment (invite by email instead for someone who does not). A member holds exactly one role per organization, so an identity that is already a member returns `409` — use the change-role operation. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.added`.
+         */
+        post: operations["ApiOrganizationsController_addMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/members/{identityId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a member from an organization
+         * @description Removes the member from this organization, revoking their role here and nothing else — the identity and its memberships in other organizations are untouched. Returns `404` when the identity is not a member. Responds `204 No Content`, requires the `rbac.manage_assignments` permission at the organization, and emits `organization.member.removed`.
+         */
+        delete: operations["ApiOrganizationsController_removeMember"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a member's role
+         * @description Replaces the member's role in this organization with `role_id`. A member holds exactly one role per organization, so this updates the existing membership in place; changing to the role already held is a no-op. Returns `404` when the identity is not a member. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.role_changed`.
+         */
+        patch: operations["ApiOrganizationsController_changeMemberRole"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an organization's invitations
+         * @description Lists the organization's invitations (pending, accepted, revoked, and expired — filter with `status`), paginated. Requires the `identity.view` permission.
+         */
+        get: operations["ApiOrganizationsController_listInvites"];
+        put?: never;
+        /**
+         * Invite a member into an organization
+         * @description Invites an email into the organization with the role bound to the invitation; acceptance creates the Environment membership and the organization membership in one step. Works for emails with no identity in the Environment — one is created on acceptance. Requires the `identity.manage` permission and emits `invite.created`.
+         */
+        post: operations["ApiOrganizationsController_createInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/invites/{inviteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an organization invitation
+         * @description Revokes an invitation on this organization; the emailed link stops working immediately. Returns `404` when the invitation does not belong to this organization. Requires the `identity.manage` permission and emits `invite.revoked`.
+         */
+        delete: operations["ApiOrganizationsController_revokeInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/roles": {
         parameters: {
             query?: never;
@@ -1889,6 +2105,163 @@ export interface components {
             distinct_role_count: number;
             recent_identities: components["schemas"]["RecentIdentityDto"][];
         };
+        OrganizationResponseDto: {
+            id: string;
+            name: string;
+            description?: string | null;
+            /** @description Display label derived from the name at create; frozen afterwards. Organizations are addressed by `id`. */
+            slug: string;
+            metadata: Record<string, unknown>;
+            /** @description Members (one role each) in this organization. */
+            member_count: number;
+            /** @description Unexpired, unaccepted, unrevoked invitations. */
+            pending_invite_count: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Optimistic-lock version. Send back as the `If-Match` header when updating or deleting to detect concurrent edits. */
+            version: number;
+        };
+        CreateOrganizationDto: {
+            /** @description Organization name. The slug is auto-derived from it at create and never changes afterwards. */
+            name: string;
+            /** @description Organization description */
+            description?: string;
+            /** @description Free-form metadata stored on the organization, returned as sent. */
+            metadata?: Record<string, unknown>;
+        };
+        UpdateOrganizationDto: {
+            /** @description New organization name. The slug does not change. */
+            name?: string;
+            /** @description Organization description */
+            description?: string;
+            /** @description Free-form metadata stored on the organization, returned as sent. */
+            metadata?: Record<string, unknown>;
+        };
+        EffectiveOrganizationPolicyDto: {
+            mfa_required: boolean;
+            mfa_factor_allowlist: ("totp" | "webauthn" | "email_otp")[];
+            /** @enum {string} */
+            mfa_after_sso: "exempt" | "require";
+            require_sso: boolean;
+        };
+        OrganizationPolicyResponseDto: {
+            /** @description The organization this policy belongs to. */
+            organization_id: string;
+            mfa_required?: boolean | null;
+            mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[] | null;
+            /** @enum {string|null} */
+            mfa_after_sso?: "exempt" | "require" | null;
+            require_sso: boolean;
+            /** @description The Environment's own settings, the floor this organization's policy tightens from. */
+            environment: components["schemas"]["EffectiveOrganizationPolicyDto"];
+            /** @description The policy the organization's members sign in under. */
+            effective: components["schemas"]["EffectiveOrganizationPolicyDto"];
+            /** @description Optimistic-concurrency version. 0 until the organization sets a policy of its own. */
+            version: number;
+        };
+        UpdateOrganizationPolicyDto: {
+            /** @description Require MFA for this organization's members. `true` tightens an Environment that leaves MFA optional; `false` is only accepted where the Environment does not require MFA; `null` inherits. */
+            mfa_required?: boolean | null;
+            /** @description Factors this organization's members may enroll and use. Must be a non-empty subset of the Environment's allowlist; `null` inherits. */
+            mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[] | null;
+            /**
+             * @description Whether an SSO login still owes an MFA challenge. `require` tightens an Environment that exempts SSO; `exempt` is only accepted where the Environment exempts; `null` inherits.
+             * @enum {string|null}
+             */
+            mfa_after_sso?: "exempt" | "require" | null;
+            /** @description Members must sign in through SSO. Password and email-code logins are refused for the organization's members and for any email whose domain routes to a connection bound to this organization. */
+            require_sso?: boolean;
+        };
+        OrganizationSsoConnectionSummaryDto: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            type: "saml" | "oidc";
+            status: string;
+        };
+        OrganizationSsoRoleSummaryDto: {
+            id: string;
+            name: string;
+        };
+        OrganizationSsoConnectionResponseDto: {
+            organization_node_id: string;
+            sso_connection_id: string;
+            sso_connection: components["schemas"]["OrganizationSsoConnectionSummaryDto"];
+            /** @description The membership role a login through this connection receives when it joins the organization. */
+            default_role_id: string;
+            default_role: components["schemas"]["OrganizationSsoRoleSummaryDto"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        BindOrganizationSsoConnectionDto: {
+            /** @description An end-user SSO connection already bound to the organization's Environment. */
+            sso_connection_id: string;
+            /** @description The membership role a login through this connection receives when it joins the organization. Must belong to the organization's Environment. */
+            default_role_id: string;
+        };
+        OrganizationMemberIdentityDto: {
+            id: string;
+            email: string;
+            first_name?: string | null;
+            last_name?: string | null;
+        };
+        OrganizationMemberRoleDto: {
+            id: string;
+            name: string;
+        };
+        OrganizationMemberNodeDto: {
+            id: string;
+            name: string;
+            node_type: string;
+        };
+        OrganizationMemberNodeAssignmentDto: {
+            /** @description The assignment id. */
+            id: string;
+            application_node: components["schemas"]["OrganizationMemberNodeDto"];
+            role: components["schemas"]["OrganizationMemberRoleDto"];
+        };
+        OrganizationMemberResponseDto: {
+            /** @description The membership (role assignment) id. */
+            id: string;
+            identity: components["schemas"]["OrganizationMemberIdentityDto"];
+            role: components["schemas"]["OrganizationMemberRoleDto"];
+            /** Format: date-time */
+            effective_from?: string | null;
+            /** Format: date-time */
+            effective_to?: string | null;
+            /**
+             * Format: date-time
+             * @description When the membership was created.
+             */
+            created_at: string;
+            /** @description Assignments the member also holds at nodes beneath the organization. Empty in a flat Environment. */
+            node_assignments: components["schemas"]["OrganizationMemberNodeAssignmentDto"][];
+        };
+        AddOrganizationMemberDto: {
+            /** @description Identity to add. Must already hold an active membership in this Environment; invite by email instead for someone who does not. */
+            identity_id: string;
+            /** @description The single role the member holds in this organization, from the Environment's roles. */
+            role_id: string;
+        };
+        ChangeOrganizationMemberRoleDto: {
+            /** @description The replacement role. A member holds exactly one role per organization, so this updates the existing membership in place. */
+            role_id: string;
+        };
+        CreateOrganizationInviteDto: {
+            /** @description Email to invite. Works for people with no identity in this Environment — one is created when they accept. */
+            email: string;
+            /** @description The role the member will hold in this organization on acceptance. */
+            role_id: string;
+            first_name?: string;
+            last_name?: string;
+            /**
+             * @description Set false to skip the email and deliver the returned accept URL yourself.
+             * @default true
+             */
+            send_email: boolean;
+        };
         RoleResponseDto: {
             id: string;
             application_id: string;
@@ -1992,7 +2365,7 @@ export interface components {
              * @description Broad classification from the action catalog (e.g. `auth`, `rbac`). NULL on legacy rows whose action key was unknown at backfill time — those carry the `unknown` value in storage.
              * @enum {string|null}
              */
-            category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown" | null;
+            category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "organization" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown" | null;
             /**
              * @description `info` for normal-flow events, `notice` for important state changes, `warning` for failures, `critical` for security events.
              * @enum {string}
@@ -2055,7 +2428,7 @@ export interface components {
             /** @description Filter by one or more action keys. Repeat the query param (`?action=a&action=b`) or pass a comma-separated string. */
             action?: string[];
             /** @enum {string} */
-            category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown";
+            category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "organization" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown";
             /** @enum {string} */
             severity?: "info" | "notice" | "warning" | "critical";
             /** @enum {string} */
@@ -2120,7 +2493,7 @@ export interface components {
              * @description Broad classification from the action catalog (e.g. `auth`, `rbac`). NULL on legacy rows whose action key was unknown at backfill time — those carry the `unknown` value in storage.
              * @enum {string|null}
              */
-            category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown" | null;
+            category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "organization" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown" | null;
             /**
              * @description `info` for normal-flow events, `notice` for important state changes, `warning` for failures, `critical` for security events.
              * @enum {string}
@@ -6526,6 +6899,1737 @@ export interface operations {
             };
         };
     };
+    ApiOrganizationsController_listOrganizations: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search term */
+                q?: string;
+                /** @description Column to sort by. Allowed values depend on the endpoint. */
+                sort_by?: string;
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrganizationResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_createOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrganizationDto"];
+            };
+        };
+        responses: {
+            /** @description Organization created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResponseDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organizations are not enabled on this Environment; switch the container on first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Organizations are not enabled on this Environment; switch the container on first",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_deleteAllOrganizations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every organization deleted with its memberships, pending invitations, and subtree */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_getOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResponseDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_deleteOrganization: {
+        parameters: {
+            query?: never;
+            header: {
+                "if-match": string;
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Organization deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_updateOrganization: {
+        parameters: {
+            query?: never;
+            header: {
+                "if-match": string;
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationDto"];
+            };
+        };
+        responses: {
+            /** @description Organization updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationResponseDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_getPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Policy returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationPolicyResponseDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_updatePolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "if-match": string;
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationPolicyDto"];
+            };
+        };
+        responses: {
+            /** @description Policy updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationPolicyResponseDto"];
+                    };
+                };
+            };
+            /** @description The policy would loosen the Environment's authentication settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The policy would loosen the Environment's authentication settings",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_listSsoConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bindings returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrganizationSsoConnectionResponseDto"][];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_bindSsoConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BindOrganizationSsoConnectionDto"];
+            };
+        };
+        responses: {
+            /** @description Connection bound */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationSsoConnectionResponseDto"];
+                    };
+                };
+            };
+            /** @description The connection is not an end-user connection bound to the organization's Environment, or the role is not in that Environment */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The connection is not an end-user connection bound to the organization's Environment, or the role is not in that Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The connection is already bound to an organization in this Environment */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The connection is already bound to an organization in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_unbindSsoConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                connectionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection unbound */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This SSO connection is not bound to the organization */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "This SSO connection is not bound to the organization",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_listMembers: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search term */
+                q?: string;
+                /** @description Column to sort by. Allowed values depend on the endpoint. */
+                sort_by?: string;
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+                /** @description Only members holding this role */
+                role_id?: string;
+                /** @description Filter by the membership's effective window: active now, scheduled to start, or already expired */
+                status?: "active" | "scheduled" | "expired";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrganizationMemberResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_addMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddOrganizationMemberDto"];
+            };
+        };
+        responses: {
+            /** @description Member added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationMemberResponseDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity is already a member of this organization */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The identity is already a member of this organization",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity is not a member of this organization */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The identity is not a member of this organization",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members/{identityId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_changeMemberRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeOrganizationMemberRoleDto"];
+            };
+        };
+        responses: {
+            /** @description Member role changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationMemberResponseDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity is not a member of this organization */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The identity is not a member of this organization",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members/{identityId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_listInvites: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search term */
+                q?: string;
+                /** @description Column to sort by. Allowed values depend on the endpoint. */
+                sort_by?: string;
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+                /** @description Filter by invitation status */
+                status?: "pending" | "accepted" | "revoked" | "expired";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["IdentityInviteResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_createInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrganizationInviteDto"];
+            };
+        };
+        responses: {
+            /** @description Invitation created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ApiIdentityInviteResponseDto"];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_revokeInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                inviteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No such invitation on this organization */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No such invitation on this organization",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites/{inviteId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
     ApiRolesController_listRoles: {
         parameters: {
             query?: {
@@ -7907,7 +10011,7 @@ export interface operations {
                 to?: string;
                 /** @description Filter by one or more action keys. Repeat the query param (`?action=a&action=b`) or pass a comma-separated string. */
                 action?: string[];
-                category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown";
+                category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "organization" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown";
                 severity?: "info" | "notice" | "warning" | "critical";
                 outcome?: "success" | "failure" | "denied";
                 actor_id?: string;

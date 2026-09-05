@@ -150,11 +150,17 @@ export interface CanopyTokenClaims {
   /** True when `permissions` was truncated; query the API for the full set. */
   permissions_overflow?: boolean;
   /**
+   * How the session was proven: `pwd`, `otp`, or `sso`, plus `mfa` once a
+   * second factor was verified. Identity tokens carry it; check for `mfa`
+   * before allowing a sensitive action.
+   */
+  amr?: string[];
+  /**
    * The organization this session is acting in — present only on identity
-   * tokens minted in an Environment running the `organizations` access
-   * model, for an identity that belongs to at least one organization.
-   * Always minted together with `org_role`; read the pair through
-   * {@link orgContext} rather than separately.
+   * tokens from an Environment with the organizations container on, for an
+   * identity that belongs to at least one organization. Always minted
+   * together with `org_role`; read the pair through {@link orgContext}
+   * rather than separately.
    */
   org_id?: string;
   /** The name of the single role the identity holds in `org_id`. */
@@ -177,8 +183,8 @@ export interface CanopyOrgContext {
  * The organization context of a verified token, or `null` when it has none.
  *
  * `null` is an ordinary answer, not a failure: it is every token from an
- * Environment not running the organizations model, and every identity that
- * belongs to no organization yet. Branch on it rather than on the raw claims —
+ * Environment without the organizations container on, and every identity
+ * that belongs to no organization yet. Branch on it rather than on the raw claims —
  * Canopy mints `org_id` and `org_role` together, and this helper refuses a
  * half-present pair instead of letting one claim be read as though the other
  * were there.
