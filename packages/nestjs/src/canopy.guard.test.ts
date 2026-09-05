@@ -23,6 +23,9 @@ import type { PermissionRequirement } from "./require-permission.decorator.js";
 interface FakeRequest {
   user?: { sub?: string };
   params?: { nodeId?: string };
+  /** What `CanopyTokenGuard` attaches, under its default property. */
+  canopyToken?: { org_id?: unknown };
+  [attached: string]: unknown;
 }
 
 /**
@@ -80,6 +83,8 @@ function harness(config: {
   /** Reach into the request the way the docs suggest, and let it throw. */
   throwingIdentityResolver?: boolean;
   throwingNodeResolver?: boolean;
+  resolveOrg?: (request: unknown) => string | null | undefined;
+  attachTokenAs?: string;
 }) {
   const evaluate = vi.fn(
     config.evaluate ?? (() => Promise.resolve({ allowed: true })),
@@ -114,6 +119,12 @@ function harness(config: {
     ...(config.evaluateMaxRetries === undefined
       ? {}
       : { evaluateMaxRetries: config.evaluateMaxRetries }),
+    ...(config.resolveOrg === undefined
+      ? {}
+      : { resolveOrg: config.resolveOrg }),
+    ...(config.attachTokenAs === undefined
+      ? {}
+      : { attachTokenAs: config.attachTokenAs }),
   };
 
   const guard = new CanopyGuard(reflector, authorizer, options);
@@ -185,6 +196,150 @@ describe("resolving the request", () => {
       permission: "reports.view",
       scope: "app_wide",
     });
+  });
+});
+
+describe("org scope", () => {
+  const ORG_REQUIREMENT: PermissionRequirement = {
+    permission: "invoices.view",
+    scope: "org",
+  };
+
+  it("asks the node question at the token's org_id", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      request: {
+        user: { sub: "idn_1" },
+        canopyToken: { org_id: "org_acme" },
+      },
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+
+    expect(evaluate.mock.calls[0]?.[0]).toEqual({
+      identity_id: "idn_1",
+      permission: "invoices.view",
+      scope: "node",
+      node_id: "org_acme",
+    });
+  });
+
+  it("denies when the token carries no org, without asking Canopy", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      request: { user: { sub: "idn_1" }, canopyToken: {} },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("denies when nothing attached claims at all", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      request: { user: { sub: "idn_1" } },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("treats an empty-string org_id as no org", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      request: { user: { sub: "idn_1" }, canopyToken: { org_id: "" } },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("reads claims from a renamed attachTokenAs property", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      attachTokenAs: "verifiedClaims",
+      request: {
+        user: { sub: "idn_1" },
+        verifiedClaims: { org_id: "org_acme" },
+        // The default property carries a decoy that must not be read.
+        canopyToken: { org_id: "org_wrong" },
+      },
+    });
+
+    await guard.canActivate(context);
+
+    expect(evaluate.mock.calls[0]?.[0]).toMatchObject({
+      node_id: "org_acme",
+    });
+  });
+
+  it("prefers a configured resolveOrg over the attached claims", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      resolveOrg: () => "org_from_resolver",
+      request: {
+        user: { sub: "idn_1" },
+        canopyToken: { org_id: "org_from_claims" },
+      },
+    });
+
+    await guard.canActivate(context);
+
+    expect(evaluate.mock.calls[0]?.[0]).toMatchObject({
+      node_id: "org_from_resolver",
+    });
+  });
+
+  it("denies when a configured resolveOrg throws", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      resolveOrg: () => {
+        throw new Error("no session");
+      },
+      request: {
+        user: { sub: "idn_1" },
+        canopyToken: { org_id: "org_acme" },
+      },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("needs no resolveNode: org routes carry no node of their own", async () => {
+    const { guard, context } = harness({
+      requirement: ORG_REQUIREMENT,
+      withoutNodeResolver: true,
+      request: {
+        user: { sub: "idn_1" },
+        canopyToken: { org_id: "org_acme" },
+      },
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it("denies when Canopy denies at the org node", async () => {
+    const { guard, context } = harness({
+      requirement: ORG_REQUIREMENT,
+      evaluate: () => Promise.resolve({ allowed: false }),
+      request: {
+        user: { sub: "idn_1" },
+        canopyToken: { org_id: "org_acme" },
+      },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });
 

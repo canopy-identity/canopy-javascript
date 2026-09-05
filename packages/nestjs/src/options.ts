@@ -45,6 +45,18 @@ export interface CanopyModuleOptions<
   resolveNode?: RequestResolver<TRequest>;
 
   /**
+   * Which organization the request is acting in, for `scope: "org"`.
+   *
+   * Rarely needed: by default the guard reads the `org_id` claim off the
+   * verified token that `CanopyTokenGuard` attached (honoring
+   * `attachTokenAs`). Set this only when your own auth layer verifies tokens
+   * and parks the claims somewhere else — the value must still come from a
+   * *verified* token, never from a header or body the caller controls,
+   * because it decides which organization's grants answer the check.
+   */
+  resolveOrg?: RequestResolver<TRequest>;
+
+  /**
    * Deadline for the guard's own permission check, per attempt. Defaults to
    * 5s — far tighter than the client-wide 30s, which is sized for
    * administrative CRUD rather than for a call on the request path.

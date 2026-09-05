@@ -23,10 +23,10 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 84 as of the permission-usage endpoint
-// (`GET /api/v1/permissions/{id}/usage`) landing in the published spec —
-// additive, not wrapped by a resource yet.
-const EXPECTED_OPERATION_COUNT = 84;
+// 102 as of organizations landing in the published spec: the organization,
+// member, invitation, policy, and SSO-binding operations, wrapped by the
+// `organizations` resource. Additive.
+const EXPECTED_OPERATION_COUNT = 102;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;

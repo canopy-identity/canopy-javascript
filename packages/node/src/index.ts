@@ -43,8 +43,12 @@ export {
 } from "./errors.js";
 export type { CanopyErrorBody } from "./errors.js";
 
-export { TokenVerifier } from "./verify.js";
-export type { CanopyTokenClaims, TokenVerifierOptions } from "./verify.js";
+export { orgContext, TokenVerifier } from "./verify.js";
+export type {
+  CanopyOrgContext,
+  CanopyTokenClaims,
+  TokenVerifierOptions,
+} from "./verify.js";
 
 export { Assignments } from "./resources/assignments.js";
 export type { AssignmentItem } from "./resources/assignments.js";
@@ -53,6 +57,12 @@ export type {
   IdentityAssignmentItem,
   IdentityItem,
 } from "./resources/identities.js";
+export { Organizations } from "./resources/organizations.js";
+export type {
+  OrganizationInviteItem,
+  OrganizationItem,
+  OrganizationMemberItem,
+} from "./resources/organizations.js";
 export { Permissions } from "./resources/permissions.js";
 export type { PermissionItem } from "./resources/permissions.js";
 export { Roles } from "./resources/roles.js";

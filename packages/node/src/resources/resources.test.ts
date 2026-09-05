@@ -433,7 +433,7 @@ describe("evaluations retry a 5xx", () => {
 
 describe("the escape hatch", () => {
   /**
-   * The wrapped resources cover the common paths, not all 81 operations. An
+   * The wrapped resources cover the common paths, not all 102 operations. An
    * unwrapped endpoint must still be reachable with the same envelope handling
    * and error typing, or the SDK becomes a ceiling.
    */
@@ -445,5 +445,51 @@ describe("the escape hatch", () => {
     });
 
     expect(calls[0]?.url).toBe("https://api.test/api/v1/audit-events?limit=10");
+  });
+});
+
+describe("organizations", () => {
+  it("creates with a POST body", async () => {
+    const { canopy, calls } = harness({ data: { id: "org_1" } });
+
+    await canopy.organizations.create({ name: "Acme Corp" });
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.test/api/v1/organizations");
+    expect(calls[0]?.body).toMatchObject({ name: "Acme Corp" });
+  });
+
+  it("patches the policy with If-Match from the version", async () => {
+    const { canopy, calls } = harness({ data: { version: 2 } });
+
+    await canopy.organizations.updatePolicy(
+      "org_1",
+      { mfa_required: true },
+      { ifMatch: '"1"' },
+    );
+
+    expect(calls[0]?.method).toBe("PATCH");
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/policy",
+    );
+    expect(calls[0]?.headers["If-Match"]).toBe('"1"');
+  });
+
+  it("binds and unbinds a connection on the sso-connections path", async () => {
+    const { canopy, calls } = harness({ data: {} });
+
+    await canopy.organizations.bindSsoConnection("org_1", {
+      sso_connection_id: "conn_1",
+      default_role_id: "role_1",
+    });
+    await canopy.organizations.unbindSsoConnection("org_1", "conn 1");
+
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/sso-connections",
+    );
+    expect(calls[1]?.method).toBe("DELETE");
+    expect(calls[1]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/sso-connections/conn%201",
+    );
   });
 });

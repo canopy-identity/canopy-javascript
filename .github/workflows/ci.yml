@@ -33,6 +33,14 @@ jobs:
       # blip does not read as "the API changed".
       - run: npm run generate:check
       - run: npm run test
+      # Packs each package and resolves it the four ways a consumer can
+      # (node10, node16-CJS, node16-ESM, bundler). This is the guard for the
+      # bug class where a require() works at runtime but TypeScript rejects
+      # it (TS1479) because the exports map lacks a per-condition `types` —
+      # which shipped once and cost the first integrator three workarounds.
+      # Nothing else in CI touches the packed tarball, so nothing else can
+      # catch it.
+      - run: npm run check:packaging
       # @canopy-io/node must stay dependency-free: anything that appears there
       # is a supply-chain surface every customer inherits. Framework adapters
       # are exempt — they exist to depend on their framework — so this asserts

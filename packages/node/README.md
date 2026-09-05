@@ -16,7 +16,7 @@ Despite the name, it is not Node-only: the client is `fetch` and nothing else, s
 
 ## Features
 
-- **Typed resource wrappers** for `permissions`, `identities`, `roles` and `assignments` — the four every integration touches.
+- **Typed resource wrappers** for `permissions`, `identities`, `roles`, `assignments` and `organizations` — the ones every integration touches.
 - **The whole API, typed.** Any operation without a wrapper is reachable through `canopy.client.request` with the same envelope handling, error typing and retry policy.
 - **Both credential types.** An API key (`cnpy_…`, sent as `X-API-Key`) for server-to-server calls, or an identity or portal JWT sent as a bearer token.
 - **Envelope unwrapping.** All five response shapes are handled, so a call returns the payload rather than a wrapper.
@@ -112,6 +112,43 @@ new TokenVerifier({ audience: process.env.CANOPY_OAUTH_CLIENT_ID });
 
 Self-hosted instances set `issuer`. Getting it wrong fails closed: tokens are
 rejected, never mistakenly accepted.
+
+With an Environment's **organizations** container on, an identity token also
+names the organization the session is acting in and the one role held there. Read the pair through `orgContext` rather than off the raw claims —
+Canopy mints the two together, and the helper refuses a half-present pair:
+
+```ts
+import { orgContext } from "@canopy-io/node";
+
+const org = orgContext(claims);
+
+if (org) {
+  org.orgId; // the organization — also a hierarchy node id
+  org.orgRole; // the single role held there, by name
+}
+```
+
+`null` is an ordinary answer: every token from an Environment without the
+container on, and every identity that belongs to no organization yet.
+
+Tokens also carry `amr`, how the session was proven (`pwd`, `otp` or `sso`,
+plus `mfa` once a second factor was verified), so a backend can insist on
+`claims.amr?.includes("mfa")` before a sensitive action.
+
+The organizations themselves are wrapped on the client: provision a tenant,
+manage its members and invitations, tighten its sign-in policy, and bind its
+identity provider.
+
+```ts
+const acme = await canopy.organizations.create({ name: "Acme Corp" });
+
+await canopy.organizations.addMember(acme.id, {
+  identity_id: identityId,
+  role_id: ownerRoleId,
+});
+
+await canopy.organizations.updatePolicy(acme.id, { mfa_required: true });
+```
 
 ### Authorizing without a call per request
 
