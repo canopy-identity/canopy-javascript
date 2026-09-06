@@ -253,7 +253,7 @@ export interface paths {
         head?: never;
         /**
          * Update an identity
-         * @description Updates an identity's mutable profile fields (`first_name`, `last_name`, `is_active`, `metadata`) in the current Environment. `email` and `external_id` are immutable here — `external_id` is owned by the SSO/SCIM provisioning path and cannot be re-pointed through this endpoint. Returns the updated identity and writes an `identity.updated` audit row; returns `404` when the identity has no membership in this Environment.
+         * @description Updates an identity's mutable profile fields (`first_name`, `last_name`, `is_active`, `metadata`) in the current Environment. `email` and `external_id` are immutable here — `external_id` is owned by the SSO/SCIM provisioning path and cannot be re-pointed through this endpoint. Returns the updated identity and writes an `identity.updated` audit row for the profile fields; a change to `is_active` writes `identity.status_set` instead, the account-wide activation switch. Returns `404` when the identity has no membership in this Environment.
          */
         patch: operations["ApiIdentitiesController_updateIdentity"];
         trace?: never;
@@ -289,7 +289,7 @@ export interface paths {
         put?: never;
         /**
          * Activate an identity
-         * @description Reactivates an identity by setting `is_active = true` in the current Environment, allowing it to authenticate again. Returns a `200` message envelope. Returns `404` when the identity has no membership in this Environment.
+         * @description Reactivates an identity by setting `is_active = true`, the account-wide switch, allowing it to authenticate again in every Environment it belongs to. Writes an `identity.status_set` audit row (the same event the Console's account route emits), delivered to the account's subscriptions and to those of every Environment the identity is a member of. Returns a `200` message envelope. Returns `404` when the identity has no membership in this Environment.
          */
         post: operations["ApiIdentitiesController_activateIdentity"];
         delete?: never;
@@ -309,7 +309,7 @@ export interface paths {
         put?: never;
         /**
          * Deactivate an identity
-         * @description Deactivates an identity by setting `is_active = false` in the current Environment, blocking future sign-in. Returns a `200` message envelope. Returns `404` when the identity has no membership in this Environment.
+         * @description Deactivates an identity by setting `is_active = false`, the account-wide switch, blocking future sign-in in every Environment it belongs to. Writes an `identity.status_set` audit row (the same event the Console's account route emits), delivered to the account's subscriptions and to those of every Environment the identity is a member of. Returns a `200` message envelope. Returns `404` when the identity has no membership in this Environment.
          */
         post: operations["ApiIdentitiesController_deactivateIdentity"];
         delete?: never;
@@ -369,7 +369,7 @@ export interface paths {
         put?: never;
         /**
          * Revoke all of an identity's sessions (admin)
-         * @description Revokes all of an identity's sessions (server-to-server admin) by marking every active refresh token revoked, so the next refresh on any device returns `401` and the user must sign in again. In-flight access tokens remain valid until their short TTL lapses. Idempotent — revoking when no tokens are active is a no-op. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
+         * @description Revokes all of an identity's sessions (server-to-server admin) by marking every active refresh token revoked, so the next refresh on any device returns `401` and the user must sign in again. In-flight access tokens remain valid until their short TTL lapses. Idempotent — revoking when no tokens are active is a no-op. Audits twice: `identity.sessions.admin_revoked` for the identity's own security log, and `session.all_revoked`, the subscribable webhook event, so a revoke made here reaches subscribers exactly as one made from the Console does. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
          */
         post: operations["ApiIdentitiesController_revokeIdentitySessions"];
         delete?: never;
@@ -823,13 +823,13 @@ export interface paths {
         };
         /**
          * List organizations
-         * @description Lists the Environment's organizations with `member_count` and `pending_invite_count` per row, paginated and searchable by name or slug (`q`). Empty while the Environment has organizations disabled. Requires the `hierarchy.view` permission.
+         * @description Lists the Environment's organizations with `member_count` and `pending_invite_count` per row, paginated and searchable by name or slug (`q`), or looked up exactly by your own id (`external_id`). Empty while the Environment has organizations disabled. Requires the `hierarchy.view` permission.
          */
         get: operations["ApiOrganizationsController_listOrganizations"];
         put?: never;
         /**
          * Create an organization
-         * @description Creates an organization from a `name` (slug auto-derived, display-only) with optional `description` and `metadata`. The Environment must have organizations enabled (`409 organization.not_enabled` otherwise); the container is independent of the access model, so flat and hierarchy Environments both hold organizations. Requires the `hierarchy.manage` permission and emits `organization.created`.
+         * @description Creates an organization from a `name` (slug auto-derived, display-only) with optional `description`, `metadata`, and `external_id` (your own id for it, unique per Environment; a repeat answers `409 organization.external_id_conflict`, so create-then-store is idempotent). The Environment must have organizations enabled (`409 organization.not_enabled` otherwise); the container is independent of the access model, so flat and hierarchy Environments both hold organizations. Requires the `hierarchy.manage` permission and emits `organization.created`.
          */
         post: operations["ApiOrganizationsController_createOrganization"];
         /**
@@ -865,7 +865,7 @@ export interface paths {
         head?: never;
         /**
          * Update an organization
-         * @description Updates an organization's `name`, `description`, and/or `metadata` by `id`. The slug is frozen at create and never changes. Supports optimistic concurrency via the `If-Match` header carrying the organization's current version (`409` on a version mismatch). Requires the `hierarchy.manage` permission at the organization and emits `organization.updated`.
+         * @description Updates an organization's `name`, `description`, `metadata`, and/or `external_id` (`null` clears it; a value already used by another organization in the Environment answers `409 organization.external_id_conflict`) by `id`. The slug is frozen at create and never changes. Supports optimistic concurrency via the `If-Match` header carrying the organization's current version (`409` on a version mismatch). Requires the `hierarchy.manage` permission at the organization and emits `organization.updated`.
          */
         patch: operations["ApiOrganizationsController_updateOrganization"];
         trace?: never;
@@ -909,7 +909,7 @@ export interface paths {
         put?: never;
         /**
          * Bind an SSO connection to an organization
-         * @description Binds an `end_user` SSO connection to the organization: a login through the connection lands in this organization, joining as a member with `default_role_id` when the identity is provisioned or is not yet a member, and the session starts here. The connection must already be bound to the organization's Environment (that binding routes the email domain), and the role must belong to the Environment (`400` otherwise). A connection binds to one organization per Environment (`409`). Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.bound`.
+         * @description Binds an `end_user` SSO connection to the organization: a login through the connection lands in this organization, joining as a member with `default_role_id` when the identity is provisioned or is not yet a member, and the session starts here. The connection must already be bound to the organization's Environment (that binding routes the email domain), and the role must be an active, non-system role of the Environment (`400` otherwise: `rbac.role_inactive` or `rbac.role_system_not_assignable`). A connection binds to one organization per Environment (`409`). Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.bound`.
          */
         post: operations["ApiOrganizationsController_bindSsoConnection"];
         delete?: never;
@@ -2112,6 +2112,8 @@ export interface components {
             /** @description Display label derived from the name at create; frozen afterwards. Organizations are addressed by `id`. */
             slug: string;
             metadata: Record<string, unknown>;
+            /** @description Your own id for this organization, unique per Environment. */
+            external_id?: string | null;
             /** @description Members (one role each) in this organization. */
             member_count: number;
             /** @description Unexpired, unaccepted, unrevoked invitations. */
@@ -2130,6 +2132,8 @@ export interface components {
             description?: string;
             /** @description Free-form metadata stored on the organization, returned as sent. */
             metadata?: Record<string, unknown>;
+            /** @description Your own id for this organization (the account id in your database), unique per Environment. Look the organization up with `GET /api/v1/organizations?external_id=...`; a second create with the same value answers 409, so create-then-store is idempotent. */
+            external_id?: string;
         };
         UpdateOrganizationDto: {
             /** @description New organization name. The slug does not change. */
@@ -2138,6 +2142,8 @@ export interface components {
             description?: string;
             /** @description Free-form metadata stored on the organization, returned as sent. */
             metadata?: Record<string, unknown>;
+            /** @description Your own id for this organization, unique per Environment. `null` clears it. */
+            external_id?: string | null;
         };
         EffectiveOrganizationPolicyDto: {
             mfa_required: boolean;
@@ -2585,6 +2591,11 @@ export interface components {
         };
         WebhookEventTypeDto: {
             event_type: string;
+            /**
+             * @description The subscription scope that takes this event. The public API lists both: everything an environment subscription accepts, then the account-only events, which need an account-scoped subscription from the Console or the portal API.
+             * @enum {string}
+             */
+            scope: "environment" | "account";
             category: string;
             description: string;
         };
@@ -6912,6 +6923,8 @@ export interface operations {
                 sort_by?: string;
                 /** @description Sort direction */
                 order?: "asc" | "desc";
+                /** @description Exact match on the organization's `external_id` (your own id for it). Answers one organization or none. */
+                external_id?: string;
             };
             header?: never;
             path?: never;
@@ -7772,7 +7785,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The connection is not an end-user connection bound to the organization's Environment, or the role is not in that Environment */
+            /** @description The connection is not an end-user connection bound to the organization's Environment, or the role is not an active, assignable role in that Environment */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7783,7 +7796,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The connection is not an end-user connection bound to the organization's Environment, or the role is not in that Environment",
+                     *         "message": "The connection is not an end-user connection bound to the organization's Environment, or the role is not an active, assignable role in that Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
                      *         "method": "POST"
