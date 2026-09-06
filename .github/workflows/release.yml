@@ -102,3 +102,25 @@ jobs:
       - name: Push version commit and tags
         if: steps.pending.outputs.found == 'true'
         run: git push --follow-tags origin HEAD:${{ github.ref_name }}
+
+      # The version commit has to live on main, because the tags changesets
+      # cut must point at the commit carrying the published versions. But it
+      # is the one commit that never reaches development on its own, and
+      # development is where the next release is assembled: left behind, it
+      # would bump from a stale version and re-count a changeset that already
+      # shipped. So merge it down here rather than leaving a reconcile PR for
+      # a human to remember. Feature branches still only ever flow up.
+      #
+      # A conflict here means development moved under the release (someone
+      # edited a version or changelog by hand). The job goes red and the
+      # merge is then done by PR, which is the old behaviour.
+      - name: Sync the version commit into development
+        if: steps.pending.outputs.found == 'true'
+        run: |
+          RELEASE_SHA="$(git rev-parse HEAD)"
+
+          git fetch origin development
+          git checkout -B development origin/development
+          git merge --no-ff "$RELEASE_SHA" \
+            -m "chore(release): sync version packages into development"
+          git push origin development
