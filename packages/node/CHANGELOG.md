@@ -1,5 +1,17 @@
 # @canopy-io/node
 
+## 0.3.2
+
+### Patch Changes
+
+- 7e71cc7: Regenerate the request/response types from Canopy's OpenAPI document.
+  Additive, no existing caller shape changed:
+
+  - MFA factor entries carry `webauthn_rp_id`: for a passkey, the relying-party
+    id it was created under and the only domain it answers on (the
+    Environment's own `webauthn_rp_id`, or Canopy's when the Environment names
+    none). `null` for every other factor type.
+
 ## 0.3.1
 
 ### Patch Changes
