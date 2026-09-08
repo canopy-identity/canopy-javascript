@@ -1795,6 +1795,11 @@ export interface components {
              * @description Last time this factor satisfied a challenge. `null` until the first use.
              */
             last_used_at: string | null;
+            /**
+             * @description For a passkey, the relying-party id it was created under and the only domain it answers on: the Environment's `webauthn_rp_id`, or Canopy's own when the Environment names none. `null` for every other factor type.
+             * @example acme.com
+             */
+            webauthn_rp_id: string | null;
         };
         AccountIdentityMfaResponseDto: {
             factors: components["schemas"]["MfaFactorResponseDto"][];
