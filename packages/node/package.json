@@ -1,7 +1,7 @@
 {
   "name": "@canopy-io/node",
-  "version": "0.3.2",
-  "description": "Official TypeScript SDK for Canopy \u2014 hierarchical identity and access management.",
+  "version": "0.3.3",
+  "description": "Official TypeScript SDK for Canopy — hierarchical identity and access management.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
   "homepage": "https://github.com/canopy-identity/canopy-javascript#readme",
