@@ -1,7 +1,7 @@
 {
   "name": "@canopy-io/nestjs",
   "version": "0.2.0",
-  "description": "Official NestJS integration for Canopy — hierarchical identity and access management.",
+  "description": "Official NestJS integration for Canopy \u2014 hierarchical identity and access management.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
   "homepage": "https://github.com/canopy-identity/canopy-javascript#readme",
@@ -16,8 +16,13 @@
     "nestjs",
     "authorization",
     "rbac",
+    "hierarchical-rbac",
+    "access-control",
     "iam",
     "permissions",
+    "multi-tenant",
+    "b2b-saas",
+    "sso",
     "guard"
   ],
   "type": "module",
@@ -41,6 +46,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {

@@ -211,6 +211,12 @@ Writing a `fetch` call against a documented REST API is easy, and an LLM will do
 **Zero runtime dependencies.**
 The client is `fetch` and nothing else, so it runs unchanged on Node, in browsers, on Cloudflare Workers, and on Deno — and it adds no supply-chain surface to anything that installs it. CI fails if a runtime dependency appears.
 
+## Changelog
+
+[CHANGELOG.md](./CHANGELOG.md) records every published version. The package is
+pre-1.0: while the surface is still settling, a minor bump may carry a breaking
+change, so read the entry before taking one.
+
 ## License
 
 MIT © Canopy Identity Inc.
