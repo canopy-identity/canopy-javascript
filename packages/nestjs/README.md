@@ -286,6 +286,12 @@ A hit costs nothing. A miss reads from Canopy on the request path and holds an i
 
 The read itself is deliberately **not** cancelled: it may be shared with other requests that are still waiting on it, and it warms the cache either way.
 
+## Changelog
+
+[CHANGELOG.md](./CHANGELOG.md) records every published version. The package is
+pre-1.0: while the surface is still settling, a minor bump may carry a breaking
+change, so read the entry before taking one.
+
 ## License
 
 MIT © Canopy Identity Inc.

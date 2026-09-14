@@ -1,7 +1,7 @@
 {
   "name": "@canopy-io/node",
   "version": "0.3.2",
-  "description": "Official TypeScript SDK for Canopy — hierarchical identity and access management.",
+  "description": "Official TypeScript SDK for Canopy \u2014 hierarchical identity and access management.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
   "homepage": "https://github.com/canopy-identity/canopy-javascript#readme",
@@ -15,9 +15,14 @@
     "canopy",
     "authorization",
     "rbac",
+    "hierarchical-rbac",
+    "access-control",
     "iam",
     "permissions",
     "identity",
+    "multi-tenant",
+    "b2b-saas",
+    "sso",
     "sdk"
   ],
   "type": "module",
@@ -41,6 +46,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {

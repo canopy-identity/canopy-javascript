@@ -40,9 +40,19 @@ export default tseslint.config(
     },
   },
   {
-    // Last, so nothing re-enables type-aware rules for it. This file is not
-    // part of the TypeScript project, so the project service cannot type it.
+    // Last, so nothing re-enables type-aware rules for it. These files are not
+    // part of the TypeScript project, so the project service cannot type them.
+    // They are Node scripts (this config, the release-notes extractor), so the
+    // two Node globals they use are declared here; `globals` is only a
+    // transitive install, and importing it would be a phantom dependency.
     files: ["**/*.mjs", "**/*.js"],
     ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      // Spread first: disableTypeChecked switches the project service off for
+      // these files through languageOptions, and a bare object here would
+      // replace that and turn it back on.
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: { process: "readonly", console: "readonly" },
+    },
   },
 );

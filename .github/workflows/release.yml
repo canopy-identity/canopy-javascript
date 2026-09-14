@@ -103,6 +103,45 @@ jobs:
         if: steps.pending.outputs.found == 'true'
         run: git push --follow-tags origin HEAD:${{ github.ref_name }}
 
+      # A tag is not release notes. changesets writes the changelog and cuts a
+      # tag per published version but creates no release, so the Releases page
+      # sat empty beside a list of tags and a consumer deciding whether to take
+      # a bump had nothing to read. The body comes from the changelog itself,
+      # so a release can never describe a version differently from the package
+      # that shipped it.
+      - name: Create a GitHub Release per published version
+        if: steps.pending.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # changesets points the tags it cuts at the version commit, which is
+          # HEAD here, so this lists exactly what this run published.
+          for tag in $(git tag --points-at HEAD); do
+            version="${tag##*@}"
+            name="${tag%@*}"
+            dir="packages/${name##*/}"
+
+            if [ ! -f "$dir/CHANGELOG.md" ]; then
+              echo "No changelog at $dir for $tag — skipping"
+              continue
+            fi
+
+            # A re-run of this job reaches here with the release already made:
+            # changeset publish skips versions npm already has, but the tags
+            # still point at HEAD. Creating twice would fail the job after the
+            # publish succeeded, so an existing release is left as it is.
+            if gh release view "$tag" >/dev/null 2>&1; then
+              echo "Release $tag already exists — leaving it"
+              continue
+            fi
+
+            node scripts/release-notes.mjs "$dir" "$version" > /tmp/notes.md
+            gh release create "$tag" --title "$tag" --notes-file /tmp/notes.md
+            echo "Released $tag"
+          done
+
       # The version commit has to live on main, because the tags changesets
       # cut must point at the commit carrying the published versions. But it
       # is the one commit that never reaches development on its own, and
