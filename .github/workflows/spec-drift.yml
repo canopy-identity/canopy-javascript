@@ -1,0 +1,120 @@
+name: Spec drift
+
+# Notices when the published API has moved on from the committed types.
+#
+# `generate:check` runs on every PR, but a Canopy deploy that changes the
+# public spec makes the SDK stale between PRs, and nothing in either repo says
+# so: the drift is only found when someone next opens a PR here for another
+# reason. That is how one regeneration in the SDK's history sat undiscovered
+# until a consumer took a bump with nothing to read. This job asks the question
+# on a schedule, so drift announces itself instead of waiting to be noticed.
+#
+# On drift it opens one issue, or adds to the one already open, and points at
+# the two commands that close it. On a network failure it does nothing loud:
+# `generate:check` exits 0 with a SKIPPED line when the spec cannot be reached,
+# and a blip must not read as "the API changed". The skip is surfaced as a
+# workflow warning so a permanently unreachable URL still shows up in the
+# run list rather than hiding behind green.
+#
+# Run it by hand from the Actions tab after a Canopy deploy that touched the
+# public surface, rather than waiting for Monday.
+
+on:
+  schedule:
+    # Monday 08:00 UTC. Weekly is often enough: the cost of being stale is a
+    # consumer taking a bump without the new fields, not an outage.
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: spec-drift
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Committed types match the published spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The types on development are what the next release ships, so that
+          # is the branch to compare against the live spec, whatever branch the
+          # schedule fires on.
+          ref: development
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.19.0
+          cache: npm
+      - run: npm ci
+
+      # Capture the output rather than letting the step fail outright: the
+      # verdict has three outcomes (match, drift, unreachable) and only one of
+      # them is worth an issue.
+      - name: Compare
+        id: compare
+        run: |
+          set +e
+          npm run --silent generate:check 2>&1 | tee /tmp/drift.log
+          # Not `status`: that name is read-only in zsh, and this script is
+          # worth running by hand from a laptop when a deploy just went out.
+          verdict=${PIPESTATUS[0]}
+          set -e
+
+          if grep -q "SKIPPED" /tmp/drift.log; then
+            echo "outcome=unreachable" >> "$GITHUB_OUTPUT"
+            echo "::warning::generate:check could not reach the published spec; drift was not checked this run"
+          elif [ "$verdict" -eq 0 ]; then
+            echo "outcome=match" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=drift" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update the drift issue
+        if: steps.compare.outputs.outcome == 'drift'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          gh label create spec-drift \
+            --description "The committed types no longer match the published API spec" \
+            --color D93F0B --force
+
+          body="$(cat <<EOF
+          The published spec at https://canopy-io.com/openapi/api.json no longer matches \`packages/node/src/generated/types.ts\` on \`development\`. A Canopy deploy changed the public API surface and the SDK has not been regenerated.
+
+          To close this:
+
+          1. On a branch off \`development\`: \`npm run generate\`, then read the diff of \`packages/node/src/generated/types.ts\`. That diff is the record of what changed in the API.
+          2. If an operation was added or removed, move \`EXPECTED_OPERATION_COUNT\` in \`packages/node/src/coverage.test.ts\` and say why in the changeset.
+          3. \`npm run changeset\` (patch when additive, minor when a caller shape changed), \`npm run verify\`, open a PR into \`development\`, then a \`release:\` PR from \`development\` into \`main\`.
+
+          Run: $RUN_URL
+          EOF
+          )"
+
+          existing="$(gh issue list --label spec-drift --state open --json number --jq '.[0].number // empty')"
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still stale as of this run: $RUN_URL"
+            echo "Updated #$existing"
+          else
+            gh issue create \
+              --title "SDK types have drifted from the published API spec" \
+              --label spec-drift \
+              --body "$body"
+            echo "Opened a drift issue"
+          fi
+
+      # The scheduled run itself fails on drift, so the Actions tab shows red
+      # next to the issue rather than a green run that quietly filed a ticket.
+      - name: Fail on drift
+        if: steps.compare.outputs.outcome == 'drift'
+        run: |
+          cat /tmp/drift.log
+          exit 1
