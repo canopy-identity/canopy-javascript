@@ -1740,7 +1740,7 @@ export interface components {
             email: string;
             first_name: string;
             last_name: string;
-            /** @description Initial password (8-64 chars). NIST SP 800-63B aligned — no composition rules. HaveIBeenPwned breach check runs server-side. Omit to create a passwordless identity (sign-in via SSO/social or forgot-password reset). */
+            /** @description Initial password. 8-64 characters. No composition rules — NIST SP 800-63B aligned. A HaveIBeenPwned breach check runs server-side. The effective policy is published on `GET /v1/identity/auth/config`, so a client can state the rules before submit rather than after. Omit to create a passwordless identity (sign-in via SSO/social or forgot-password reset). */
             password?: string;
             external_id?: string;
             metadata?: Record<string, unknown>;
@@ -1778,7 +1778,7 @@ export interface components {
             metadata?: Record<string, unknown> | null;
         };
         SetIdentityPasswordDto: {
-            /** @description New password (8–64 chars). NIST SP 800-63B aligned — no composition rules. HaveIBeenPwned breach check runs server-side. */
+            /** @description New password. 8-64 characters. No composition rules — NIST SP 800-63B aligned. A HaveIBeenPwned breach check runs server-side. The effective policy is published on `GET /v1/identity/auth/config`, so a client can state the rules before submit rather than after. */
             password: string;
         };
         MfaFactorResponseDto: {
