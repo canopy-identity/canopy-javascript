@@ -1,0 +1,21 @@
+# Every step is a gate: `set -e` because these run as separate lines rather
+# than one `&&` chain, and without it a failure would be passed over and the
+# hook would exit with the status of the last command alone.
+set -e
+
+# `npm run format` rewrites the working tree, not the index, so anything
+# already staged has to be staged again. Without this the commit keeps the
+# unformatted copy while the working tree moves on, and the PR then fails
+# `format:check` on work the author watched format cleanly. Only paths that
+# were already staged are re-added, so nothing unrelated is swept in.
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+
+npm run format
+
+if [ -n "$staged" ]; then
+  printf '%s\n' "$staged" | tr '\n' '\0' | xargs -0 git add --
+fi
+
+npm run lint
+npm run typecheck
+npm run test

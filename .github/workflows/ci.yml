@@ -20,6 +20,13 @@ jobs:
           node-version: 20.19.0
           cache: npm
       - run: npm ci
+
+      # The pre-commit hook formats every commit, so an unformatted PR means the
+      # hook was bypassed. Checked before the build because it is the cheap
+      # failure.
+      - name: Formatting
+        run: npm run format:check
+
       # Build first, and in dependency order. @canopy-io/nestjs resolves
       # @canopy-io/node through its published `types` entry, which only exists
       # once that package has been built — so on a clean checkout every step
