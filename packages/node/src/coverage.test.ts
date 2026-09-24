@@ -23,10 +23,12 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 102 as of organizations landing in the published spec: the organization,
-// member, invitation, policy, and SSO-binding operations, wrapped by the
-// `organizations` resource. Additive.
-const EXPECTED_OPERATION_COUNT = 102;
+// 132 as of an organization running its own sign-in landing in the published
+// spec: its SSO connection, domain claims, SSO recovery codes, SSO test
+// sign-in, directory sync and grantable roles (28), plus Environment branding
+// (2). Additive — typed and callable through `client.request`, not yet
+// wrapped by a resource method.
+const EXPECTED_OPERATION_COUNT = 132;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
