@@ -492,4 +492,88 @@ describe("organizations", () => {
       "https://api.test/api/v1/organizations/org_1/sso-connections/conn%201",
     );
   });
+
+  it("opens directory sync by PUTting the roles it may grant", async () => {
+    const { canopy, calls } = harness({ items: [] });
+
+    await canopy.organizations.setDirectoryGrantableRoles("org_1", {
+      role_ids: ["role_member", "role_lead"],
+      default_role_id: "role_member",
+    });
+    await canopy.organizations.listDirectoryGrantableRoles("org_1");
+
+    expect(calls[0]?.method).toBe("PUT");
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/directory/grantable-roles",
+    );
+    expect(calls[0]?.body).toEqual({
+      role_ids: ["role_member", "role_lead"],
+      default_role_id: "role_member",
+    });
+    expect(calls[1]?.method).toBe("GET");
+    expect(calls[1]?.url).toBe(calls[0]?.url);
+  });
+
+  it("connects, reads and removes the directory on one path", async () => {
+    const { canopy, calls } = harness({ data: { id: "dir_1" } });
+
+    await canopy.organizations.createDirectory("org_1");
+    await canopy.organizations.getDirectory("org_1");
+    await canopy.organizations.removeDirectory("org_1");
+
+    expect(calls.map((c) => c.method)).toEqual(["POST", "GET", "DELETE"]);
+    expect(new Set(calls.map((c) => c.url))).toEqual(
+      new Set(["https://api.test/api/v1/organizations/org_1/directory"]),
+    );
+  });
+
+  it("mints, rotates and revokes tokens under the directory", async () => {
+    const { canopy, calls } = harness({ data: { id: "tok_2" } });
+
+    await canopy.organizations.mintDirectoryToken("org_1", { name: "Okta" });
+    await canopy.organizations.rotateDirectoryToken("org_1", "tok 1");
+    await canopy.organizations.revokeDirectoryToken("org_1", "tok_1");
+    await canopy.organizations.listDirectoryTokens("org_1");
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/directory/tokens",
+    );
+    expect(calls[0]?.body).toEqual({ name: "Okta" });
+    expect(calls[1]?.method).toBe("POST");
+    expect(calls[1]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/directory/tokens/tok%201/rotate",
+    );
+    expect(calls[2]?.method).toBe("DELETE");
+    expect(calls[2]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/directory/tokens/tok_1",
+    );
+    expect(calls[3]?.method).toBe("GET");
+  });
+
+  it("maps and unmaps a pushed group on its mapping path", async () => {
+    const { canopy, calls } = harness({ data: { id: "grp_1" } });
+
+    await canopy.organizations.mapDirectoryGroup("org_1", "grp_1", {
+      role_id: "role_lead",
+    });
+    await canopy.organizations.unmapDirectoryGroup("org_1", "grp_1");
+    await canopy.organizations.listDirectoryGroups("org_1");
+    await canopy.organizations.listDirectoryActivity("org_1");
+
+    const mapping =
+      "https://api.test/api/v1/organizations/org_1/directory/groups/grp_1/mapping";
+
+    expect(calls[0]?.method).toBe("PUT");
+    expect(calls[0]?.url).toBe(mapping);
+    expect(calls[0]?.body).toEqual({ role_id: "role_lead" });
+    expect(calls[1]?.method).toBe("DELETE");
+    expect(calls[1]?.url).toBe(mapping);
+    expect(calls[2]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/directory/groups",
+    );
+    expect(calls[3]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/directory/activity",
+    );
+  });
 });
