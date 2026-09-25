@@ -1418,6 +1418,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/organizations/{id}/directory/grantable-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the roles an organization's directory may grant
+         * @description What this organization's identity provider is allowed to hand out, and which role arriving people hold.
+         */
+        get: operations["ApiOrganizationDirectoryController_listGrantableRoles"];
+        /**
+         * Replace the roles an organization's directory may grant
+         * @description Replaces the whole list in one act. Withdrawing a role unmaps the groups that name it and releases the grants those mappings produced. An empty list disables directory sync for the organization.
+         */
+        put: operations["ApiOrganizationDirectoryController_setGrantableRoles"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/organizations/{id}/directory/groups": {
         parameters: {
             query?: never;
@@ -2963,7 +2987,7 @@ export interface components {
         OrganizationDirectoryResponseDto: {
             /** @description The directory's id, or null when none has been created. */
             id?: string | null;
-            /** @description The SCIM 2.0 base URL to paste into the identity provider's connector, or null when no directory exists. */
+            /** @description The full SCIM 2.0 base URL (the instance's public origin and the directory's path) to paste into the identity provider's connector, or null when no directory exists. */
             base_url?: string | null;
             /** Format: date-time */
             created_at?: string | null;
@@ -2991,7 +3015,7 @@ export interface components {
             /** @description Plaintext SCIM token — shown only once */
             token: string;
             token_preview: string;
-            /** @description The directory's SCIM 2.0 base URL, to paste into the identity provider's connector. */
+            /** @description The directory's full SCIM 2.0 base URL (the instance's public origin and the directory's path), to paste into the identity provider's connector. */
             base_url: string;
             /**
              * Format: date-time
@@ -3023,6 +3047,19 @@ export interface components {
             detail?: string | null;
             /** Format: date-time */
             created_at: string;
+        };
+        DirectoryGrantableRoleResponseDto: {
+            id: string;
+            name: string;
+            description?: string | null;
+            /** @description The role an arriving person holds when no mapped group says otherwise. */
+            is_default: boolean;
+        };
+        SetDirectoryGrantableRolesDto: {
+            /** @description The roles this organization's directory may grant. An empty list disables directory sync for the organization. */
+            role_ids: string[];
+            /** @description The role somebody arrives with when no mapped group says otherwise. Required unless the list is empty, and must be one of `role_ids`. */
+            default_role_id?: string | null;
         };
         ScimGroupResponseDto: {
             id: string;
@@ -12032,6 +12069,226 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/activity",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationDirectoryController_listGrantableRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grantable roles returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["DirectoryGrantableRoleResponseDto"][];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationDirectoryController_setGrantableRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDirectoryGrantableRolesDto"];
+            };
+        };
+        responses: {
+            /** @description Grantable roles replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["DirectoryGrantableRoleResponseDto"][];
+                    };
+                };
+            };
+            /** @description The list names a role that does not exist here, a system role, or no role for arriving people to hold */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The list names a role that does not exist here, a system role, or no role for arriving people to hold",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Only the application owner may change this list. An organization's own administrator can read it, not change it. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "Only the application owner may change this list. An organization's own administrator can read it, not change it.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The list cannot be emptied while the organization's directory is connected; remove the directory first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The list cannot be emptied while the organization's directory is connected; remove the directory first",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
+                     *         "method": "PUT"
                      *       }
                      *     }
                      */

@@ -136,8 +136,8 @@ plus `mfa` once a second factor was verified), so a backend can insist on
 `claims.amr?.includes("mfa")` before a sensitive action.
 
 The organizations themselves are wrapped on the client: provision a tenant,
-manage its members and invitations, tighten its sign-in policy, and bind its
-identity provider.
+manage its members and invitations, tighten its sign-in policy, bind its
+identity provider, and set up its directory sync.
 
 ```ts
 const acme = await canopy.organizations.create({ name: "Acme Corp" });
@@ -148,6 +148,25 @@ await canopy.organizations.addMember(acme.id, {
 });
 
 await canopy.organizations.updatePolicy(acme.id, { mfa_required: true });
+```
+
+Directory sync (SCIM) opens when you name the roles an organization's identity
+provider may grant; the organization's own admin can read that list but not
+change it. The token is returned once, with the full base URL its connector
+needs.
+
+```ts
+await canopy.organizations.setDirectoryGrantableRoles(acme.id, {
+  role_ids: [memberRoleId, leadRoleId],
+  default_role_id: memberRoleId,
+});
+
+await canopy.organizations.createDirectory(acme.id);
+
+const { token, base_url } = await canopy.organizations.mintDirectoryToken(
+  acme.id,
+  { name: "Okta" },
+);
 ```
 
 ### Authorizing without a call per request
