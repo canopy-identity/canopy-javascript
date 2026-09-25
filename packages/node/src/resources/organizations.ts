@@ -222,6 +222,174 @@ export class Organizations {
       `/api/v1/organizations/${enc(id)}/sso-connections/${enc(connectionId)}`,
     );
   }
+
+  // ── Directory sync: the organization's own SCIM connection ──
+
+  /**
+   * The roles this organization's identity provider may grant, and the one
+   * people arrive with. An empty list means directory sync is not open for
+   * the organization.
+   */
+  listDirectoryGrantableRoles(
+    id: string,
+  ): Promise<
+    ResponseBody<"ApiOrganizationDirectoryController_listGrantableRoles">
+  > {
+    return this.client.request(
+      "GET",
+      `/api/v1/organizations/${enc(id)}/directory/grantable-roles`,
+    );
+  }
+
+  /**
+   * Replace the list in one act, which is how directory sync is opened for
+   * an organization. Exactly one role is `default_role_id`, the one people
+   * arrive with. Withdrawing a role unmaps the groups naming it and keeps
+   * their members in the organization; an empty list is refused while a
+   * directory is connected. Your API key only: an organization admin's
+   * token can read the list but is refused changing it.
+   */
+  setDirectoryGrantableRoles(
+    id: string,
+    input: RequestBody<"ApiOrganizationDirectoryController_setGrantableRoles">,
+  ): Promise<
+    ResponseBody<"ApiOrganizationDirectoryController_setGrantableRoles">
+  > {
+    return this.client.request(
+      "PUT",
+      `/api/v1/organizations/${enc(id)}/directory/grantable-roles`,
+      { body: input },
+    );
+  }
+
+  /**
+   * The organization's directory, its full SCIM base URL, and the roles it
+   * may grant. `id` is null until a directory is connected.
+   */
+  getDirectory(
+    id: string,
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryController_get">> {
+    return this.client.request(
+      "GET",
+      `/api/v1/organizations/${enc(id)}/directory`,
+    );
+  }
+
+  /** Connect a directory. Refused until the organization's roles are set. */
+  createDirectory(
+    id: string,
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryController_create">> {
+    return this.client.request(
+      "POST",
+      `/api/v1/organizations/${enc(id)}/directory`,
+    );
+  }
+
+  /**
+   * End the connection. The people it provisioned keep their accounts and
+   * their membership; what ends is the provider's ability to push.
+   */
+  removeDirectory(id: string): Promise<void> {
+    return this.client.request(
+      "DELETE",
+      `/api/v1/organizations/${enc(id)}/directory`,
+    );
+  }
+
+  listDirectoryTokens(
+    id: string,
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryController_listTokens">> {
+    return this.client.request(
+      "GET",
+      `/api/v1/organizations/${enc(id)}/directory/tokens`,
+    );
+  }
+
+  /**
+   * The raw token is in this answer and nowhere else, alongside the full
+   * base URL the identity provider's connector needs with it.
+   */
+  mintDirectoryToken(
+    id: string,
+    input: RequestBody<"ApiOrganizationDirectoryController_mintToken"> = {},
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryController_mintToken">> {
+    return this.client.request(
+      "POST",
+      `/api/v1/organizations/${enc(id)}/directory/tokens`,
+      { body: input },
+    );
+  }
+
+  /**
+   * A replacement token, shown once. The old one keeps working for a short
+   * overlap, so the provider can be moved across without an outage.
+   */
+  rotateDirectoryToken(
+    id: string,
+    tokenId: string,
+    input: RequestBody<"ApiOrganizationDirectoryController_rotateToken"> = {},
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryController_rotateToken">> {
+    return this.client.request(
+      "POST",
+      `/api/v1/organizations/${enc(id)}/directory/tokens/${enc(tokenId)}/rotate`,
+      { body: input },
+    );
+  }
+
+  revokeDirectoryToken(id: string, tokenId: string): Promise<void> {
+    return this.client.request(
+      "DELETE",
+      `/api/v1/organizations/${enc(id)}/directory/tokens/${enc(tokenId)}`,
+    );
+  }
+
+  /** The organization's own provisioning events, newest first. */
+  listDirectoryActivity(
+    id: string,
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryController_activity">> {
+    return this.client.request(
+      "GET",
+      `/api/v1/organizations/${enc(id)}/directory/activity`,
+    );
+  }
+
+  /** The groups the provider has pushed, each with its role mapping. */
+  listDirectoryGroups(
+    id: string,
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryGroupsController_list">> {
+    return this.client.request(
+      "GET",
+      `/api/v1/organizations/${enc(id)}/directory/groups`,
+    );
+  }
+
+  /**
+   * Grant a listed role to every member of a pushed group, at the
+   * organization. A role not on the organization's list is refused with
+   * `scim.role_not_grantable`.
+   */
+  mapDirectoryGroup(
+    id: string,
+    groupId: string,
+    input: RequestBody<"ApiOrganizationDirectoryGroupsController_map">,
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryGroupsController_map">> {
+    return this.client.request(
+      "PUT",
+      `/api/v1/organizations/${enc(id)}/directory/groups/${enc(groupId)}/mapping`,
+      { body: input },
+    );
+  }
+
+  /** Members fall back to the arrival role and stay in the organization. */
+  unmapDirectoryGroup(
+    id: string,
+    groupId: string,
+  ): Promise<ResponseBody<"ApiOrganizationDirectoryGroupsController_unmap">> {
+    return this.client.request(
+      "DELETE",
+      `/api/v1/organizations/${enc(id)}/directory/groups/${enc(groupId)}/mapping`,
+    );
+  }
 }
 
 export type OrganizationItem = ItemOf<
