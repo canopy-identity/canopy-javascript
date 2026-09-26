@@ -68,6 +68,14 @@ export type { PermissionItem } from "./resources/permissions.js";
 export { Roles } from "./resources/roles.js";
 export type { RoleItem } from "./resources/roles.js";
 
+export { isWebhookEvent } from "./webhooks.js";
+export type {
+  WebhookDelivery,
+  WebhookEvent,
+  WebhookEventData,
+  WebhookEventName,
+} from "./webhooks.js";
+
 export { withConcurrency } from "./schema.js";
 export type {
   ConcurrencyOptions,

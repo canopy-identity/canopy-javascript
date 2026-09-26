@@ -2704,10 +2704,10 @@ export interface components {
             /** @description The authentication methods the identity provider asserted. */
             amr: string[];
             /**
-             * @description How the asserted email's domain fared against the bound organization's verified claims. `no_boundary` when the connection is bound to no organization in the Environment.
+             * @description How the asserted email's domain fared against the bound organization's verified claims. `no_boundary` when the connection is bound to no organization in an Environment without organizations; `unbound` when it is bound to none in an Environment that has them, which refuses the sign-in.
              * @enum {string|null}
              */
-            domain_outcome: "accepted" | "no_boundary" | "not_listed" | "not_verified" | "unknown" | null;
+            domain_outcome: "accepted" | "no_boundary" | "unbound" | "not_listed" | "not_verified" | "unknown" | null;
             /** Format: date-time */
             completed_at: string | null;
         };
@@ -3424,6 +3424,13 @@ export interface components {
             scope: "environment" | "account";
             category: string;
             description: string;
+            /** @description The `resource_type` values a delivery of this event carries. */
+            resource_types: string[];
+            /**
+             * @description The schema in the published API spec (components.schemas) that describes a delivery of this event, including the fields its `metadata` carries.
+             * @example WebhookOrganizationMemberAddedEvent
+             */
+            payload_schema: string;
         };
         WebhookDeliveryResponseDto: {
             id: string;
@@ -3543,6 +3550,768 @@ export interface components {
         };
         ErrorResponseDto: {
             error: components["schemas"]["ApiErrorBodyDto"];
+        };
+        /** @description A delivery of the `identity.created` webhook event. */
+        WebhookIdentityCreatedEvent: {
+            /** @enum {string} */
+            event: "identity.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description The identity's email address. */
+                    email: string;
+                    /** @description Whether the identity was created with a password. */
+                    password_set?: boolean;
+                    /**
+                     * Format: uuid
+                     * @description The Environment the identity was created into, when it was created from the Account directory.
+                     */
+                    environment_id?: string | null;
+                    /**
+                     * @description Set when the change came from an accepted invitation.
+                     * @enum {string}
+                     */
+                    source?: "invite";
+                };
+            };
+        };
+        /** @description A delivery of the `identity.updated` webhook event. */
+        WebhookIdentityUpdatedEvent: {
+            /** @enum {string} */
+            event: "identity.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description The profile fields that changed and their new values, when updated through an Environment. */
+                    changes?: {
+                        /** @description New first name. */
+                        first_name?: string;
+                        /** @description New last name. */
+                        last_name?: string;
+                        /** @description New custom metadata. */
+                        metadata?: Record<string, unknown> | null;
+                    };
+                    /** @description The names of the fields that changed, when updated from the Account directory. */
+                    fields_updated?: string[];
+                };
+            };
+        };
+        /** @description A delivery of the `identity.status_set` webhook event. */
+        WebhookIdentityStatusSetEvent: {
+            /** @enum {string} */
+            event: "identity.status_set";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description Whether the identity was active before. */
+                    previous_is_active: boolean;
+                    /** @description Whether the identity is active now. */
+                    new_is_active: boolean;
+                    /** @description The Environments the identity is a member of. Present on account-scoped deliveries only. */
+                    environment_ids?: string[];
+                };
+            };
+        };
+        /** @description A delivery of the `identity.erased` webhook event. */
+        WebhookIdentityErasedEvent: {
+            /** @enum {string} */
+            event: "identity.erased";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description The Environments the identity is a member of. Present on account-scoped deliveries only. */
+                    environment_ids?: string[];
+                };
+            };
+        };
+        /** @description A delivery of the `identity.env_membership.added` webhook event. */
+        WebhookIdentityEnvMembershipAddedEvent: {
+            /** @enum {string} */
+            event: "identity.env_membership.added";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description True when an earlier membership was restored rather than a new one created. */
+                    reactivated: boolean;
+                    /**
+                     * Format: uuid
+                     * @description The Environment membership.
+                     */
+                    membership_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description The SSO connection the identity signed in through, for a just-in-time membership.
+                     */
+                    connection_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description The invitation that was accepted.
+                     */
+                    invite_id?: string;
+                    /**
+                     * @description How the membership was created, when known.
+                     * @enum {string}
+                     */
+                    source?: "identity_create" | "sso_jit" | "invite";
+                };
+            };
+        };
+        /** @description A delivery of the `identity.env_membership.removed` webhook event. */
+        WebhookIdentityEnvMembershipRemovedEvent: {
+            /** @enum {string} */
+            event: "identity.env_membership.removed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description Pending invitations into the Environment revoked with the membership. */
+                    revoked_pending_invites: number;
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.created` webhook event. */
+        WebhookAssignmentCreatedEvent: {
+            /** @enum {string} */
+            event: "assignment.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The identity holding the assignment.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The hierarchy node the role is held at.
+                     */
+                    node_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role assigned.
+                     */
+                    role_id: string;
+                    /**
+                     * @description Set when the change came from an accepted invitation.
+                     * @enum {string}
+                     */
+                    source?: "invite";
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.updated` webhook event. */
+        WebhookAssignmentUpdatedEvent: {
+            /** @enum {string} */
+            event: "assignment.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The identity holding the assignment.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The hierarchy node the role is held at.
+                     */
+                    node_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role assigned.
+                     */
+                    role_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.removed` webhook event. */
+        WebhookAssignmentRemovedEvent: {
+            /** @enum {string} */
+            event: "assignment.removed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The identity holding the assignment.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The hierarchy node the role is held at.
+                     */
+                    node_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role assigned.
+                     */
+                    role_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.bulk_created` webhook event. */
+        WebhookAssignmentBulkCreatedEvent: {
+            /** @enum {string} */
+            event: "assignment.bulk_created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /** @description The assignments created. */
+                    assignment_ids: string[];
+                    /** @description How many were created. */
+                    succeeded: number;
+                    /** @description How many were refused. */
+                    failed: number;
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.bulk_removed` webhook event. */
+        WebhookAssignmentBulkRemovedEvent: {
+            /** @enum {string} */
+            event: "assignment.bulk_removed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /** @description The assignments removed. */
+                    assignment_ids: string[];
+                    /** @description Who lost which role, and where. */
+                    affected: {
+                        /**
+                         * Format: uuid
+                         * @description The identity holding the assignment.
+                         */
+                        identity_id: string;
+                        /**
+                         * Format: uuid
+                         * @description The hierarchy node the role is held at.
+                         */
+                        node_id: string;
+                        /**
+                         * Format: uuid
+                         * @description The role assigned.
+                         */
+                        role_id: string;
+                    }[];
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.bulk_role_changed` webhook event. */
+        WebhookAssignmentBulkRoleChangedEvent: {
+            /** @enum {string} */
+            event: "assignment.bulk_role_changed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /** @description The assignments changed. */
+                    assignment_ids: string[];
+                    /**
+                     * Format: uuid
+                     * @description The role every one of them now holds.
+                     */
+                    role_id: string;
+                    /** @description Whose assignment changed, and where. */
+                    affected: {
+                        /**
+                         * Format: uuid
+                         * @description The identity holding the assignment.
+                         */
+                        identity_id: string;
+                        /**
+                         * Format: uuid
+                         * @description The hierarchy node the role is held at.
+                         */
+                        node_id: string;
+                    }[];
+                };
+            };
+        };
+        /** @description A delivery of the `role.created` webhook event. */
+        WebhookRoleCreatedEvent: {
+            /** @enum {string} */
+            event: "role.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role";
+                metadata: {
+                    /** @description The role's name. */
+                    name: string;
+                };
+            };
+        };
+        /** @description A delivery of the `role.updated` webhook event. */
+        WebhookRoleUpdatedEvent: {
+            /** @enum {string} */
+            event: "role.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role";
+                metadata: {
+                    /** @description The fields that changed and their new values. */
+                    changes: {
+                        /** @description New name. */
+                        name?: string;
+                        /** @description New description. */
+                        description?: string | null;
+                        /** @description Whether the role is active. */
+                        is_active?: boolean;
+                    };
+                };
+            };
+        };
+        /** @description A delivery of the `role.deleted` webhook event. */
+        WebhookRoleDeletedEvent: {
+            /** @enum {string} */
+            event: "role.deleted";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role";
+                metadata: {
+                    /** @description The role's name. */
+                    name: string;
+                };
+            };
+        };
+        /** @description A delivery of the `role.permissions.updated` webhook event. */
+        WebhookRolePermissionsUpdatedEvent: {
+            /** @enum {string} */
+            event: "role.permissions.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role";
+                metadata: {
+                    /** @description Every permission key the role now carries. */
+                    permission_keys: string[];
+                };
+            };
+        };
+        /** @description A delivery of the `permission.created` webhook event. */
+        WebhookPermissionCreatedEvent: {
+            /** @enum {string} */
+            event: "permission.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "permission";
+                metadata: {
+                    /** @description The permission key. */
+                    key: string;
+                };
+            };
+        };
+        /** @description A delivery of the `permission.updated` webhook event. */
+        WebhookPermissionUpdatedEvent: {
+            /** @enum {string} */
+            event: "permission.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "permission";
+                metadata: {
+                    /** @description The fields that changed and their new values. */
+                    changes: {
+                        /** @description New name. */
+                        name?: string;
+                        /** @description New description. */
+                        description?: string | null;
+                        /** @description New category. */
+                        category?: string;
+                    };
+                };
+            };
+        };
+        /** @description A delivery of the `permission.deleted` webhook event. */
+        WebhookPermissionDeletedEvent: {
+            /** @enum {string} */
+            event: "permission.deleted";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "permission";
+                metadata: {
+                    /** @description The permission key. */
+                    key: string;
+                };
+            };
+        };
+        /** @description A delivery of the `node.created` webhook event. */
+        WebhookNodeCreatedEvent: {
+            /** @enum {string} */
+            event: "node.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "node";
+                metadata: {
+                    /** @description The node's name. */
+                    name: string;
+                    /** @description The node's type. */
+                    node_type: string;
+                    /**
+                     * Format: uuid
+                     * @description The parent node, or null for the root.
+                     */
+                    parent_node_id: string | null;
+                };
+            };
+        };
+        /** @description A delivery of the `node.updated` webhook event. */
+        WebhookNodeUpdatedEvent: {
+            /** @enum {string} */
+            event: "node.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "node";
+                metadata: {
+                    /** @description The node's name. */
+                    name: string;
+                    /** @description The node's new status, when it changed. */
+                    status?: string;
+                };
+            };
+        };
+        /** @description A delivery of the `node.moved` webhook event. */
+        WebhookNodeMovedEvent: {
+            /** @enum {string} */
+            event: "node.moved";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "node";
+                metadata: {
+                    /** @description The node's name. */
+                    name: string;
+                    /**
+                     * Format: uuid
+                     * @description The node's new parent.
+                     */
+                    parent_node_id: string | null;
+                    /** @description The node's new status, when it changed as well. */
+                    status?: string;
+                };
+            };
+        };
+        /** @description A delivery of the `node.deleted` webhook event. */
+        WebhookNodeDeletedEvent: {
+            /** @enum {string} */
+            event: "node.deleted";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "node";
+                metadata: {
+                    /** @description The node's name. */
+                    name: string;
+                    /** @description Descendant nodes deleted with it. */
+                    descendant_count: number;
+                    /** @description Role assignments removed across the subtree. */
+                    assignments_removed: number;
+                };
+            };
+        };
+        /** @description A delivery of the `hierarchy_schema.updated` webhook event. */
+        WebhookHierarchySchemaUpdatedEvent: {
+            /** @enum {string} */
+            event: "hierarchy_schema.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "hierarchy_schema";
+                metadata: {
+                    /** @description The node types the schema defines. */
+                    node_types: string[];
+                    /** @description The deepest a tree may go. */
+                    max_depth: number;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.created` webhook event. */
+        WebhookOrganizationCreatedEvent: {
+            /** @enum {string} */
+            event: "organization.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description The organization's name. */
+                    name: string;
+                    /** @description The organization's slug. */
+                    slug: string;
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.updated` webhook event. */
+        WebhookOrganizationUpdatedEvent: {
+            /** @enum {string} */
+            event: "organization.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description The organization's name. */
+                    name: string;
+                    /** @description The organization's slug. */
+                    slug: string;
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.deleted` webhook event. */
+        WebhookOrganizationDeletedEvent: {
+            /** @enum {string} */
+            event: "organization.deleted";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description The organization's name. */
+                    name: string;
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                    /** @description Memberships removed with it. */
+                    memberships_removed: number;
+                    /** @description Pending invitations revoked with it. */
+                    invites_revoked: number;
+                    /** @description Hierarchy nodes deleted with it. */
+                    nodes_deleted: number;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.deleted_all` webhook event. */
+        WebhookOrganizationDeletedAllEvent: {
+            /** @enum {string} */
+            event: "organization.deleted_all";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "environment";
+                metadata: {
+                    /** @description Organizations deleted. */
+                    organizations_deleted: number;
+                    /** @description Memberships removed with it. */
+                    memberships_removed: number;
+                    /** @description Pending invitations revoked with it. */
+                    invites_revoked: number;
+                    /** @description Hierarchy nodes deleted with it. */
+                    nodes_deleted: number;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.member.added` webhook event. */
+        WebhookOrganizationMemberAddedEvent: {
+            /** @enum {string} */
+            event: "organization.member.added";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The identity that joined.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role it holds in the organization.
+                     */
+                    role_id: string;
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id?: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The role assignment that is the membership.
+                     */
+                    assignment_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description The SSO connection the identity signed in through, for a just-in-time membership.
+                     */
+                    connection_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description The invitation that was accepted.
+                     */
+                    invite_id?: string;
+                    /**
+                     * @description How the member joined, when it was not added directly.
+                     * @enum {string}
+                     */
+                    source?: "sso_jit" | "invite";
+                };
+            };
+        };
+        /** @description A delivery of the `organization.member.role_changed` webhook event. */
+        WebhookOrganizationMemberRoleChangedEvent: {
+            /** @enum {string} */
+            event: "organization.member.role_changed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The member.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role it held.
+                     */
+                    from_role_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role it holds now.
+                     */
+                    to_role_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.member.removed` webhook event. */
+        WebhookOrganizationMemberRemovedEvent: {
+            /** @enum {string} */
+            event: "organization.member.removed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The identity removed.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role it held.
+                     */
+                    role_id: string;
+                    /** @description Grants it held beneath the organization, removed with the membership. */
+                    scoped_assignments_removed: number;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.policy.updated` webhook event. */
+        WebhookOrganizationPolicyUpdatedEvent: {
+            /** @enum {string} */
+            event: "organization.policy.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                    /** @description Whether members must use MFA, or null to inherit the Environment. */
+                    mfa_required: boolean | null;
+                    /** @description The factors members may use, or null to inherit the Environment. */
+                    mfa_factor_allowlist: ("totp" | "webauthn" | "email_otp")[] | null;
+                    /**
+                     * @description Whether an SSO sign-in still needs MFA, or null to inherit the Environment.
+                     * @enum {string|null}
+                     */
+                    mfa_after_sso: "exempt" | "require" | null;
+                    /** @description Whether members must sign in with SSO. */
+                    require_sso: boolean;
+                };
+            };
+        };
+        /** @description A delivery of the `organization.sso_connection.bound` webhook event. */
+        WebhookOrganizationSsoConnectionBoundEvent: {
+            /** @enum {string} */
+            event: "organization.sso_connection.bound";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The SSO connection.
+                     */
+                    connection_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role a just-in-time sign-in through it joins with.
+                     */
+                    default_role_id: string;
+                    /** @description The connection's name, on a new binding. */
+                    connection_name?: string;
+                    /**
+                     * @description Set when an existing binding's role changed, rather than a new binding made.
+                     * @enum {string}
+                     */
+                    changed?: "default_role";
+                };
+            };
+        };
+        /** @description A delivery of the `organization.sso_connection.unbound` webhook event. */
+        WebhookOrganizationSsoConnectionUnboundEvent: {
+            /** @enum {string} */
+            event: "organization.sso_connection.unbound";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "organization";
+                metadata: {
+                    /** @description Your own identifier for the organization, when you set one. */
+                    external_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The SSO connection.
+                     */
+                    connection_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `account_member.added` webhook event. */
+        WebhookAccountMemberAddedEvent: {
+            /** @enum {string} */
+            event: "account_member.added";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "account_member";
+                metadata: {
+                    /** @description The member's email address. */
+                    email: string;
+                    /**
+                     * Format: uuid
+                     * @description The invitation that was accepted.
+                     */
+                    invite_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `account_member.removed` webhook event. */
+        WebhookAccountMemberRemovedEvent: {
+            /** @enum {string} */
+            event: "account_member.removed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "account_member";
+                metadata: Record<string, unknown>;
+            };
+        };
+        /** @description A delivery of the `session.all_revoked` webhook event. */
+        WebhookSessionAllRevokedEvent: {
+            /** @enum {string} */
+            event: "session.all_revoked";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity" | "user";
+                metadata: {
+                    /** @description Sessions revoked. */
+                    revoked_count: number;
+                    /** @description Why, when a reason was given. */
+                    reason: string | null;
+                };
+            };
         };
     };
     responses: never;
