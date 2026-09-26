@@ -169,6 +169,32 @@ const { token, base_url } = await canopy.organizations.mintDirectoryToken(
 );
 ```
 
+### Handling webhooks
+
+Every webhook event has a published schema, and the SDK types deliveries from
+it. Narrow by event name and read that event's `metadata` without a cast; a
+field the API adds arrives with the next `npm run generate`.
+
+```ts
+import { isWebhookEvent, type WebhookDelivery } from "@canopy-io/node";
+
+app.post("/webhooks/canopy", (req, res) => {
+  const delivery = req.body as WebhookDelivery;
+
+  if (isWebhookEvent(delivery, "organization.member.added")) {
+    const { identity_id, role_id } = delivery.data.metadata;
+    // ...
+  }
+
+  res.sendStatus(204);
+});
+```
+
+`WebhookEvent<"assignment.updated">` is the delivery of one event, and
+`WebhookEventName` is every event a subscription can receive. The API's
+`GET /api/v1/webhooks/event-types` names each event's schema in
+`payload_schema`.
+
 ### Authorizing without a call per request
 
 Asking "may this identity act _here_" on every request puts Canopy in your
