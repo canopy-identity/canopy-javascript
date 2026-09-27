@@ -4080,6 +4080,12 @@ export interface components {
                     invites_revoked: number;
                     /** @description Hierarchy nodes deleted with it. */
                     nodes_deleted: number;
+                    /** @description Email-domain claims released with it. */
+                    domains_released: number;
+                    /** @description SSO connection bindings removed with it. */
+                    sso_bindings_removed: number;
+                    /** @description SSO connections it owned, deleted with it. */
+                    sso_connections_removed: number;
                 };
             };
         };
@@ -4099,6 +4105,12 @@ export interface components {
                     invites_revoked: number;
                     /** @description Hierarchy nodes deleted with it. */
                     nodes_deleted: number;
+                    /** @description Email-domain claims released with it. */
+                    domains_released: number;
+                    /** @description SSO connection bindings removed with it. */
+                    sso_bindings_removed: number;
+                    /** @description SSO connections it owned, deleted with it. */
+                    sso_connections_removed: number;
                 };
             };
         };
