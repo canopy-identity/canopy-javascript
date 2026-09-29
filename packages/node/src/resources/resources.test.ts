@@ -475,6 +475,18 @@ describe("organizations", () => {
     expect(calls[0]?.headers["If-Match"]).toBe('"1"');
   });
 
+  it("resets a member's second factor with a POST under the member", async () => {
+    const { canopy, calls } = harness({});
+
+    await canopy.organizations.resetMemberMfa("org_1", "id 1");
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/organizations/org_1/members/id%201/mfa/reset",
+    );
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
   it("binds and unbinds a connection on the sso-connections path", async () => {
     const { canopy, calls } = harness({ data: {} });
 

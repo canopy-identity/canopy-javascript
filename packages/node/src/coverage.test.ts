@@ -23,11 +23,14 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 134 as of a developer's backend being able to open an organization's
-// directory sync: reading and setting the roles it may grant (2), wrapped as
-// `organizations.listDirectoryGrantableRoles` / `setDirectoryGrantableRoles`.
-// Before that, 132 when an organization running its own sign-in landed.
-const EXPECTED_OPERATION_COUNT = 134;
+// 136 as of an organization's administrator resetting a member's second
+// factor, wrapped as `organizations.resetMemberMfa` (it returns nothing, so
+// it names no operation id and the floor below does not move), and the
+// organization's own SSO connection listing the roles its sign-ins may
+// arrive with, unwrapped like the rest of that connection's routes.
+// Before that, 134 when a developer's backend could open an organization's
+// directory sync.
+const EXPECTED_OPERATION_COUNT = 136;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
