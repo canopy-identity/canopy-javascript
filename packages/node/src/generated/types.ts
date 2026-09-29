@@ -1110,6 +1110,26 @@ export interface paths {
         patch: operations["ApiOrganizationsController_changeMemberRole"];
         trace?: never;
     };
+    "/api/v1/organizations/{id}/members/{identityId}/mfa/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a member's multi-factor authentication
+         * @description The organization's own administrator, or the developer, clears a member's multi-factor enrolment: every factor, the recovery codes and the trusted devices, so the person enrols afresh at their next sign-in. For a member who lost their authenticator. Sessions already open are left alone. Audited as `identity.mfa.admin.forced_reset`. Returns `404` when the identity is not a member. Responds `204 No Content`; requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
+         */
+        post: operations["ApiOrganizationsController_resetMemberMfa"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/organizations/{id}/invites": {
         parameters: {
             query?: never;
@@ -1189,7 +1209,7 @@ export interface paths {
         put?: never;
         /**
          * Set up an organization's SSO connection
-         * @description Creates an `end_user` SSO connection at the Account, links it to the organization's Environment, and binds it to the organization with `default_role_id` as the membership role, in one call. The connection starts `configuring` and belongs to this organization: no other organization may bind it. Returns `409` (`organization.sso_connection_already_configured`) when the organization already has one. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
+         * @description Creates an `end_user` SSO connection at the Account, links it to the organization's Environment, and binds it to the organization, with `default_role_id` as the membership role when given, in one call. Without one the binding waits for an arrival role, which activation requires; the arrival-roles route lists the choices and which to preselect. The connection starts `configuring` and belongs to this organization: no other organization may bind it. Returns `409` (`organization.sso_connection_already_configured`) when the organization already has one. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
          */
         post: operations["ApiOrganizationSsoConnectionController_create"];
         /**
@@ -1217,7 +1237,7 @@ export interface paths {
         put?: never;
         /**
          * Activate an organization's SSO connection
-         * @description Promotes the connection from `configuring` to `active`. The protocol's required fields must be present and the organization must hold at least one verified domain (`400` otherwise). Refused on a developer-managed connection. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
+         * @description Promotes the connection from `configuring` to `active`. The protocol's required fields must be present, the binding must carry an arrival role, and the organization must hold at least one verified domain (`400` otherwise). When the organization's own administrator activates (an identity token), the connection's last test sign-in must also have passed since its provider settings last changed; the developer's API key and Console are not held to that, since they cannot run a person's sign-in. Refused on a developer-managed connection. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
          */
         post: operations["ApiOrganizationSsoConnectionController_activate"];
         delete?: never;
@@ -1278,6 +1298,26 @@ export interface paths {
          * @description The last 100 sign-in attempts through this organization's connection, newest first, read from the audit log. Each row carries the outcome, the email the provider sent, the failure reason when there was one, and the address it came from.
          */
         get: operations["ApiOrganizationSsoConnectionController_recentLogins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/sso-connection/arrival-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the roles the organization's SSO sign-ins may arrive with
+         * @description The roles a sign-in through the organization's connection may join with, for choosing its `default_role_id`. When the developer has set the organization's directory grantable roles, the list is those roles and `is_default` marks the arrival role among them; otherwise the Environment's identity-provider arrival roles (`idp_arrival_roles` in its auth settings), which every organization without a list of its own inherits; with neither, the Environment's active custom roles with nothing marked. `administers_organization` marks a role carrying `canopy:organization.manage`: everyone arriving with it administers the organization. An organization administrator (identity token) may only bind a role from this list; the developer's key is not bound by it. Requires `hierarchy.view` or `canopy:organization.manage` at the organization. The response is an unpaginated `{ items }` array.
+         */
+        get: operations["ApiOrganizationSsoConnectionController_arrivalRoles"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2745,8 +2785,8 @@ export interface components {
             sso_connection_id: string;
             sso_connection: components["schemas"]["OrganizationSsoConnectionSummaryDto"];
             /** @description The membership role a login through this connection receives when it joins the organization. */
-            default_role_id: string;
-            default_role: components["schemas"]["OrganizationSsoRoleSummaryDto"];
+            default_role_id?: string | null;
+            default_role?: components["schemas"]["OrganizationSsoRoleSummaryDto"] | null;
             /** Format: date-time */
             created_at: string;
         };
@@ -2836,6 +2876,18 @@ export interface components {
             /** @description Number of distinct identities assigned this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
             member_count?: number;
         };
+        SsoConnectionTestSummaryDto: {
+            test_id: string;
+            /** @enum {string} */
+            outcome: "success" | "failed";
+            /** @description Why a failed test failed, in the sign-in vocabulary. `email_domain_not_allowed` means the provider accepted the sign-in and the domain check refused it. */
+            reason?: string | null;
+            email?: string | null;
+            /** @enum {string|null} */
+            domain_outcome?: "accepted" | "no_boundary" | "unbound" | "not_listed" | "not_verified" | "unknown" | null;
+            /** Format: date-time */
+            completed_at: string;
+        };
         SsoConnectionResponseDto: {
             id: string;
             account_id: string;
@@ -2846,6 +2898,10 @@ export interface components {
             name: string;
             /** @enum {string} */
             status: "configuring" | "active" | "disabled" | "failed";
+            /** @description The HTTPS address the identity provider's SAML metadata was last imported from. `null` when the metadata was pasted as a document or never imported. */
+            saml_metadata_url?: string | null;
+            /** @description The last test sign-in run against the connection. Cleared when its provider settings change, since a test no longer proves them. */
+            last_test_sign_in?: components["schemas"]["SsoConnectionTestSummaryDto"] | null;
             saml_entity_id?: string | null;
             saml_sso_url?: string | null;
             saml_slo_url?: string | null;
@@ -2901,7 +2957,8 @@ export interface components {
         };
         OrganizationSsoConnectionDetailResponseDto: {
             connection: components["schemas"]["SsoConnectionResponseDto"];
-            default_role: components["schemas"]["OrganizationSsoConnectionRoleDto"];
+            /** @description The membership role a sign-in joins with. `null` until chosen; activation requires one. */
+            default_role?: components["schemas"]["OrganizationSsoConnectionRoleDto"] | null;
             /** @description True when the organization set the connection up itself; false when the developer manages it from the Console, in which case its configuration, activation, and removal are refused here. */
             owned_by_organization: boolean;
             service_provider: components["schemas"]["ServiceProviderDetailsResponseDto"];
@@ -2932,8 +2989,8 @@ export interface components {
                 [key: string]: unknown;
             };
             jit_provisioning_enabled?: boolean;
-            /** @description The Environment role a person joins the organization with when they first sign in through this connection. */
-            default_role_id: string;
+            /** @description The Environment role a person joins the organization with when they first sign in through this connection. May be left for later; activation requires it. The arrival-roles route lists what may be chosen. */
+            default_role_id?: string;
         };
         UpdateOrganizationSsoConnectionDto: {
             /** @description Human label, e.g. "Acme Corp Okta". */
@@ -2977,6 +3034,15 @@ export interface components {
             /** Format: date-time */
             occurred_at: string;
         };
+        OrganizationSsoArrivalRoleDto: {
+            id: string;
+            name: string;
+            description?: string | null;
+            /** @description The role carries `canopy:organization.manage`: everyone arriving with it administers the organization. */
+            administers_organization: boolean;
+            /** @description The role to preselect: the directory list's arrival role, or the default of the Environment's identity-provider arrival roles. At most one entry. */
+            is_default: boolean;
+        };
         OrganizationGrantableRoleDto: {
             id: string;
             name: string;
@@ -2992,6 +3058,11 @@ export interface components {
             /** Format: date-time */
             created_at?: string | null;
             grantable_roles: components["schemas"]["OrganizationGrantableRoleDto"][];
+            /**
+             * @description Whose list `grantable_roles` is: the organization's own, the Environment's default that it inherits, or none, in which case directory sync is closed for it.
+             * @enum {string}
+             */
+            grantable_roles_source: "organization" | "environment" | "none";
         };
         ScimTokenResponseDto: {
             id: string;
@@ -4251,9 +4322,9 @@ export interface components {
                     connection_id: string;
                     /**
                      * Format: uuid
-                     * @description The role a just-in-time sign-in through it joins with.
+                     * @description The role a just-in-time sign-in through it joins with; null while the binding waits for one.
                      */
-                    default_role_id: string;
+                    default_role_id: string | null;
                     /** @description The connection's name, on a new binding. */
                     connection_name?: string;
                     /**
@@ -10733,6 +10804,90 @@ export interface operations {
             };
         };
     };
+    ApiOrganizationsController_resetMemberMfa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                identityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Factors, recovery codes and trusted devices cleared; the member enrols again at their next sign-in */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity is not a member of this organization */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The identity is not a member of this organization",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
     ApiOrganizationsController_listInvites: {
         parameters: {
             query?: {
@@ -11596,7 +11751,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The connection is missing the fields its protocol needs, or the organization has no verified domain yet */
+            /** @description The connection is missing the fields its protocol needs, the organization has no verified domain yet, no arrival role is chosen, or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11607,7 +11762,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The connection is missing the fields its protocol needs, or the organization has no verified domain yet",
+                     *         "message": "The connection is missing the fields its protocol needs, the organization has no verified domain yet, no arrival role is chosen, or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
                      *         "method": "POST"
@@ -12022,6 +12177,93 @@ export interface operations {
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/recent-logins",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationSsoConnectionController_arrivalRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The roles this caller may choose as the arrival role, with the one to preselect */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrganizationSsoArrivalRoleDto"][];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/arrival-roles",
                      *         "method": "GET"
                      *       }
                      *     }
