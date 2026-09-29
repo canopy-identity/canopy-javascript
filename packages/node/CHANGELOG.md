@@ -1,5 +1,11 @@
 # @canopy-io/node
 
+## 0.3.9
+
+### Patch Changes
+
+- dc7525d: `organizations.setDirectoryGrantableRoles` with an empty list now returns the organization to the Environment's list when one is set, under a connected directory too. It is refused only when there is no Environment list to fall back on. Types regenerated from the live spec; no signatures change.
+
 ## 0.3.8
 
 ### Patch Changes
