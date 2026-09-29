@@ -122,6 +122,19 @@ export class Organizations {
     );
   }
 
+  /**
+   * Clears a member's second factor, for one who lost their authenticator:
+   * their factors, recovery codes and remembered devices go, and they enrol
+   * again at their next sign-in. Sessions already open are left alone. The
+   * identity must be a member of the organization.
+   */
+  resetMemberMfa(id: string, identityId: string): Promise<void> {
+    return this.client.request(
+      "POST",
+      `/api/v1/organizations/${enc(id)}/members/${enc(identityId)}/mfa/reset`,
+    );
+  }
+
   // ── Invitations: pending membership, carrying the role the recipient will hold ──
 
   listInvites(
