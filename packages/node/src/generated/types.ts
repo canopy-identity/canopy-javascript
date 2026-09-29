@@ -1472,7 +1472,7 @@ export interface paths {
         get: operations["ApiOrganizationDirectoryController_listGrantableRoles"];
         /**
          * Replace the roles an organization's directory may grant
-         * @description Replaces the whole list in one act. Withdrawing a role unmaps the groups that name it and releases the grants those mappings produced. An empty list disables directory sync for the organization.
+         * @description Replaces the whole list in one act. Withdrawing a role unmaps the groups that name it and releases the grants those mappings produced. An empty list removes the organization's own list: it then holds the Environment's identity-provider arrival roles when those are set, and otherwise directory sync is disabled for it, which is refused with `409` while its directory is live.
          */
         put: operations["ApiOrganizationDirectoryController_setGrantableRoles"];
         post?: never;

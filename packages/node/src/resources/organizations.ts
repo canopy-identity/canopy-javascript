@@ -258,9 +258,11 @@ export class Organizations {
    * Replace the list in one act, which is how directory sync is opened for
    * an organization. Exactly one role is `default_role_id`, the one people
    * arrive with. Withdrawing a role unmaps the groups naming it and keeps
-   * their members in the organization; an empty list is refused while a
-   * directory is connected. Your API key only: an organization admin's
-   * token can read the list but is refused changing it.
+   * their members in the organization. An empty list removes the
+   * organization's own list: it then holds the Environment's list when one
+   * is set, and otherwise directory sync closes for it, which is refused
+   * while a directory is connected. Your API key only: an organization
+   * admin's token can read the list but is refused changing it.
    */
   setDirectoryGrantableRoles(
     id: string,
