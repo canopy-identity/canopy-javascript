@@ -3640,10 +3640,20 @@ export interface components {
                      */
                     environment_id?: string | null;
                     /**
-                     * @description Set when the change came from an accepted invitation.
+                     * Format: uuid
+                     * @description The SSO connection the identity first signed in through, for one created just in time.
+                     */
+                    connection_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
+                    /**
+                     * @description How the identity was created, when it was not created directly.
                      * @enum {string}
                      */
-                    source?: "invite";
+                    source?: "invite" | "sso_jit" | "scim";
                 };
             };
         };
@@ -3725,10 +3735,15 @@ export interface components {
                      */
                     invite_id?: string;
                     /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
+                    /**
                      * @description How the membership was created, when known.
                      * @enum {string}
                      */
-                    source?: "identity_create" | "sso_jit" | "invite";
+                    source?: "identity_create" | "sso_jit" | "invite" | "scim";
                 };
             };
         };
@@ -3742,6 +3757,16 @@ export interface components {
                 metadata: {
                     /** @description Pending invitations into the Environment revoked with the membership. */
                     revoked_pending_invites: number;
+                    /**
+                     * @description Set when directory sync made the change rather than somebody directly.
+                     * @enum {string}
+                     */
+                    source?: "scim";
+                    /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
                 };
             };
         };
@@ -3842,6 +3867,16 @@ export interface components {
                     succeeded: number;
                     /** @description How many were refused. */
                     failed: number;
+                    /**
+                     * @description Set when directory sync made the change rather than somebody directly.
+                     * @enum {string}
+                     */
+                    source?: "scim";
+                    /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
                 };
             };
         };
@@ -3873,6 +3908,16 @@ export interface components {
                          */
                         role_id: string;
                     }[];
+                    /**
+                     * @description Set when directory sync made the change rather than somebody directly.
+                     * @enum {string}
+                     */
+                    source?: "scim";
+                    /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
                 };
             };
         };
@@ -3904,6 +3949,250 @@ export interface components {
                          */
                         node_id: string;
                     }[];
+                };
+            };
+        };
+        /** @description A delivery of the `scim.user.provisioned` webhook event. */
+        WebhookScimUserProvisionedEvent: {
+            /** @enum {string} */
+            event: "scim.user.provisioned";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory that pushed the person.
+                     */
+                    directory_id: string;
+                    /** @description The address the provider pushed. */
+                    user_name: string;
+                    /** @description The provider's own id for the person. */
+                    external_id: string | null;
+                    /** @description True when the address already had an identity, which was linked rather than created. */
+                    linked: boolean;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.user.updated` webhook event. */
+        WebhookScimUserUpdatedEvent: {
+            /** @enum {string} */
+            event: "scim.user.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory that changed the person.
+                     */
+                    directory_id: string;
+                    /** @description The address the provider holds for the person now. */
+                    user_name: string;
+                    /** @description The provider's own id for the person. */
+                    external_id: string | null;
+                    /** @description Whether the person is active in this directory. */
+                    active: boolean;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.user.deprovisioned` webhook event. */
+        WebhookScimUserDeprovisionedEvent: {
+            /** @enum {string} */
+            event: "scim.user.deprovisioned";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory that deactivated the person.
+                     */
+                    directory_id: string;
+                    /** @description The address the provider held for the person. */
+                    user_name: string;
+                    /** @description The provider's own id for the person. */
+                    external_id: string | null;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.user.reactivated` webhook event. */
+        WebhookScimUserReactivatedEvent: {
+            /** @enum {string} */
+            event: "scim.user.reactivated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory that brought the person back.
+                     */
+                    directory_id: string;
+                    /** @description The address the provider holds for the person. */
+                    user_name: string;
+                    /** @description The provider's own id for the person. */
+                    external_id: string | null;
+                    /** @description True when the address already had an identity, which was linked rather than created. */
+                    linked: boolean;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.group.created` webhook event. */
+        WebhookScimGroupCreatedEvent: {
+            /** @enum {string} */
+            event: "scim.group.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "scim_group";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory that pushed the group.
+                     */
+                    directory_id: string;
+                    /** @description The group's name. */
+                    display_name: string;
+                    /** @description The provider's own id for the group. */
+                    external_id: string | null;
+                    /** @description How many of its members this directory holds. */
+                    member_count: number;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.group.updated` webhook event. */
+        WebhookScimGroupUpdatedEvent: {
+            /** @enum {string} */
+            event: "scim.group.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "scim_group";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory that changed the group.
+                     */
+                    directory_id: string;
+                    /** @description The group's name now. */
+                    display_name: string;
+                    /** @description The provider's own id for the group. */
+                    external_id: string | null;
+                    /** @description How many of its members this directory holds now. */
+                    member_count: number;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.group.deleted` webhook event. */
+        WebhookScimGroupDeletedEvent: {
+            /** @enum {string} */
+            event: "scim.group.deleted";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "scim_group";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory that removed the group.
+                     */
+                    directory_id: string;
+                    /** @description The group's name. */
+                    display_name: string;
+                    /** @description The provider's own id for the group. */
+                    external_id: string | null;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.group.member_added` webhook event. */
+        WebhookScimGroupMemberAddedEvent: {
+            /** @enum {string} */
+            event: "scim.group.member_added";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "scim_group";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory the group belongs to.
+                     */
+                    directory_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The person added.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The directory's own id for the person.
+                     */
+                    directory_user_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.group.member_removed` webhook event. */
+        WebhookScimGroupMemberRemovedEvent: {
+            /** @enum {string} */
+            event: "scim.group.member_removed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "scim_group";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory the group belongs to.
+                     */
+                    directory_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The person removed.
+                     */
+                    identity_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The directory's own id for the person.
+                     */
+                    directory_user_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.group.mapped` webhook event. */
+        WebhookScimGroupMappedEvent: {
+            /** @enum {string} */
+            event: "scim.group.mapped";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "scim_group";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory the group belongs to.
+                     */
+                    directory_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role the group's members now hold.
+                     */
+                    role_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The node they hold it at.
+                     */
+                    application_node_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `scim.group.unmapped` webhook event. */
+        WebhookScimGroupUnmappedEvent: {
+            /** @enum {string} */
+            event: "scim.group.unmapped";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "scim_group";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The directory the group belongs to.
+                     */
+                    directory_id: string;
                 };
             };
         };
@@ -4221,10 +4510,15 @@ export interface components {
                      */
                     invite_id?: string;
                     /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
+                    /**
                      * @description How the member joined, when it was not added directly.
                      * @enum {string}
                      */
-                    source?: "sso_jit" | "invite";
+                    source?: "sso_jit" | "invite" | "scim";
                 };
             };
         };
@@ -4253,6 +4547,16 @@ export interface components {
                      * @description The role it holds now.
                      */
                     to_role_id: string;
+                    /**
+                     * @description Set when directory sync made the change rather than somebody directly.
+                     * @enum {string}
+                     */
+                    source?: "scim";
+                    /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
                 };
             };
         };
@@ -4278,6 +4582,16 @@ export interface components {
                     role_id: string;
                     /** @description Grants it held beneath the organization, removed with the membership. */
                     scoped_assignments_removed: number;
+                    /**
+                     * @description Set when directory sync made the change rather than somebody directly.
+                     * @enum {string}
+                     */
+                    source?: "scim";
+                    /**
+                     * Format: uuid
+                     * @description The directory that made the change, when directory sync did.
+                     */
+                    directory_id?: string | null;
                 };
             };
         };
