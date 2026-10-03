@@ -2675,6 +2675,8 @@ export interface components {
             mfa_factor_allowlist: ("totp" | "webauthn" | "email_otp")[];
             /** @enum {string} */
             mfa_after_sso: "exempt" | "require";
+            /** @description The sign-in methods on offer: on the Environment, the ones it has turned on; on the effective policy, those narrowed by the organization, and `["sso"]` alone while it requires SSO. */
+            allowed_sign_in_methods: ("password" | "email_otp" | "sso")[];
             require_sso: boolean;
         };
         OrganizationPolicyResponseDto: {
@@ -2684,6 +2686,8 @@ export interface components {
             mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[] | null;
             /** @enum {string|null} */
             mfa_after_sso?: "exempt" | "require" | null;
+            /** @description The methods the organization keeps of the Environment's, or null to inherit them all. */
+            allowed_sign_in_methods?: ("password" | "email_otp" | "sso")[] | null;
             require_sso: boolean;
             /** @description The Environment's own settings, the floor this organization's policy tightens from. */
             environment: components["schemas"]["EffectiveOrganizationPolicyDto"];
@@ -2708,6 +2712,8 @@ export interface components {
              * @enum {string|null}
              */
             mfa_after_sso?: "exempt" | "require" | null;
+            /** @description The sign-in methods this organization's members may use. A non-empty subset of the methods the Environment offers (`password` unless the Environment turned it off, `email_otp` where the Environment turned it on, and `sso`); a method the Environment does not offer is refused with `organization.policy_loosens`. `null` inherits the Environment's. While `require_sso` is on, SSO is the only method whatever this says. */
+            allowed_sign_in_methods?: ("password" | "email_otp" | "sso")[] | null;
             /** @description Members must sign in through SSO. Password and email-code logins are refused for the organization's members and for any email whose domain routes to a connection bound to this organization. */
             require_sso?: boolean;
         };
@@ -4614,6 +4620,8 @@ export interface components {
                      * @enum {string|null}
                      */
                     mfa_after_sso: "exempt" | "require" | null;
+                    /** @description The sign-in methods members may use, or null to inherit the Environment's. */
+                    allowed_sign_in_methods: ("password" | "email_otp" | "sso")[] | null;
                     /** @description Whether members must sign in with SSO. */
                     require_sso: boolean;
                 };
