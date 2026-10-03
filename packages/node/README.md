@@ -147,7 +147,12 @@ await canopy.organizations.addMember(acme.id, {
   role_id: ownerRoleId,
 });
 
-await canopy.organizations.updatePolicy(acme.id, { mfa_required: true });
+// An organization only tightens the Environment: a second factor where the
+// Environment leaves it optional, and only some of the Environment's ways in.
+await canopy.organizations.updatePolicy(acme.id, {
+  mfa_required: true,
+  allowed_sign_in_methods: ["password", "sso"],
+});
 ```
 
 Directory sync (SCIM) opens when you name the roles an organization's identity
