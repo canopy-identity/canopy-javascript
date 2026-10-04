@@ -23,20 +23,25 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 136 as of an organization's administrator resetting a member's second
+// 138 as of an identity's sessions being readable and revocable one at a
+// time from a backend, wrapped as `identities.sessions` and
+// `identities.revokeSession` (with the existing revoke-all now wrapped as
+// `identities.revokeSessions`); only `sessions` returns a body, so the floor
+// moves by one.
+// Before that, 136 as of an organization's administrator resetting a member's second
 // factor, wrapped as `organizations.resetMemberMfa` (it returns nothing, so
 // it names no operation id and the floor below does not move), and the
 // organization's own SSO connection listing the roles its sign-ins may
 // arrive with, unwrapped like the rest of that connection's routes.
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync.
-const EXPECTED_OPERATION_COUNT = 136;
+const EXPECTED_OPERATION_COUNT = 138;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
  * a drop means a wrapper was removed, which should be a conscious decision.
  */
-const COVERAGE_FLOOR = 51;
+const COVERAGE_FLOOR = 52;
 
 function generatedOperationIds(): string[] {
   const source = readFileSync(join(SRC, "generated/types.ts"), "utf-8");

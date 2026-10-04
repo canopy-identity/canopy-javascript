@@ -113,10 +113,55 @@ export class Identities {
       `/api/v1/identities/${encodeURIComponent(id)}/permissions`,
     );
   }
+
+  /**
+   * Every session the identity holds that is neither revoked nor expired,
+   * newest first: when and where it was signed in, when it expires, and the
+   * organization it is acting in. Read it back after a revoke to confirm,
+   * from your own side, that a sign-out took.
+   */
+  sessions(
+    id: string,
+  ): Promise<ResponseBody<"ApiIdentitiesController_listIdentitySessions">> {
+    return this.client.request(
+      "GET",
+      `/api/v1/identities/${encodeURIComponent(id)}/sessions`,
+    );
+  }
+
+  /**
+   * Ends one session and leaves the identity's others signed in. `sessionId`
+   * is the session's `id` from `sessions`: its current refresh token, which
+   * changes on every refresh, so read it shortly before revoking.
+   */
+  revokeSession(id: string, sessionId: string): Promise<void> {
+    return this.client.request(
+      "DELETE",
+      `/api/v1/identities/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`,
+    );
+  }
+
+  /**
+   * Ends every session the identity holds, so the next refresh on any device
+   * fails and the person signs in again. Access tokens already issued keep
+   * working until their short lifetime runs out. For a suspected compromise;
+   * `deactivate` also refuses the next sign-in.
+   */
+  revokeSessions(id: string): Promise<void> {
+    return this.client.request(
+      "POST",
+      `/api/v1/identities/${encodeURIComponent(id)}/sessions/revoke`,
+    );
+  }
 }
 
 export type IdentityItem = ItemOf<
   ResponseBody<"ApiIdentitiesController_listIdentities">
+>;
+
+/** One live session from an identity's sessions. */
+export type IdentitySessionItem = ItemOf<
+  ResponseBody<"ApiIdentitiesController_listIdentitySessions">
 >;
 
 /** One role grant from an identity's assignments collection. */
