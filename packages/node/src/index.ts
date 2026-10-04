@@ -56,6 +56,7 @@ export { Identities } from "./resources/identities.js";
 export type {
   IdentityAssignmentItem,
   IdentityItem,
+  IdentitySessionItem,
 } from "./resources/identities.js";
 export { Organizations } from "./resources/organizations.js";
 export type {

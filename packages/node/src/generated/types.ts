@@ -358,6 +358,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/identities/{id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an identity's active sessions (admin)
+         * @description Lists an identity's active sessions (server-to-server admin): the rows a customer reads to confirm from its own side that a sign-out took, or to show a person where they are signed in. Each row is a session's current refresh token, so `id` changes on every refresh. Returns `404` when the identity has no membership in this Environment.
+         */
+        get: operations["ApiIdentitiesController_listIdentitySessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identities/{id}/sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one of an identity's sessions (admin)
+         * @description Revokes one of an identity's sessions (server-to-server admin) by marking its refresh token revoked, so the next refresh from that device returns `401` while every other session carries on. Audited as `identity.session.revoked`, the same row the person's own per-session sign-out writes. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment, or when the session is not the identity's or is already revoked.
+         */
+        delete: operations["ApiIdentitiesController_revokeIdentitySession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/identities/{id}/sessions/revoke": {
         parameters: {
             query?: never;
@@ -2301,6 +2341,20 @@ export interface components {
             /** @description New password. 8-64 characters. No composition rules — NIST SP 800-63B aligned. A HaveIBeenPwned breach check runs server-side. The effective policy is published on `GET /v1/identity/auth/config`, so a client can state the rules before submit rather than after. */
             password: string;
         };
+        IdentitySessionResponseDto: {
+            /** @description The session's current refresh token id: what `DELETE /identities/:id/sessions/:sessionId` takes. It changes on every refresh. */
+            id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** @description The address the session was signed in from: the browser's for a hosted sign-in, or the one a trusted backend forwarded in `X-Canopy-Client-IP`. */
+            ip_address?: string | null;
+            /** @description The user agent the session was signed in from: the browser's for a hosted sign-in, or the one a trusted backend forwarded in `X-Canopy-Client-User-Agent`. */
+            user_agent?: string | null;
+            /** @description The organization the session is acting in, the source of its tokens' `org_id` claim. Null when the Environment's organizations container is off or the identity belongs to none. */
+            active_org_node_id?: string | null;
+        };
         MfaFactorResponseDto: {
             /** Format: uuid */
             id: string;
@@ -2754,6 +2808,17 @@ export interface components {
              * @enum {string|null}
              */
             domain_outcome: "accepted" | "no_boundary" | "unbound" | "not_listed" | "not_verified" | "unknown" | null;
+            /** @description The required fields the provider's response did not satisfy (`email`, `federated_subject_id`); empty on a pass. */
+            missing_fields: string[];
+            /** @description The attribute names the response carried, sorted. Names only, never values. */
+            received_attributes: string[];
+            /** @description The SAML Name ID format's last segment (`unspecified`, `emailAddress`, `persistent`); null for OIDC or when none came. */
+            name_id_format: string | null;
+            /**
+             * @description The one thing to change, when the test can name it: the provider's Name ID format should be the email address (`set_name_id_email`), an email attribute or scope has to be added (`add_email_attribute`), or a stable subject has to be sent (`send_name_id`). Null when the report of names is the guidance.
+             * @enum {string|null}
+             */
+            hint: "set_name_id_email" | "add_email_attribute" | "send_name_id" | null;
             /** Format: date-time */
             completed_at: string | null;
         };
@@ -3473,6 +3538,11 @@ export interface components {
             is_active: boolean;
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: date-time
+             * @description While a rotation window is open, when the secret the rotation replaced stops verifying; `null` once only the current secret signs.
+             */
+            previous_secret_expires_at?: string | null;
             /** @description HMAC secret — only shown once on creation */
             secret: string;
         };
@@ -3491,6 +3561,11 @@ export interface components {
             is_active: boolean;
             /** Format: date-time */
             created_at: string;
+            /**
+             * Format: date-time
+             * @description While a rotation window is open, when the secret the rotation replaced stops verifying; `null` once only the current secret signs.
+             */
+            previous_secret_expires_at?: string | null;
         };
         WebhookEventTypeDto: {
             event_type: string;
@@ -4408,6 +4483,11 @@ export interface components {
                     slug: string;
                     /** @description Your own identifier for the organization, when you set one. */
                     external_id: string | null;
+                    /**
+                     * @description How the organization came to be, when it was not created through the API: a self-signup on an Environment that creates one for every new identity.
+                     * @enum {string}
+                     */
+                    source?: "self_signup";
                 };
             };
         };
@@ -6581,6 +6661,177 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/password/reset",
                      *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiIdentitiesController_listIdentitySessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every session the identity holds that is neither revoked nor expired, newest first: the session's current refresh token id (what the per-session revoke takes), when it was signed in and when it expires, the browser's address and user agent, and the organization it is acting in. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["IdentitySessionResponseDto"][];
+                    };
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Identity not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/sessions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiIdentitiesController_revokeIdentitySession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The session's refresh token is revoked, so its next refresh returns 401 while the identity's other sessions carry on. In-flight access tokens keep working until their short TTL expires. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The session does not belong to this identity, or is already revoked */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The session does not belong to this identity, or is already revoked",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/sessions/{sessionId}",
+                     *         "method": "DELETE"
                      *       }
                      *     }
                      */
