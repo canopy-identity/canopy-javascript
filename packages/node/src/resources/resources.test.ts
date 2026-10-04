@@ -128,6 +128,42 @@ describe("identities", () => {
     );
   });
 
+  it("lists an identity's sessions under its own path", async () => {
+    const { canopy, calls } = harness({
+      items: [{ id: "rt_1", active_org_node_id: null }],
+    });
+
+    const result = await canopy.identities.sessions("idn 1");
+
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/identities/idn%201/sessions",
+    );
+    expect(result.items).toHaveLength(1);
+  });
+
+  it("revokes one session with DELETE, both ids encoded", async () => {
+    const { canopy, calls } = harness();
+
+    await canopy.identities.revokeSession("idn_1", "rt/1");
+
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/identities/idn_1/sessions/rt%2F1",
+    );
+  });
+
+  it("revokes every session with a POST to the revoke path", async () => {
+    const { canopy, calls } = harness();
+
+    await canopy.identities.revokeSessions("idn_1");
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe(
+      "https://api.test/api/v1/identities/idn_1/sessions/revoke",
+    );
+  });
+
   it("returns a paginator that walks the collection", async () => {
     const { canopy, calls } = harness({
       items: [{ id: "a" }],
