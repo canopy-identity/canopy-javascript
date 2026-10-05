@@ -1903,7 +1903,7 @@ export interface paths {
         };
         /**
          * Get hierarchy schema for the active Environment
-         * @description Returns the hierarchy schema for the active Environment, resolved from the principal context — the Application and Environment ride on the API key (env-pinned at issue time) or identity token, so the path carries no slugs. The schema defines the Environment's `node_types`, the `allowed_children` map governing parent/child rules, `max_depth`, and the `root_node_type` used when the root node is auto-created. Sibling Environments in the same Application can carry independent schemas; returns `null` when the Environment is in flat mode.
+         * @description Returns the hierarchy schema for the active Environment, resolved from the principal context — the Application and Environment ride on the API key (env-pinned at issue time) or the admin token, so the path carries no slugs. The schema defines the Environment's `node_types`, the `allowed_children` map governing parent/child rules, `max_depth`, and the `root_node_type` used when the root node is auto-created. Sibling Environments in the same Application can carry independent schemas; returns `null` when the Environment is in flat mode. Requires the `hierarchy.view` permission.
          */
         get: operations["ApiHierarchySchemaController_getSchema"];
         put?: never;
@@ -1913,7 +1913,7 @@ export interface paths {
         head?: never;
         /**
          * Update hierarchy schema for the active Environment
-         * @description Replaces the active Environment's hierarchy schema wholesale with the supplied `node_types`, `allowed_children` map, `max_depth` (1–16), and `root_node_type` (which must be one of `node_types`). The update targets the Environment resolved from the principal context. Pass the Environment's current `version` in the `If-Match` header for optimistic locking — a stale value returns `409`. The persisted schema is re-read and returned in the response.
+         * @description Replaces the active Environment's hierarchy schema wholesale with the supplied `node_types`, `allowed_children` map, `max_depth` (1–16), and `root_node_type` (which must be one of `node_types`). The update targets the Environment resolved from the principal context. Pass the Environment's current `version` in the `If-Match` header for optimistic locking — a stale value returns `409`. The persisted schema is re-read and returned in the response. Requires the `hierarchy.manage` permission.
          */
         patch: operations["ApiHierarchySchemaController_updateSchema"];
         trace?: never;
@@ -2049,7 +2049,7 @@ export interface paths {
         put?: never;
         /**
          * Create a new API key
-         * @description Issues a new API key in the active Application, scoped to the current Environment. The full `cnpy_`-prefixed secret is returned exactly once in the `key` field of the response and is never recoverable afterward — only a masked `key_preview` and metadata persist. `access_mode: "scoped"` requires a non-empty `scopes` array and enforces it on every authorization check; `access_mode: "full_access"` forbids `scopes` and bypasses RBAC entirely within the Application. Pass `expires_at` (ISO 8601) for an expiring key or omit it for none. Supports `Idempotency-Key` for safe retries, emits an `api_key.created` event, and is rate-limited to 20 requests per minute per Application.
+         * @description Issues a new API key in the active Application, scoped to the current Environment. The full `cnpy_`-prefixed secret is returned in the `key` field of the response and is not recoverable afterward, only a masked `key_preview` and metadata persist; the one exception is a retry carrying the same `Idempotency-Key` within 24 hours, which replays this response. `access_mode: "scoped"` requires a non-empty `scopes` array and enforces it on every authorization check; `access_mode: "full_access"` forbids `scopes` and bypasses RBAC entirely within the Application. Pass `expires_at` (ISO 8601) for an expiring key or omit it for none. Supports `Idempotency-Key` for safe retries, emits an `api_key.created` event, and is limited to 20 requests a minute per caller. A scope the platform does not offer is refused with `400`.
          */
         post: operations["ApiApiKeysController_create"];
         delete?: never;
@@ -3631,8 +3631,8 @@ export interface components {
              * @enum {string}
              */
             access_mode: "scoped" | "full_access";
-            /** @description Permission scopes this key is authorized for. Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
-            scopes?: string[];
+            /** @description Permission scopes this key is authorized for, each one the platform offers (`GET .../api-keys/scopes`). Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
+            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage")[];
             /** @description Expiration date (ISO 8601). Omit for no expiration. */
             expires_at?: string;
         };
@@ -4830,6 +4830,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -4851,7 +4872,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4862,7 +4883,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
                      *         "method": "GET"
@@ -4898,6 +4919,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -4919,7 +4961,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4930,10 +4972,31 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A permission with that key already exists in the Environment */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "A permission with that key already exists in the Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -4964,6 +5027,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -4985,7 +5069,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -4996,9 +5080,30 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No permission with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No permission with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -5030,6 +5135,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -5051,7 +5177,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller is not allowed to manage permissions, or the permission is a system permission, which cannot be modified or deleted */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5062,10 +5188,31 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller is not allowed to manage permissions, or the permission is a system permission, which cannot be modified or deleted",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/permissions",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/permissions/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No permission with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No permission with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}",
+                     *         "method": "DELETE"
                      *       }
                      *     }
                      */
@@ -5125,6 +5272,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -5146,7 +5314,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller is not allowed to manage permissions, or the permission is a system permission, which cannot be modified or deleted */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5157,10 +5325,31 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller is not allowed to manage permissions, or the permission is a system permission, which cannot be modified or deleted",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/permissions",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/permissions/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No permission with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No permission with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}",
+                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -5212,6 +5401,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/{id}/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -5233,7 +5443,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5244,7 +5454,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
                      *         "method": "GET"
@@ -5301,6 +5511,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/evaluate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -5322,7 +5553,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted) */
+            /** @description The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5333,7 +5564,28 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "Scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
+                     *         "message": "The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/evaluate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Too many requests: this route's own rate limit, named in the operation description, was exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 429,
+                     *         "code": null,
+                     *         "message": "Too many requests: this route's own rate limit, named in the operation description, was exceeded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate",
                      *         "method": "POST"
@@ -5369,6 +5621,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/evaluate/bulk",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -5390,7 +5663,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted) */
+            /** @description The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5401,7 +5674,28 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "Scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
+                     *         "message": "The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/evaluate/bulk",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Too many requests: this route's own rate limit, named in the operation description, was exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 429,
+                     *         "code": null,
+                     *         "message": "Too many requests: this route's own rate limit, named in the operation description, was exceeded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/bulk",
                      *         "method": "POST"
@@ -5437,6 +5731,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/evaluate/explain",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -5458,7 +5773,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted) */
+            /** @description The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -5469,7 +5784,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "Scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
+                     *         "message": "The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/explain",
                      *         "method": "POST"
@@ -5491,6 +5806,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "The `node_id` does not exist in this environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/permissions/evaluate/explain",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Too many requests: this route's own rate limit, named in the operation description, was exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 429,
+                     *         "code": null,
+                     *         "message": "Too many requests: this route's own rate limit, named in the operation description, was exceeded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/explain",
                      *         "method": "POST"
@@ -5532,6 +5868,27 @@ export interface operations {
                         items: components["schemas"]["IdentityResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -5602,7 +5959,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Password rejected — appeared in a known data breach (HaveIBeenPwned check) */
+            /** @description The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5613,7 +5970,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Password rejected — appeared in a known data breach (HaveIBeenPwned check)",
+                     *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "POST"
@@ -5665,7 +6022,28 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Email already exists in this Application */
+            /** @description The role or node named for the initial assignment is not found in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The role or node named for the initial assignment is not found in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The email or external_id already belongs to an identity in this Account, or the Account has reached its plan's identity signup ceiling */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -5676,7 +6054,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Email already exists in this Application",
+                     *         "message": "The email or external_id already belongs to an identity in this Account, or the Account has reached its plan's identity signup ceiling",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "POST"
@@ -5722,6 +6100,27 @@ export interface operations {
                         items: components["schemas"]["IdentityRowDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/with-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -5786,6 +6185,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["IdentitiesSummaryDto"];
                     };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/summary",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -5912,6 +6332,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -5976,6 +6417,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["IdentityResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -6060,6 +6522,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -6152,6 +6635,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -6237,6 +6741,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["IdentityDetailResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/detail",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -6326,6 +6851,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/activate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -6411,6 +6957,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["MessageResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/deactivate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -6500,7 +7067,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Password rejected — appeared in a known data breach (HaveIBeenPwned check) */
+            /** @description The request failed validation, or the password appears in a known data breach (HaveIBeenPwned check); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6511,7 +7078,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Password rejected — appeared in a known data breach (HaveIBeenPwned check)",
+                     *         "message": "The request failed validation, or the password appears in a known data breach (HaveIBeenPwned check); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/password",
                      *         "method": "POST"
@@ -6604,6 +7171,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/password/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -6691,6 +7279,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/sessions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -6775,6 +7384,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/sessions/{sessionId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -6817,7 +7447,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The session does not belong to this identity, or is already revoked */
+            /** @description The identity is not found, or the session does not belong to it or is already revoked */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6828,7 +7458,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The session does not belong to this identity, or is already revoked",
+                     *         "message": "The identity is not found, or the session does not belong to it or is already revoked",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions/{sessionId}",
                      *         "method": "DELETE"
@@ -6857,6 +7487,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/sessions/revoke",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -6945,6 +7596,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/mfa",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -7027,6 +7699,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/mfa/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -7115,6 +7808,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/auth-state",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -7197,6 +7911,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/verify-email",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -7297,6 +8032,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -7339,6 +8095,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description Identity not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Identity not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiIdentitiesController_getIdentityPermissions: {
@@ -7361,6 +8138,27 @@ export interface operations {
                     "application/json": {
                         items: string[];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -7448,6 +8246,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["IdentityGrantResponseDto"][];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/grants",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -7551,6 +8370,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -7619,6 +8459,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation; `role_id` and `node_id` were not given together; a `password_reset` invite carries a role assignment or names an email with no identity; or `client_id` names no active OAuth client in this Environment, or one with no invite redirect URL; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation; `role_id` and `node_id` were not given together; a `password_reset` invite carries a role assignment or names an email with no identity; or `client_id` names no active OAuth client in this Environment, or one with no invite redirect URL; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -7661,6 +8522,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description A pending invite already exists for this email at this scope, the identity already has access to this Environment, or the node sits inside an organization the identity is not a member of */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "A pending invite already exists for this email at this scope, the identity already has access to this Environment, or the node sits inside an organization the identity is not a member of",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiIdentityInvitesController_getInvitesSummary: {
@@ -7681,6 +8563,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["IdentityInvitesSummaryDto"];
                     };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/summary",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -7807,6 +8710,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -7873,7 +8797,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invite is no longer pending */
+            /** @description The request failed validation, the invite is neither pending nor expired so cannot be resent, or it was resent too recently; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7884,7 +8808,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Invite is no longer pending",
+                     *         "message": "The request failed validation, the invite is neither pending nor expired so cannot be resent, or it was resent too recently; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/{id}/resend",
                      *         "method": "POST"
@@ -7977,7 +8901,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Invite is no longer pending */
+            /** @description The request failed validation, or the invite is no longer pending; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7988,7 +8912,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Invite is no longer pending",
+                     *         "message": "The request failed validation, or the invite is no longer pending; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/{id}",
                      *         "method": "DELETE"
@@ -8093,6 +9017,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8114,7 +9059,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8125,7 +9070,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -8161,7 +9106,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invalid parent-child relationship */
+            /** @description The request failed validation, or the node breaks the hierarchy rules: no hierarchy schema is configured, the node type is not in the schema or is one Canopy reserves, the parent may not hold this type, the maximum depth would be exceeded, or organizations are on and the node would sit directly under the root; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8172,7 +9117,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Invalid parent-child relationship",
+                     *         "message": "The request failed validation, or the node breaks the hierarchy rules: no hierarchy schema is configured, the node type is not in the schema or is one Canopy reserves, the parent may not hold this type, the maximum depth would be exceeded, or organizations are on and the node would sit directly under the root; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "POST"
@@ -8203,7 +9148,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8214,7 +9159,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -8277,6 +9222,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/parents",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8298,7 +9264,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8309,7 +9275,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -8343,6 +9309,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8364,7 +9351,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8375,7 +9362,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -8430,6 +9417,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The id in the path is malformed, the node is the root, or it is an organization (use the organizations API); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The id in the path is malformed, the node is the root, or it is an organization (use the organizations API); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8451,7 +9459,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8462,7 +9470,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -8546,7 +9554,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invalid parent-child relationship */
+            /** @description The request failed validation, or the change breaks the hierarchy rules: the node is an organization (use the organizations API), `status: deleted` was sent (use the delete endpoint), or the new parent may not hold this type, is one of the node's descendants, sits at the organization tier or in another organization while organizations are on, or no hierarchy schema is configured; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8557,7 +9565,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Invalid parent-child relationship",
+                     *         "message": "The request failed validation, or the change breaks the hierarchy rules: the node is an organization (use the organizations API), `status: deleted` was sent (use the delete endpoint), or the new parent may not hold this type, is one of the node's descendants, sits at the organization tier or in another organization while organizations are on, or no hierarchy schema is configured; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
                      *         "method": "PATCH"
@@ -8588,7 +9596,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8599,7 +9607,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -8609,7 +9617,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Node not found */
+            /** @description The node, or its new parent, does not exist in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8620,7 +9628,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Node not found",
+                     *         "message": "The node, or its new parent, does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
                      *         "method": "PATCH"
@@ -8675,6 +9683,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8696,7 +9725,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8707,9 +9736,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}/tree",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -8741,6 +9770,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8762,7 +9812,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8773,9 +9823,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}/ancestors",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -8807,6 +9857,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8828,7 +9899,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8839,9 +9910,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}/children",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -8881,6 +9952,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation, or the move breaks the hierarchy rules: the node is an organization (use the organizations API), or the new parent may not hold this type, is one of the node's descendants, sits at the organization tier or in another organization while organizations are on, or no hierarchy schema is configured; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation, or the move breaks the hierarchy rules: the node is an organization (use the organizations API), or the new parent may not hold this type, is one of the node's descendants, sits at the organization tier or in another organization while organizations are on, or no hierarchy schema is configured; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/move",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -8902,7 +9994,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8913,7 +10005,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -8923,7 +10015,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Node not found */
+            /** @description The node, or its new parent, does not exist in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8934,7 +10026,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Node not found",
+                     *         "message": "The node, or its new parent, does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/move",
                      *         "method": "POST"
@@ -9009,6 +10101,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -9030,7 +10143,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9041,7 +10154,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -9096,6 +10209,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/identities/summary",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -9117,7 +10251,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9128,7 +10262,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -9193,6 +10327,27 @@ export interface operations {
                         items: components["schemas"]["OrganizationResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -9263,6 +10418,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -9305,7 +10481,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Organizations are not enabled on this Environment; switch the container on first */
+            /** @description Organizations are not enabled on this Environment, another organization already holds this external_id, or the plan's organization limit is reached */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9316,7 +10492,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Organizations are not enabled on this Environment; switch the container on first",
+                     *         "message": "Organizations are not enabled on this Environment, another organization already holds this external_id, or the plan's organization limit is reached",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
                      *         "method": "POST"
@@ -9343,6 +10519,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -9408,6 +10605,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["OrganizationResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -9496,6 +10714,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -9613,6 +10852,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -9676,7 +10936,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            /** @description The If-Match version is stale (the organization changed since), or another organization already holds this external_id */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9687,7 +10947,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "message": "The If-Match version is stale (the organization changed since), or another organization already holds this external_id",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
                      *         "method": "PATCH"
@@ -9719,6 +10979,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["OrganizationPolicyResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -9816,7 +11097,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The policy would loosen the Environment's authentication settings */
+            /** @description The request failed validation, or the policy would loosen the Environment's authentication settings; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9827,7 +11108,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The policy would loosen the Environment's authentication settings",
+                     *         "message": "The request failed validation, or the policy would loosen the Environment's authentication settings; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
                      *         "method": "PATCH"
@@ -9945,7 +11226,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The organization does not require SSO, so it holds no recovery codes. */
+            /** @description The organization id is malformed, or the organization does not require SSO, so it holds no recovery codes; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9956,7 +11237,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The organization does not require SSO, so it holds no recovery codes.",
+                     *         "message": "The organization id is malformed, or the organization does not require SSO, so it holds no recovery codes; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
                      *         "method": "POST"
@@ -10053,7 +11334,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The organization has no SSO connection bound to it. */
+            /** @description The organization id is malformed; the organization has no SSO connection bound to it; or the connection is not an end-user connection bound to this Environment with every field its protocol needs; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10064,7 +11345,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The organization has no SSO connection bound to it.",
+                     *         "message": "The organization id is malformed; the organization has no SSO connection bound to it; or the connection is not an end-user connection bound to this Environment with every field its protocol needs; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test",
                      *         "method": "POST"
@@ -10162,6 +11443,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description An id in the path is malformed, or the organization has no SSO connection bound to it; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "An id in the path is malformed, or the organization has no SSO connection bound to it; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/test/{testId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -10204,7 +11506,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No such test sign-in, or it has expired. */
+            /** @description The organization or its bound connection does not exist, or there is no such test sign-in or it has expired */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10215,7 +11517,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "No such test sign-in, or it has expired.",
+                     *         "message": "The organization or its bound connection does not exist, or there is no such test sign-in or it has expired",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test/{testId}",
                      *         "method": "GET"
@@ -10247,6 +11549,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["SsoDomainResponseDto"][];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/domains",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -10340,7 +11663,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The domain is malformed or a public email provider. */
+            /** @description The request failed validation, or the domain is malformed or a public email provider; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10351,7 +11674,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The domain is malformed or a public email provider.",
+                     *         "message": "The request failed validation, or the domain is malformed or a public email provider; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
                      *         "method": "POST"
@@ -10449,7 +11772,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The expected DNS TXT record was not found for this domain. */
+            /** @description An id or the domain in the path is malformed, or the expected DNS TXT record was not found for the domain; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10460,7 +11783,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The expected DNS TXT record was not found for this domain.",
+                     *         "message": "An id or the domain in the path is malformed, or the expected DNS TXT record was not found for the domain; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
                      *         "method": "POST"
@@ -10512,7 +11835,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization holds no claim for that domain. */
+            /** @description The organization does not exist, or it holds no claim for that domain */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10523,7 +11846,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The organization holds no claim for that domain.",
+                     *         "message": "The organization does not exist, or it holds no claim for that domain",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
                      *         "method": "POST"
@@ -10554,6 +11877,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description More than 10 verification attempts in a minute from this caller; wait and retry */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 429,
+                     *         "code": null,
+                     *         "message": "More than 10 verification attempts in a minute from this caller; wait and retry",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiOrganizationsController_removeDomain: {
@@ -10574,6 +11918,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The organization id or the domain in the path is malformed; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The organization id or the domain in the path is malformed; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/domains/{domain}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -10617,7 +11982,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization holds no claim for that domain. */
+            /** @description The organization does not exist, or it holds no claim for that domain */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10628,7 +11993,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The organization holds no claim for that domain.",
+                     *         "message": "The organization does not exist, or it holds no claim for that domain",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}",
                      *         "method": "DELETE"
@@ -10660,6 +12025,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["OrganizationSsoConnectionResponseDto"][];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -10753,7 +12139,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The connection is not an end-user connection bound to the organization's Environment, or the role is not an active, assignable role in that Environment */
+            /** @description The request failed validation; the connection is not in the account, is not an end-user connection, or is not bound to the organization's Environment; or the role is not an active, assignable arrival role in that Environment; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10764,7 +12150,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The connection is not an end-user connection bound to the organization's Environment, or the role is not an active, assignable role in that Environment",
+                     *         "message": "The request failed validation; the connection is not in the account, is not an end-user connection, or is not bound to the organization's Environment; or the role is not an active, assignable arrival role in that Environment; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
                      *         "method": "POST"
@@ -10837,7 +12223,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The connection is already bound to an organization in this Environment */
+            /** @description The connection is already bound to an organization in this Environment, or it belongs to another organization */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10848,7 +12234,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The connection is already bound to an organization in this Environment",
+                     *         "message": "The connection is already bound to an organization in this Environment, or it belongs to another organization",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
                      *         "method": "POST"
@@ -10878,6 +12264,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -10921,7 +12328,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This SSO connection is not bound to the organization */
+            /** @description The organization does not exist, or that SSO connection is not bound to it */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -10932,7 +12339,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "This SSO connection is not bound to the organization",
+                     *         "message": "The organization does not exist, or that SSO connection is not bound to it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
                      *         "method": "DELETE"
@@ -10980,6 +12387,27 @@ export interface operations {
                         items: components["schemas"]["OrganizationMemberResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -11073,6 +12501,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation, or the role is a system role, which cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation, or the role is a system role, which cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -11115,7 +12564,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Organization not found */
+            /** @description The organization, the identity or the role does not exist in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11126,7 +12575,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Organization not found",
+                     *         "message": "The organization, the identity or the role does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
                      *         "method": "POST"
@@ -11178,6 +12627,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members/{identityId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -11220,7 +12690,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The identity is not a member of this organization */
+            /** @description The organization does not exist, or the identity is not a member of it */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11231,7 +12701,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The identity is not a member of this organization",
+                     *         "message": "The organization does not exist, or the identity is not a member of it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}",
                      *         "method": "DELETE"
@@ -11291,6 +12761,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation, or the role is inactive or a system role; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation, or the role is inactive or a system role; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members/{identityId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -11333,7 +12824,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The identity is not a member of this organization */
+            /** @description The organization or the role does not exist, or the identity is not a member of this organization */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11344,7 +12835,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The identity is not a member of this organization",
+                     *         "message": "The organization or the role does not exist, or the identity is not a member of this organization",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}",
                      *         "method": "PATCH"
@@ -11396,6 +12887,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -11438,7 +12950,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The identity is not a member of this organization */
+            /** @description The organization does not exist, or the identity is not a member of it */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11449,7 +12961,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The identity is not a member of this organization",
+                     *         "message": "The organization does not exist, or the identity is not a member of it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
                      *         "method": "POST"
@@ -11495,6 +13007,27 @@ export interface operations {
                         items: components["schemas"]["IdentityInviteResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -11588,6 +13121,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -11651,6 +13205,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description A pending invitation already exists for this email, or the identity already has active access to this Environment */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "A pending invitation already exists for this email, or the identity already has active access to this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiOrganizationsController_listRoles: {
@@ -11673,6 +13248,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["RoleResponseDto"][];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -11759,6 +13355,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description An id in the path is malformed, or the invitation is no longer pending; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "An id in the path is malformed, or the invitation is no longer pending; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites/{inviteId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -11801,7 +13418,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No such invitation on this organization */
+            /** @description The organization does not exist, or it has no such invitation */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11812,7 +13429,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "No such invitation on this organization",
+                     *         "message": "The organization does not exist, or it has no such invitation",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites/{inviteId}",
                      *         "method": "DELETE"
@@ -11844,6 +13461,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["OrganizationSsoConnectionDetailResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -11958,7 +13596,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The configuration is malformed, or the role is not an active, assignable role in the organization's Environment */
+            /** @description The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11969,7 +13607,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment",
+                     *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "POST"
@@ -12042,7 +13680,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization already has an SSO connection */
+            /** @description The organization already has an SSO connection, or the plan's SSO connection limit is reached */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12053,7 +13691,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization already has an SSO connection",
+                     *         "message": "The organization already has an SSO connection, or the plan's SSO connection limit is reached",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "POST"
@@ -12082,6 +13720,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -12146,7 +13805,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12157,7 +13816,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "DELETE"
@@ -12195,7 +13854,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The configuration is malformed, or the role is not an active, assignable role in the organization's Environment */
+            /** @description The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12206,7 +13865,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment",
+                     *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "PATCH"
@@ -12279,7 +13938,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12290,7 +13949,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "PATCH"
@@ -12324,7 +13983,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The connection is missing the fields its protocol needs, the organization has no verified domain yet, no arrival role is chosen, or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed */
+            /** @description The organization id is malformed; the connection is missing the fields its protocol needs; the organization has no verified domain yet; no arrival role is chosen; or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12335,7 +13994,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The connection is missing the fields its protocol needs, the organization has no verified domain yet, no arrival role is chosen, or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed",
+                     *         "message": "The organization id is malformed; the connection is missing the fields its protocol needs; the organization has no verified domain yet; no arrival role is chosen; or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
                      *         "method": "POST"
@@ -12408,7 +14067,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12419,7 +14078,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
                      *         "method": "POST"
@@ -12451,6 +14110,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["OrganizationSsoConnectionDetailResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -12516,7 +14196,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12527,7 +14207,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
                      *         "method": "POST"
@@ -12565,7 +14245,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The metadata could not be read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate. */
+            /** @description The request failed validation or names neither a metadata URL nor a document; the connection is not SAML; or the metadata could not be fetched or read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12576,7 +14256,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The metadata could not be read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate.",
+                     *         "message": "The request failed validation or names neither a metadata URL nor a document; the connection is not SAML; or the metadata could not be fetched or read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/import-metadata",
                      *         "method": "POST"
@@ -12649,7 +14329,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12660,7 +14340,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization's connection is developer-managed; its configuration and lifecycle are changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/import-metadata",
                      *         "method": "POST"
@@ -12692,6 +14372,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["SsoRecentLoginDto"][];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/recent-logins",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -12757,6 +14458,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The organization has no SSO connection bound to it. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The organization has no SSO connection bound to it.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/recent-logins",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiOrganizationSsoConnectionController_arrivalRoles: {
@@ -12779,6 +14501,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["OrganizationSsoArrivalRoleDto"][];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/arrival-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -12866,6 +14609,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["ServiceProviderDetailsResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/service-provider",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -12976,6 +14740,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13063,6 +14848,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13126,7 +14932,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This organization already has a directory connection */
+            /** @description The organization already has a directory connection, or the application owner has not yet chosen which roles its directory may grant */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13137,7 +14943,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "This organization already has a directory connection",
+                     *         "message": "The organization already has a directory connection, or the application owner has not yet chosen which roles its directory may grant",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "POST"
@@ -13166,6 +14972,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -13209,7 +15036,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This organization has no directory connection */
+            /** @description The organization does not exist, or it has no directory connection */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13220,7 +15047,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "This organization has no directory connection",
+                     *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "DELETE"
@@ -13254,6 +15081,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13296,7 +15144,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This organization has no directory connection */
+            /** @description The organization does not exist, or it has no directory connection */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13307,7 +15155,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "This organization has no directory connection",
+                     *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
                      *         "method": "GET"
@@ -13345,6 +15193,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13387,7 +15256,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This organization has no directory connection */
+            /** @description The organization does not exist, or it has no directory connection */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13398,7 +15267,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "This organization has no directory connection",
+                     *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
                      *         "method": "POST"
@@ -13437,6 +15306,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13479,7 +15369,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No directory-sync token with that id for this organization */
+            /** @description The organization does not exist, it has no directory connection, or the connection has no directory-sync token with that id */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13490,7 +15380,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "No directory-sync token with that id for this organization",
+                     *         "message": "The organization does not exist, it has no directory connection, or the connection has no directory-sync token with that id",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
                      *         "method": "POST"
@@ -13521,6 +15411,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13563,7 +15474,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This organization has no directory connection */
+            /** @description The organization does not exist, or it has no directory connection */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13574,7 +15485,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "This organization has no directory connection",
+                     *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}",
                      *         "method": "DELETE"
@@ -13608,6 +15519,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/activity",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13650,7 +15582,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This organization has no directory connection */
+            /** @description The organization does not exist, or it has no directory connection */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13661,7 +15593,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "This organization has no directory connection",
+                     *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/activity",
                      *         "method": "GET"
@@ -13693,6 +15625,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["DirectoryGrantableRoleResponseDto"][];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -13786,7 +15739,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The list names a role that does not exist here, a system role, or no role for arriving people to hold */
+            /** @description The request failed validation, the default role is missing or not on the list, or the list names a system role; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13797,7 +15750,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The list names a role that does not exist here, a system role, or no role for arriving people to hold",
+                     *         "message": "The request failed validation, the default role is missing or not on the list, or the list names a system role; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
                      *         "method": "PUT"
@@ -13849,7 +15802,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Organization not found */
+            /** @description The organization, or a role the list names, does not exist in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13860,7 +15813,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Organization not found",
+                     *         "message": "The organization, or a role the list names, does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
                      *         "method": "PUT"
@@ -13915,6 +15868,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/groups",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -13957,7 +15931,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This organization has no directory connection */
+            /** @description The organization does not exist, or it has no directory connection */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13968,7 +15942,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "This organization has no directory connection",
+                     *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
                      *         "method": "GET"
@@ -14007,7 +15981,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description That role is not one this organization's directory may grant */
+            /** @description The request failed validation, or the role is a system role or not one this organization's directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14018,7 +15992,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "That role is not one this organization's directory may grant",
+                     *         "message": "The request failed validation, or the role is a system role or not one this organization's directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
                      *         "method": "PUT"
@@ -14070,7 +16044,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No pushed group with that id in this organization's directory */
+            /** @description The organization does not exist, it has no directory connection, its directory has no pushed group with that id, or the role does not exist in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14081,7 +16055,28 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "No pushed group with that id in this organization's directory",
+                     *         "message": "The organization does not exist, it has no directory connection, its directory has no pushed group with that id, or the role does not exist in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Another pushed group already grants the organization's membership role; clear that group's mapping first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Another pushed group already grants the organization's membership role; clear that group's mapping first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
                      *         "method": "PUT"
@@ -14116,6 +16111,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14158,7 +16174,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No pushed group with that id in this organization's directory */
+            /** @description The organization does not exist, it has no directory connection, or its directory has no pushed group with that id */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14169,7 +16185,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "No pushed group with that id in this organization's directory",
+                     *         "message": "The organization does not exist, it has no directory connection, or its directory has no pushed group with that id",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
                      *         "method": "DELETE"
@@ -14206,6 +16222,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14227,7 +16264,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14238,7 +16275,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
@@ -14274,6 +16311,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14295,7 +16353,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14306,7 +16364,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
@@ -14361,6 +16419,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14382,7 +16461,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14393,7 +16472,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
@@ -14448,6 +16527,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14469,7 +16569,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description System role cannot be deleted */
+            /** @description The caller is not allowed to manage roles, or the role is a system role, which cannot be deleted */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14480,7 +16580,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "System role cannot be deleted",
+                     *         "message": "The caller is not allowed to manage roles, or the role is a system role, which cannot be deleted",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
                      *         "method": "DELETE"
@@ -14511,7 +16611,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            /** @description The role changed since the If-Match version, it is the role people arrive with through an organization's directory, or it is one the Environment lets identity providers grant */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14522,7 +16622,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "message": "The role changed since the If-Match version, it is the role people arrive with through an organization's directory, or it is one the Environment lets identity providers grant",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
                      *         "method": "DELETE"
@@ -14564,6 +16664,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14585,7 +16706,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14596,7 +16717,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
@@ -14627,7 +16748,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            /** @description The role changed since the If-Match version, or another role in the Environment already has that name */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14638,7 +16759,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "message": "The role changed since the If-Match version, or another role in the Environment already has that name",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
                      *         "method": "PATCH"
@@ -14672,6 +16793,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14693,7 +16835,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14704,7 +16846,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
@@ -14763,6 +16905,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}/permissions",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14784,7 +16947,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14795,7 +16958,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
@@ -14805,7 +16968,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Role not found */
+            /** @description Role not found, or a permission key is not in this Environment's catalog */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14816,7 +16979,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Role not found",
+                     *         "message": "Role not found, or a permission key is not in this Environment's catalog",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions",
                      *         "method": "PUT"
@@ -14866,6 +17029,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/app-wide",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14887,7 +17071,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14898,7 +17082,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -14930,6 +17114,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/app-wide/summary",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -14951,7 +17156,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -14962,7 +17167,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -14998,7 +17203,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description System roles cannot be assigned to identities — they are reserved for platform administration */
+            /** @description The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -15009,7 +17214,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "System roles cannot be assigned to identities — they are reserved for platform administration",
+                     *         "message": "The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
                      *         "method": "POST"
@@ -15040,7 +17245,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -15051,7 +17256,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -15061,7 +17266,28 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Identity already has this role at this node */
+            /** @description An identity, role, assignment or node the request names does not exist in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity already has this role at this node, or the node belongs to an organization the identity is not a member of */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15072,7 +17298,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Identity already has this role at this node",
+                     *         "message": "The identity already has this role at this node, or the node belongs to an organization the identity is not a member of",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
                      *         "method": "POST"
@@ -15102,6 +17328,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -15123,7 +17370,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -15134,7 +17381,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -15144,7 +17391,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Assignment not found */
+            /** @description An identity, role, assignment or node the request names does not exist in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15155,7 +17402,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Assignment not found",
+                     *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
                      *         "method": "DELETE"
@@ -15193,7 +17440,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description System roles cannot be assigned to identities — they are reserved for platform administration */
+            /** @description The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -15204,7 +17451,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "System roles cannot be assigned to identities — they are reserved for platform administration",
+                     *         "message": "The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
                      *         "method": "PATCH"
@@ -15235,7 +17482,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -15246,7 +17493,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -15256,7 +17503,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Assignment not found */
+            /** @description An identity, role, assignment or node the request names does not exist in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -15267,7 +17514,28 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Assignment not found",
+                     *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Identity already has this role at this node */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Identity already has this role at this node",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
                      *         "method": "PATCH"
@@ -15299,6 +17567,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/bulk-remove",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -15320,7 +17609,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -15331,10 +17620,31 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description An identity, role, assignment or node the request names does not exist in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/bulk-remove",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -15367,7 +17677,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description System roles cannot be assigned to identities — they are reserved for platform administration */
+            /** @description The request failed validation, or the role is inactive or a system role; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -15378,7 +17688,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "System roles cannot be assigned to identities — they are reserved for platform administration",
+                     *         "message": "The request failed validation, or the role is inactive or a system role; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-change-role",
                      *         "method": "POST"
@@ -15409,7 +17719,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -15420,10 +17730,52 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description An identity, role, assignment or node the request names does not exist in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/bulk-change-role",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Identity already has this role at this node */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Identity already has this role at this node",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/bulk-change-role",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -15509,6 +17861,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -15530,7 +17903,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -15541,7 +17914,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -15604,7 +17977,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start a fresh query. */
+            /** @description The request failed validation, or the cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start a fresh query; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -15615,7 +17988,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start a fresh query.",
+                     *         "message": "The request failed validation, or the cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start a fresh query; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
                      *         "method": "GET"
@@ -15689,6 +18062,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/export",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -15757,6 +18151,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/export",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -15821,6 +18236,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["ExportJobDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/export/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -15905,6 +18341,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/export/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -15991,6 +18448,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["AuditLogDetailResponseDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -16087,7 +18565,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start from the beginning of the retained window. */
+            /** @description Cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start from the beginning of the retained window; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16098,7 +18576,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "Cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start from the beginning of the retained window.",
+                     *         "message": "Cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start from the beginning of the retained window; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/changes",
                      *         "method": "GET"
@@ -16172,6 +18650,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/hierarchy-schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -16193,7 +18692,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -16204,7 +18703,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
                      *         "method": "GET"
@@ -16244,6 +18743,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation, or the schema is refused: it names a node type Canopy reserves, it is not rooted at "canopy:organization" while organizations are on, or it removes a node type that nodes still use; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation, or the schema is refused: it names a node type Canopy reserves, it is not rooted at \"canopy:organization\" while organizations are on, or it removes a node type that nodes still use; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/hierarchy-schema",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -16265,7 +18785,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -16276,7 +18796,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
                      *         "method": "GET"
@@ -16327,6 +18847,27 @@ export interface operations {
                     "application/json": {
                         data: components["schemas"]["EnvironmentBrandingResponseDto"];
                     };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -16397,7 +18938,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A value is malformed: the logo must be an https URL, the color a six-digit hex, the support link an https URL or a mailto: address */
+            /** @description A value is malformed: the logo must be an https URL, the color a six-digit hex, the support link an https URL or a mailto: address; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16408,7 +18949,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "A value is malformed: the logo must be an https URL, the color a six-digit hex, the support link an https URL or a mailto: address",
+                     *         "message": "A value is malformed: the logo must be an https URL, the color a six-digit hex, the support link an https URL or a mailto: address; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
@@ -16494,6 +19035,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -16562,7 +19124,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description One or more event types are not supported */
+            /** @description The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16573,7 +19135,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "One or more event types are not supported",
+                     *         "message": "The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
                      *         "method": "POST"
@@ -16645,6 +19207,27 @@ export interface operations {
                     "application/json": {
                         items: components["schemas"]["WebhookEventTypeDto"][];
                     };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks/event-types",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -16723,6 +19306,27 @@ export interface operations {
                         items: components["schemas"]["WebhookDeliveryResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks/{id}/deliveries",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
             /** @description Invalid or expired token */
@@ -16812,6 +19416,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -16894,6 +19519,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
             };
             /** @description Invalid or expired token */
             401: {
@@ -16986,7 +19632,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description One or more event types are not supported */
+            /** @description The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16997,7 +19643,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "One or more event types are not supported",
+                     *         "message": "The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
                      *         "method": "PATCH"
@@ -17104,6 +19750,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -17125,7 +19792,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17136,7 +19803,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "GET"
@@ -17172,6 +19839,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -17193,7 +19881,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17204,10 +19892,52 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The account has reached its plan's monthly limit on active API keys (`m2m_tokens`); `data` carries the limit, the usage and an upgrade URL */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The account has reached its plan's monthly limit on active API keys (`m2m_tokens`); `data` carries the limit, the usage and an upgrade URL",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description More than 20 create requests in a minute from this caller (`x-canopy-rate-limit`); retry after the window */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 429,
+                     *         "code": null,
+                     *         "message": "More than 20 create requests in a minute from this caller (`x-canopy-rate-limit`); retry after the window",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -17234,6 +19964,27 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -17255,7 +20006,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17266,7 +20017,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "GET"
@@ -17325,6 +20076,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -17346,7 +20118,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17357,7 +20129,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "GET"
@@ -17412,6 +20184,27 @@ export interface operations {
                     };
                 };
             };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description Invalid or expired token */
             401: {
                 headers: {
@@ -17433,7 +20226,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17444,7 +20237,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "GET"
