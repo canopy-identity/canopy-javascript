@@ -1,5 +1,12 @@
 # @canopy-io/nestjs
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [e9a9d26]
+  - @canopy-io/node@0.4.0
+
 ## 0.2.1
 
 ### Patch Changes
