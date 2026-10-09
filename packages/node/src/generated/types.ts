@@ -1927,7 +1927,7 @@ export interface paths {
         };
         /**
          * Get an Environment's branding
-         * @description Returns the Environment's branding: the values the customer set (`branding`, null where unset) beside the effective result every hosted page and the organization admin portal render (`effective`: product name, logo, primary color, support link, and whether the attribution line stays). `brand_removal_available` says whether the Account's plan removes the attribution line.
+         * @description Returns the Environment's branding: the values the customer set (`branding`, null where unset) beside the effective result every hosted page and the organization admin portal render (`effective`: product name, logo, favicon, primary and background colors, support, terms and privacy links, and whether the attribution mark stays). Only the primary color has a default; every other unset field is `null`. `brand_removal_available` says whether the Account's plan removes the attribution mark.
          */
         get: operations["ApiBrandingController_getBranding"];
         put?: never;
@@ -1937,7 +1937,7 @@ export interface paths {
         head?: never;
         /**
          * Change an Environment's branding
-         * @description Sets the Environment's branding. Every field is optional and each one falls back on its own: send only what you want to change, send `null` to return a field to Canopy's default. The product name replaces Canopy's on every customer-facing surface, the logo shows at the top, the primary color drives buttons and links, and the support link becomes the support line. Returns `400` (`validation`) for a malformed value. Emits `environment.branding_updated`.
+         * @description Sets the Environment's branding. Every field is optional and stands on its own: send only what you want to change, send `null` to clear a field (the primary color then returns to the default blue). The product name shows in the browser tab, as the logo's alt text and in place of a missing logo; the logo shows at the top and the favicon in the tab; the primary color drives buttons and links, and the hover, link and focus shades are derived from it; the background color paints the page behind the card; the support, terms and privacy links show as "Need help?", "Terms" and "Privacy" under every hosted page. Returns `400` (`validation`) for a malformed value. Emits `environment.branding_updated`.
          */
         patch: operations["ApiBrandingController_updateBranding"];
         trace?: never;
@@ -3496,37 +3496,70 @@ export interface components {
         StoredBrandingDto: {
             product_name: string | null;
             logo_url: string | null;
+            /** @enum {string|null} */
+            logo_kind: "full" | "icon" | null;
+            favicon_url: string | null;
             primary_color: string | null;
+            background_color: string | null;
             support_url: string | null;
+            terms_url: string | null;
+            privacy_url: string | null;
         };
         EffectiveBrandingDto: {
-            product_name: string;
+            /** @description Null when the customer set none; surfaces then show no name. */
+            product_name: string | null;
             logo_url: string | null;
+            /**
+             * @description `full`: the logo is shown alone. `icon`: it is shown at icon size with the product name beside it.
+             * @enum {string}
+             */
+            logo_kind: "full" | "icon";
+            favicon_url: string | null;
             /** @description Six-digit hex. */
             primary_color: string;
+            /** @description Six-digit hex, or null for the neutral grey. */
+            background_color: string | null;
             support_url: string | null;
-            /** @description Whether the attribution line stays on hosted pages and the portal. False only on a plan with brand removal. */
+            terms_url: string | null;
+            privacy_url: string | null;
+            /** @description Whether the attribution mark stays on hosted pages and the portal. False only on a plan with brand removal. */
             attribution: boolean;
         };
         EnvironmentBrandingResponseDto: {
             environment_slug: string;
             branding: components["schemas"]["StoredBrandingDto"];
             effective: components["schemas"]["EffectiveBrandingDto"];
-            /** @description Whether the Account's plan removes the attribution line. When false, the line stays whatever the customer sets. */
+            /** @description Whether the Account's plan removes the attribution mark. When false, the mark stays whatever the customer sets. */
             brand_removal_available: boolean;
         };
         UpdateEnvironmentBrandingDto: {
-            /** @description The product name every hosted page and the organization admin portal show in place of Canopy's. Null clears it. */
+            /** @description The product name hosted pages and the organization admin portal show: in the browser tab title, beside the logo when `logo_kind` is `icon`, as a full logo's alt text, and in place of a logo when none is set. Null clears it, and the pages then show no name. */
             product_name?: string | null;
             /** @description Absolute https URL of the logo shown at the top of hosted pages and the portal. Null clears it. */
             logo_url?: string | null;
             /**
-             * @description Six-digit hex color for buttons and links on hosted pages and the portal. Null returns to Canopy's primary.
+             * @description What the logo image is. `full`: a complete logo that already carries the product name, shown alone. `icon`: a square mark, shown at icon size with the product name beside it. Null returns to `full`.
+             * @enum {string|null}
+             */
+            logo_kind?: "full" | "icon" | null;
+            /** @description Absolute https URL of the browser-tab icon on hosted pages: a square PNG or ICO of at least 32 px. Null clears it. */
+            favicon_url?: string | null;
+            /**
+             * @description Six-digit hex colour for buttons and links on hosted pages and the portal. Hover, link, focus and tint shades are derived from it so each meets its contrast rule. Null returns to the default blue.
              * @example #B93C0C
              */
             primary_color?: string | null;
-            /** @description Where the support line points: an https URL or a mailto: address. Null hides the line. */
+            /**
+             * @description Six-digit hex colour for the page behind the card on hosted pages. The card stays white; footer text is chosen to reach 4.5:1 against it. Null returns to the neutral grey.
+             * @example #0B1F3A
+             */
+            background_color?: string | null;
+            /** @description Where "Need help?" points: an https URL or a mailto: address. Null hides it. */
             support_url?: string | null;
+            /** @description Absolute https URL of the customer's terms, linked as "Terms" in the hosted pages' footer. Null hides it. */
+            terms_url?: string | null;
+            /** @description Absolute https URL of the customer's privacy policy, linked as "Privacy" in the hosted pages' footer. Null hides it. */
+            privacy_url?: string | null;
         };
         WebhookCreatedResponseDto: {
             id: string;
@@ -18938,7 +18971,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A value is malformed: the logo must be an https URL, the color a six-digit hex, the support link an https URL or a mailto: address; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -18949,7 +18982,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "A value is malformed: the logo must be an https URL, the color a six-digit hex, the support link an https URL or a mailto: address; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
