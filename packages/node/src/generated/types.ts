@@ -253,7 +253,7 @@ export interface paths {
         head?: never;
         /**
          * Update an identity
-         * @description Updates an identity's mutable profile fields (`first_name`, `last_name`, `is_active`, `metadata`) in the current Environment. `email` and `external_id` are immutable here — `external_id` is owned by the SSO/SCIM provisioning path and cannot be re-pointed through this endpoint. Returns the updated identity and writes an `identity.updated` audit row for the profile fields; a change to `is_active` writes `identity.status_set` instead, the account-wide activation switch. Returns `404` when the identity has no membership in this Environment.
+         * @description Updates an identity's mutable profile fields (`first_name`, `last_name`, `metadata`) in the current Environment. `email` and `external_id` are immutable here — `external_id` is owned by the SSO/SCIM provisioning path and cannot be re-pointed through this endpoint. The account-wide `is_active` switch is not settable from an Environment; to cut off access here, remove the identity from the Environment. Returns the updated identity and writes an `identity.updated` audit row. Returns `404` when the identity has no membership in this Environment.
          */
         patch: operations["ApiIdentitiesController_updateIdentity"];
         trace?: never;
@@ -272,46 +272,6 @@ export interface paths {
         get: operations["ApiIdentitiesController_getIdentityDetail"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/identities/{id}/activate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Activate an identity
-         * @description Reactivates an identity by setting `is_active = true`, the account-wide switch, allowing it to authenticate again in every Environment it belongs to. Writes an `identity.status_set` audit row (the same event the Console's account route emits), delivered to the account's subscriptions and to those of every Environment the identity is a member of. Returns a `200` message envelope. Returns `404` when the identity has no membership in this Environment.
-         */
-        post: operations["ApiIdentitiesController_activateIdentity"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/identities/{id}/deactivate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Deactivate an identity
-         * @description Deactivates an identity by setting `is_active = false`, the account-wide switch, blocking future sign-in in every Environment it belongs to. Writes an `identity.status_set` audit row (the same event the Console's account route emits), delivered to the account's subscriptions and to those of every Environment the identity is a member of. Returns a `200` message envelope. Returns `404` when the identity has no membership in this Environment.
-         */
-        post: operations["ApiIdentitiesController_deactivateIdentity"];
         delete?: never;
         options?: never;
         head?: never;
@@ -573,7 +533,7 @@ export interface paths {
         put?: never;
         /**
          * Create an invite
-         * @description Creates a single identity invite in the active Environment and returns it along with a tokenized `accept_url`. The effective intent is derived server-side from existing identity state — a net-new email becomes `activate`, an existing identity without active access becomes `add_to_app`, and `password_reset` is honored only for an existing identity. An optional `role_id` + `node_id` pair (both or neither) seeds an initial role assignment applied at acceptance. Invites expire after 7 days; the email is sent unless `send_email: false`, in which case the caller delivers `accept_url` itself. A duplicate pending invite for the same recipient returns `409`.
+         * @description Creates a single identity invite in the active Environment and returns it along with a tokenized `accept_url`. The effective intent is derived server-side from existing identity state — a net-new email becomes `activate`, an existing identity without active access becomes `add_to_app`, and `password_reset` is honored only for an existing identity. An optional `role_id` + `node_id` pair (both or neither) seeds an initial role assignment applied at acceptance. Invites expire after 7 days, or 24 hours for `password_reset`; the email is sent unless `send_email: false`, in which case the caller delivers `accept_url` itself. A duplicate pending invite for the same recipient returns `409`.
          */
         post: operations["ApiIdentityInvitesController_createInvite"];
         delete?: never;
@@ -633,7 +593,7 @@ export interface paths {
         put?: never;
         /**
          * Resend an invite
-         * @description Resends the email for a `pending` invite in the active Environment, generating a fresh token, invalidating the previous one, and resetting the 7-day expiry. Returns the new tokenized `accept_url`. Subject to a 5-minute cooldown between resends. Returns `404` when the invite is not found and `400` when it is not in `pending` status or the cooldown has not elapsed.
+         * @description Resends the email for a `pending` invite in the active Environment, generating a fresh token, invalidating the previous one, and resetting the expiry (7 days, or 24 hours for `password_reset`). Returns the new tokenized `accept_url`. Subject to a 5-minute cooldown between resends. Returns `404` when the invite is not found and `400` when it is not in `pending` status or the cooldown has not elapsed.
          */
         post: operations["ApiIdentityInvitesController_resendInvite"];
         delete?: never;
@@ -1094,7 +1054,7 @@ export interface paths {
         post?: never;
         /**
          * Unbind an SSO connection from an organization
-         * @description Removes the binding; logins through the connection fall back to the Environment's placement. Existing memberships are untouched. Returns `404` when the connection is not bound to this organization. Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.unbound`.
+         * @description Removes the binding; logins through the connection fall back to the Environment's placement. Existing memberships are untouched. Returns `404` when the connection is not bound to this organization, and `409` (`organization.sso_connection_owned_cannot_unbind`) when the organization set the connection up itself: an owned connection stays with its organization, so disable or delete it instead. Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.unbound`.
          */
         delete: operations["ApiOrganizationsController_unbindSsoConnection"];
         options?: never;
@@ -1613,7 +1573,7 @@ export interface paths {
         head?: never;
         /**
          * Update a role
-         * @description Updates a role's `name`, `description`, and/or `is_active` flag by `id`. A name that collides with another role in the Environment returns `409`, and a missing role returns `404`. Supports optimistic concurrency via the `If-Match` header carrying the role's current version (`409` on a version mismatch). Requires the `rbac.manage_roles` permission.
+         * @description Updates a role's `name`, `description`, and/or `is_active` flag by `id`. Setting `is_active` to `false` hides the role from pickers, refuses new assignments to it, and withholds its permissions from every current holder until it is set back to `true`; the assignments themselves are kept. A name that collides with another role in the Environment returns `409`, and a missing role returns `404`. Supports optimistic concurrency via the `If-Match` header carrying the role's current version (`409` on a version mismatch). Requires the `rbac.manage_roles` permission.
          */
         patch: operations["ApiRolesController_updateRole"];
         trace?: never;
@@ -2170,6 +2130,7 @@ export interface components {
             scope_evaluated: "node" | "app_wide";
             /** @description The hierarchy node the decision was anchored to. Always set for `scope_evaluated: "node"`; always null for `scope_evaluated: "app_wide"` because the answer is org-scoped, not node-scoped. */
             effective_node_id?: string | null;
+            /** @description Ids of the roles whose assignments produced a node-scoped allow. Always empty for `scope_evaluated: "app_wide"`, whose answer is not tied to a node, and for a deny. */
             granting_roles: string[];
             denial_reason?: string | null;
         };
@@ -2204,7 +2165,7 @@ export interface components {
             assignment_id: string;
             role_id: string;
             role_name: string;
-            /** @description Whether the assignment is within its effective_from/effective_to window right now. */
+            /** @description Whether the assignment counts right now: within its effective_from/effective_to window, and its role is active. An inactive role's assignments are kept but grant nothing. */
             active: boolean;
             effective_from?: string | null;
             effective_to?: string | null;
@@ -2300,11 +2261,13 @@ export interface components {
             email: string;
             first_name: string;
             last_name: string;
-            /** @description Initial password. 8-64 characters. No composition rules — NIST SP 800-63B aligned. A HaveIBeenPwned breach check runs server-side. The effective policy is published on `GET /v1/identity/auth/config`, so a client can state the rules before submit rather than after. Omit to create a passwordless identity (sign-in via SSO/social or forgot-password reset). */
+            /** @description Initial password. 8-64 characters. No composition rules — NIST SP 800-63B aligned. A HaveIBeenPwned breach check runs server-side. The effective policy is published on `GET /v1/identity/auth/config`, so a client can state the rules before submit rather than after. Omit to create a passwordless identity (sign-in via SSO or a password reset). */
             password?: string;
             external_id?: string;
             metadata?: Record<string, unknown>;
+            /** @description Role for an initial assignment — required if node_id is provided */
             role_id?: string;
+            /** @description Node for an initial assignment — required if role_id is provided */
             node_id?: string;
         };
         BulkCreateIdentitiesDto: {
@@ -2328,13 +2291,9 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        MessageResponseDto: {
-            message: string;
-        };
         UpdateIdentityDto: {
             first_name?: string;
             last_name?: string;
-            is_active?: boolean;
             metadata?: Record<string, unknown> | null;
         };
         SetIdentityPasswordDto: {
@@ -2393,7 +2352,7 @@ export interface components {
             email_verified: boolean;
             /** Format: date-time */
             email_verified_at?: string | null;
-            /** @description Whether the identity has a usable password. False for passwordless (SSO/social/code-only) identities. */
+            /** @description Whether the identity has a usable password. False for passwordless (SSO or email-code-only) identities. */
             password_set: boolean;
             /** @description True while the identity is in an active failed-login lockout window. */
             locked: boolean;
@@ -2446,10 +2405,6 @@ export interface components {
             name: string;
             role_id?: string | null;
             node_id?: string | null;
-            /** @description Environment the invite targets, or null for a directory-only (account-tier) invite created with the Environment field left empty. */
-            environment_id?: string | null;
-            /** @description Display name of the target Environment, or null for a directory-only invite. */
-            environment_name?: string | null;
             has_initial_assignment: boolean;
             /** @enum {string} */
             status: "pending" | "accepted" | "revoked" | "expired";
@@ -2481,10 +2436,6 @@ export interface components {
             name: string;
             role_id?: string | null;
             node_id?: string | null;
-            /** @description Environment the invite targets, or null for a directory-only (account-tier) invite created with the Environment field left empty. */
-            environment_id?: string | null;
-            /** @description Display name of the target Environment, or null for a directory-only invite. */
-            environment_name?: string | null;
             has_initial_assignment: boolean;
             /** @enum {string} */
             status: "pending" | "accepted" | "revoked" | "expired";
@@ -2846,6 +2797,8 @@ export interface components {
             /** @enum {string} */
             type: "saml" | "oidc";
             status: string;
+            /** @description The organization that set the connection up from the organization portal, or null. A connection owned by this organization cannot be unbound from it. */
+            owner_organization_node_id?: string | null;
         };
         OrganizationSsoRoleSummaryDto: {
             id: string;
@@ -2968,7 +2921,11 @@ export interface components {
             type: "saml" | "oidc";
             name: string;
             /** @enum {string} */
-            status: "configuring" | "active" | "disabled" | "failed";
+            status: "configuring" | "active" | "disabled";
+            /** @description The organization that owns the connection, when its administrator set it up from the organization portal; null for a connection the developer created. An owned connection cannot be moved to another organization or Environment, and its administrators are emailed when the developer changes its provider settings, disables or deletes it. */
+            owner_organization_node_id?: string | null;
+            /** @description True when an organization's administrator set the connection up from the organization portal. */
+            owned_by_organization: boolean;
             /** @description The HTTPS address the identity provider's SAML metadata was last imported from. `null` when the metadata was pasted as a document or never imported. */
             saml_metadata_url?: string | null;
             /** @description The last test sign-in run against the connection. Cleared when its provider settings change, since a test no longer proves them. */
@@ -2992,11 +2949,6 @@ export interface components {
             };
             /** Format: date-time */
             last_login_at?: string | null;
-            /** Format: date-time */
-            last_login_failure_at?: string | null;
-            consecutive_failures: number;
-            /** Format: date-time */
-            auto_disabled_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -3231,8 +3183,11 @@ export interface components {
             name?: string;
             /** @description Updated role description */
             description?: string | null;
-            /** @description Whether the role is active */
+            /** @description Whether the role is active. An inactive role is hidden from pickers, cannot be newly assigned, and grants nothing to its current holders until it is reactivated; their assignments are kept. */
             is_active?: boolean;
+        };
+        MessageResponseDto: {
+            message: string;
         };
         SetRolePermissionsDto: {
             permission_keys: string[];
@@ -3476,7 +3431,7 @@ export interface components {
             /** @description Allowed node types (e.g. ['region', 'district', 'team']). Order is informational, not structural — parent/child rules are governed by `allowed_children`. Names starting with `canopy:` are reserved; with organizations enabled the list starts with `canopy:organization`. */
             node_types: string[];
             /**
-             * @description Map from node type to allowed child node types. Empty array means leaf-only.
+             * @description Map from node type to allowed child node types. An empty array makes that type a leaf: nothing may be created or moved beneath it. A type the map does not mention accepts any child.
              * @example {
              *       "region": [
              *         "district"
@@ -6862,222 +6817,6 @@ export interface operations {
             };
         };
     };
-    ApiIdentitiesController_activateIdentity: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Identity activated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["MessageResponseDto"];
-                    };
-                };
-            };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 400,
-                     *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities/{id}/activate",
-                     *         "method": "POST"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description Invalid or expired token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 401,
-                     *         "code": null,
-                     *         "message": "Invalid or expired token",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities",
-                     *         "method": "GET"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 403,
-                     *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities",
-                     *         "method": "GET"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description Identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 404,
-                     *         "code": null,
-                     *         "message": "Identity not found",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities/{id}/activate",
-                     *         "method": "POST"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-        };
-    };
-    ApiIdentitiesController_deactivateIdentity: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Identity deactivated */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["MessageResponseDto"];
-                    };
-                };
-            };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 400,
-                     *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities/{id}/deactivate",
-                     *         "method": "POST"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description Invalid or expired token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 401,
-                     *         "code": null,
-                     *         "message": "Invalid or expired token",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities",
-                     *         "method": "GET"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 403,
-                     *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities",
-                     *         "method": "GET"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description Identity not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 404,
-                     *         "code": null,
-                     *         "message": "Identity not found",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/identities/{id}/deactivate",
-                     *         "method": "POST"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-        };
-    };
     ApiIdentitiesController_setIdentityPassword: {
         parameters: {
             query?: never;
@@ -8376,14 +8115,12 @@ export interface operations {
                 take?: number;
                 /** @description Search term */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Column to sort by. Defaults to `created`, newest first. */
+                sort_by?: "name" | "email" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
                 /** @description Filter by invite status */
                 status?: "pending" | "accepted" | "revoked" | "expired";
-                /** @description Filter by target Environment. Pass the literal `none` to return only directory-only invites (environment_id is null). */
-                environment_id?: string;
             };
             header?: never;
             path?: never;
@@ -12373,6 +12110,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "The organization does not exist, or that SSO connection is not bound to it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization set this connection up itself; it stays bound. Disable or delete the connection instead. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The organization set this connection up itself; it stays bound. Disable or delete the connection instead.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
                      *         "method": "DELETE"

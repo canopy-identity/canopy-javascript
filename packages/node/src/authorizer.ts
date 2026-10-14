@@ -254,7 +254,9 @@ export class LocalAuthorizer {
    * With no argument, everything goes: grants and the hierarchy tree. Not
    * needed in normal operation, where entries expire on their own; useful in
    * tests and after a change whose reach you cannot name (a role's
-   * permissions edited, a node moved).
+   * permissions edited, a role deactivated or reactivated, a node moved). A
+   * deactivated role grants nothing to anyone holding it, so until the cache
+   * is cleared or expires, its holders keep being allowed locally.
    *
    * Multi-instance honesty: an invalidation reaches THIS process only. A
    * webhook lands on one instance behind a load balancer; the others serve
