@@ -117,15 +117,13 @@ describe("identities", () => {
     expect(calls[0]?.body).toMatchObject({ email: "alex@acme.com" });
   });
 
-  it("deactivates rather than deleting", async () => {
+  it("removes an identity from this Environment with delete", async () => {
     const { canopy, calls } = harness();
 
-    await canopy.identities.deactivate("id_1");
+    await canopy.identities.delete("id_1");
 
-    expect(calls[0]?.method).toBe("POST");
-    expect(calls[0]?.url).toBe(
-      "https://api.test/api/v1/identities/id_1/deactivate",
-    );
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toBe("https://api.test/api/v1/identities/id_1");
   });
 
   it("lists an identity's sessions under its own path", async () => {

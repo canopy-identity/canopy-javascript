@@ -42,33 +42,17 @@ export class Identities {
     );
   }
 
+  /**
+   * Takes the identity out of this key's Environment: its membership here is
+   * deactivated and its role assignments here are dropped. The identity and
+   * its access to other Environments are untouched. Deactivating an identity
+   * everywhere is an Account-level action, not available to an
+   * Environment-scoped key.
+   */
   delete(id: string): Promise<void> {
     return this.client.request(
       "DELETE",
       `/api/v1/identities/${encodeURIComponent(id)}`,
-    );
-  }
-
-  /**
-   * Deactivation is the reversible counterpart to `delete` — sessions are
-   * revoked and sign-in refused, but the identity and its assignments survive.
-   * Prefer it for offboarding you may need to undo.
-   */
-  deactivate(
-    id: string,
-  ): Promise<ResponseBody<"ApiIdentitiesController_deactivateIdentity">> {
-    return this.client.request(
-      "POST",
-      `/api/v1/identities/${encodeURIComponent(id)}/deactivate`,
-    );
-  }
-
-  activate(
-    id: string,
-  ): Promise<ResponseBody<"ApiIdentitiesController_activateIdentity">> {
-    return this.client.request(
-      "POST",
-      `/api/v1/identities/${encodeURIComponent(id)}/activate`,
     );
   }
 
@@ -145,7 +129,7 @@ export class Identities {
    * Ends every session the identity holds, so the next refresh on any device
    * fails and the person signs in again. Access tokens already issued keep
    * working until their short lifetime runs out. For a suspected compromise;
-   * `deactivate` also refuses the next sign-in.
+   * `delete` also takes the identity out of this Environment.
    */
   revokeSessions(id: string): Promise<void> {
     return this.client.request(

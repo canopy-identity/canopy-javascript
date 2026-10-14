@@ -23,7 +23,10 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 138 as of an identity's sessions being readable and revocable one at a
+// 136 as of an identity's activate and deactivate leaving the Environment-scoped
+// API, since the flag they set is Account-wide; both were wrapped, so the
+// floor drops by two with them.
+// Before that, 138 as of an identity's sessions being readable and revocable one at a
 // time from a backend, wrapped as `identities.sessions` and
 // `identities.revokeSession` (with the existing revoke-all now wrapped as
 // `identities.revokeSessions`); only `sessions` returns a body, so the floor
@@ -35,13 +38,13 @@ const SRC = resolve(import.meta.dirname);
 // arrive with, unwrapped like the rest of that connection's routes.
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync.
-const EXPECTED_OPERATION_COUNT = 138;
+const EXPECTED_OPERATION_COUNT = 136;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
  * a drop means a wrapper was removed, which should be a conscious decision.
  */
-const COVERAGE_FLOOR = 52;
+const COVERAGE_FLOOR = 50;
 
 function generatedOperationIds(): string[] {
   const source = readFileSync(join(SRC, "generated/types.ts"), "utf-8");
