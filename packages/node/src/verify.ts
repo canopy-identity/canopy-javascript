@@ -1,4 +1,5 @@
 import { CanopyTokenError } from "./errors.js";
+import { withoutTrailingSlashes } from "./strings.js";
 
 /**
  * Local verification of a Canopy access token.
@@ -78,7 +79,7 @@ function resolveIssuer(options: TokenVerifierOptions): string {
   }
 
   if (issuer) {
-    return issuer.replace(/\/+$/, "");
+    return withoutTrailingSlashes(issuer);
   }
 
   if (environmentId) {
