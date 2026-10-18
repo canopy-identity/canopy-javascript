@@ -1,5 +1,22 @@
 # @canopy-io/nestjs
 
+## 0.3.0
+
+### Minor Changes
+
+- b336767: **Breaking:** the authorizer's cache window is capped at five minutes. `LocalAuthorizer`'s `ttlMs` (and `CanopyModule`'s `authorizationTtlMs`) above `300_000`, below `0`, or not a number now throws a `RangeError` when the authorizer is created. The window is how long a revoked user keeps access, so a longer one is refused rather than honoured. The default (60 seconds) and `0` (read fresh on every check) are unchanged. `MAX_TTL_MS` is exported.
+- b336767: **Breaking:** `TokenVerifier` no longer defaults its issuer. Every Canopy Environment is its own issuer with its own signing keys (`https://auth.canopy-io.com/environments/<id>`), so the old default, the bare hosted origin, rejected every identity token. Pass `environmentId`, or `issuer` on a custom auth domain or self-hosted instance; the constructor throws with neither or both. The key set is read from the issuer's own `/.well-known/jwks.json`.
+
+  `CanopyModule` now requires `verify` with `environmentId` (or `issuer`), since it builds the verifier at startup.
+
+  The generated types follow the published API, which now includes OAuth client management (`/api/v1/oauth-clients`); those routes are typed but not wrapped as a resource, like API key management.
+
+### Patch Changes
+
+- Updated dependencies [b336767]
+- Updated dependencies [b336767]
+  - @canopy-io/node@0.7.0
+
 ## 0.2.4
 
 ### Patch Changes
