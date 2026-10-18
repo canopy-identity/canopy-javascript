@@ -26,6 +26,13 @@ import type { ResponseBody } from "./schema.js";
 const DEFAULT_TTL_MS = 60_000;
 
 /**
+ * The longest a held answer may be kept: five minutes. `ttlMs` is the delay
+ * between an access change and it taking effect, and Canopy promises that
+ * delay is short, so a longer value is refused rather than honoured.
+ */
+export const MAX_TTL_MS = 300_000;
+
+/**
  * A tree deep enough to hit this is malformed. The server bounds depth with
  * the hierarchy schema, but a client walking a structure it was handed should
  * not loop forever if that assumption ever fails.
@@ -48,6 +55,10 @@ export interface LocalAuthorizerOptions {
    * for a caller who cannot accept a stale allow at all — it costs a round trip
    * per request, which is what this class exists to avoid, so reach for it
    * knowingly rather than as a default.
+   *
+   * **At most {@link MAX_TTL_MS} (five minutes).** A longer value, a negative
+   * one or a non-number throws when the authorizer is created, rather than
+   * quietly stretching how long a revoked user keeps access.
    */
   ttlMs?: number;
 
@@ -148,6 +159,17 @@ export class LocalAuthorizer {
   constructor(client: CanopyClient, options: LocalAuthorizerOptions = {}) {
     this.client = client;
     this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+
+    if (
+      !Number.isFinite(this.ttlMs) ||
+      this.ttlMs < 0 ||
+      this.ttlMs > MAX_TTL_MS
+    ) {
+      throw new RangeError(
+        `ttlMs must be between 0 and ${MAX_TTL_MS} (five minutes); got ${String(this.ttlMs)}. ` +
+          "It is how long a revoked user keeps access, so it is capped.",
+      );
+    }
     this.now = options.now ?? (() => Date.now());
 
     this.readOptions = {

@@ -352,6 +352,17 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
    * for someone who had explicitly turned it off, and nothing else here would
    * notice.
    */
+  it.each([300_001, 3_600_000, -1, Number.NaN])(
+    "refuses a window of %s, which would stretch how long a revoked user keeps access",
+    (ttlMs) => {
+      expect(() => makeAuthorizer({ ttlMs })).toThrow(RangeError);
+    },
+  );
+
+  it("accepts a window of exactly five minutes", () => {
+    expect(() => makeAuthorizer({ ttlMs: 300_000 })).not.toThrow();
+  });
+
   it("reads fresh on every check when the window is zero", async () => {
     const { authorizer, request } = makeAuthorizer({ ttlMs: 0 });
 

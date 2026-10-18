@@ -21,7 +21,7 @@ export type {
   RequestOptions,
 } from "./client.js";
 
-export { LocalAuthorizer } from "./authorizer.js";
+export { LocalAuthorizer, MAX_TTL_MS } from "./authorizer.js";
 export type {
   LocalAuthorizationQuery,
   LocalAuthorizerOptions,

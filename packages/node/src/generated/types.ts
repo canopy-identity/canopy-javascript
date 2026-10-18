@@ -1447,7 +1447,7 @@ export interface paths {
         };
         /**
          * Recent directory-sync activity for an organization
-         * @description The organization's own provisioning events, newest first
+         * @description The organization's own directory events (provisioning, group mapping, and changes to its connection, tokens and allowed roles), newest first
          */
         get: operations["ApiOrganizationDirectoryController_activity"];
         put?: never;
@@ -1992,6 +1992,98 @@ export interface paths {
          * @description Updates a webhook subscription's `url`, `event_types`, `description`, and/or `is_active` flag by `id`; omitted fields are left unchanged. When `event_types` is provided it is re-validated against the Environment's registry, and an unsupported type returns `400` (wildcard rules apply). Returns `404` for a subscription outside this Environment and requires the `webhook.manage` permission; the signing secret is not affected or returned.
          */
         patch: operations["ApiWebhooksController_update"];
+        trace?: never;
+    };
+    "/api/v1/oauth-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List OAuth clients for Application
+         * @description Returns a paginated list of the OAuth clients registered in the current Environment, newest first by default. Supports `q` to filter by client name and the standard sort/pagination query options. Client secrets are never included.
+         */
+        get: operations["ApiOAuthClientsController_list"];
+        put?: never;
+        /**
+         * Register a new OAuth client
+         * @description Registers a new confidential OAuth client in the current Environment with the given `name`, `redirect_uris`, and optional `scopes` (defaulting to `openid profile email`). Generates the `client_id` and a `client_secret` that is bcrypt-hashed at rest; the raw secret is returned in this response only and is never retrievable again. Responds `201 Created`.
+         */
+        post: operations["ApiOAuthClientsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-clients/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Active/inactive OAuth client counts for the environment
+         * @description Returns Environment-wide active and inactive OAuth client counts (not just the current page), optionally narrowed by the same `q` name filter the list endpoint uses. Drives the client stat card.
+         */
+        get: operations["ApiOAuthClientsController_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-clients/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get OAuth client details
+         * @description Returns a single OAuth client by `id`, scoped to the current Environment — a client that exists in a sibling Environment reads as `404`. The `client_secret` is never included.
+         */
+        get: operations["ApiOAuthClientsController_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete OAuth client
+         * @description Deletes an OAuth client from the current Environment by `id`. Responds `204 No Content` on success, or `404` when the client is not found in this Environment.
+         */
+        delete: operations["ApiOAuthClientsController_remove"];
+        options?: never;
+        head?: never;
+        /**
+         * Update OAuth client
+         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`), scoped to the current Environment. Returns the updated client, or `404` when the client is not found in this Environment. The secret is not rotated here.
+         */
+        patch: operations["ApiOAuthClientsController_update"];
+        trace?: never;
+    };
+    "/api/v1/oauth-clients/{id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate an OAuth client's secret
+         * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret and invalidating the old one. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment.
+         */
+        post: operations["ApiOAuthClientsController_rotateSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/api-keys": {
@@ -3003,6 +3095,7 @@ export interface components {
             saml_name_id_format?: string;
             /** @description Force the IdP to re-authenticate the user on every login (SAML ForceAuthn / OIDC max_age=0). Prevents silent reuse of a stale IdP session on shared devices. */
             force_authn?: boolean;
+            /** @description The identity provider's OIDC discovery document. Canopy's servers fetch it, so it must be an `https` address on a public host; private, loopback and link-local addresses are refused. */
             oidc_discovery_url?: string;
             oidc_client_id?: string;
             /** @description OIDC client secret (plaintext in; encrypted at rest). */
@@ -3028,6 +3121,7 @@ export interface components {
             saml_name_id_format?: string;
             /** @description Force the IdP to re-authenticate the user on every login (SAML ForceAuthn / OIDC max_age=0). Prevents silent reuse of a stale IdP session on shared devices. */
             force_authn?: boolean;
+            /** @description The identity provider's OIDC discovery document. Canopy's servers fetch it, so it must be an `https` address on a public host; private, loopback and link-local addresses are refused. */
             oidc_discovery_url?: string;
             oidc_client_id?: string;
             /** @description OIDC client secret (plaintext in; encrypted at rest). */
@@ -3490,7 +3584,7 @@ export interface components {
         UpdateEnvironmentBrandingDto: {
             /** @description The product name hosted pages and the organization admin portal show: in the browser tab title, beside the logo when `logo_kind` is `icon`, as a full logo's alt text, and in place of a logo when none is set. Null clears it, and the pages then show no name. */
             product_name?: string | null;
-            /** @description Absolute https URL of the logo shown at the top of hosted pages and the portal. Null clears it. */
+            /** @description Absolute https URL of the logo shown at the top of hosted pages, the portal and emails to the Environment's users. Emails show it only when the image is a PNG, JPEG or GIF, which every email client displays; with any other format they show the product name. Null clears it. */
             logo_url?: string | null;
             /**
              * @description What the logo image is. `full`: a complete logo that already carries the product name, shown alone. `icon`: a square mark, shown at icon size with the product name beside it. Null returns to `full`.
@@ -3591,6 +3685,90 @@ export interface components {
             description?: string | null;
             is_active?: boolean;
         };
+        OAuthClientCreatedResponseDto: {
+            id: string;
+            client_id: string;
+            name: string;
+            redirect_uris: string[];
+            /** @description Where this client may send someone after RP-initiated logout, matched exactly. */
+            post_logout_redirect_uris: string[];
+            grant_types: string[];
+            scopes: string[];
+            /** @description Where Canopy delivers a logout token when a session ends. Null means the client is told nothing. */
+            backchannel_logout_uri?: string | null;
+            invite_redirect_url?: string | null;
+            /** @description The route in the client's application that starts a sign-in (OpenID Connect `initiate_login_uri`), offered as **Sign in** on hosted pages that end with nothing to return to. */
+            initiate_login_uri?: string | null;
+            is_active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description The issuer this client's tokens name, which a relying party configures: `https://<custom auth domain>` while the Environment has an active one, else the platform's. Its discovery document is at `<issuer>/.well-known/openid-configuration`.
+             * @example https://auth.yourapp.com
+             */
+            issuer: string;
+            /** @description Client secret — shown only once */
+            client_secret: string;
+        };
+        CreateOAuthClientDto: {
+            name: string;
+            redirect_uris: string[];
+            /** @description Where this client may send someone after RP-initiated logout. Matched exactly, and separate from `redirect_uris`: receiving an authorization code and being a landing page after sign-out are different kinds of trust. */
+            post_logout_redirect_uris?: string[];
+            scopes?: string[];
+            /** @description Where Canopy delivers a signed logout token, server to server, when a session this client issued tokens for ends. Omit it and the client is told nothing. */
+            backchannel_logout_uri?: string;
+            invite_redirect_url?: string;
+            /** @description The route in your application that starts a sign-in (OpenID Connect `initiate_login_uri`): it should send the person to Canopy's `/oauth/authorize`. Canopy's hosted pages that end with nothing to return to, such as an accepted invitation or a verified email, offer it as **Sign in**. Absolute `http` or `https` URL. */
+            initiate_login_uri?: string;
+        };
+        OAuthClientResponseDto: {
+            id: string;
+            client_id: string;
+            name: string;
+            redirect_uris: string[];
+            /** @description Where this client may send someone after RP-initiated logout, matched exactly. */
+            post_logout_redirect_uris: string[];
+            grant_types: string[];
+            scopes: string[];
+            /** @description Where Canopy delivers a logout token when a session ends. Null means the client is told nothing. */
+            backchannel_logout_uri?: string | null;
+            invite_redirect_url?: string | null;
+            /** @description The route in the client's application that starts a sign-in (OpenID Connect `initiate_login_uri`), offered as **Sign in** on hosted pages that end with nothing to return to. */
+            initiate_login_uri?: string | null;
+            is_active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description The issuer this client's tokens name, which a relying party configures: `https://<custom auth domain>` while the Environment has an active one, else the platform's. Its discovery document is at `<issuer>/.well-known/openid-configuration`.
+             * @example https://auth.yourapp.com
+             */
+            issuer: string;
+        };
+        ActiveSummaryDto: {
+            /** @description Active items in the environment */
+            active_count: number;
+            /** @description Inactive items in the environment */
+            inactive_count: number;
+        };
+        UpdateOAuthClientDto: {
+            name?: string;
+            redirect_uris?: string[];
+            /** @description Where this client may send someone after RP-initiated logout. Matched exactly. An empty array removes every destination, which leaves logout working with nowhere to return to. */
+            post_logout_redirect_uris?: string[];
+            scopes?: string[];
+            is_active?: boolean;
+            /** @description Where Canopy delivers a signed logout token when a session this client issued tokens for ends. `null` stops the notifications. */
+            backchannel_logout_uri?: string | null;
+            invite_redirect_url?: string | null;
+            /** @description The route in your application that starts a sign-in (OpenID Connect `initiate_login_uri`): it should send the person to Canopy's `/oauth/authorize`. Canopy's hosted pages that end with nothing to return to, such as an accepted invitation or a verified email, offer it as **Sign in**. Absolute `http` or `https` URL; `null` clears it. */
+            initiate_login_uri?: string | null;
+        };
+        OAuthClientSecretRotatedResponseDto: {
+            client_id: string;
+            /** @description New client secret — shown only once */
+            client_secret: string;
+        };
         ApiKeyCreatedResponseDto: {
             id: string;
             name: string;
@@ -3620,7 +3798,7 @@ export interface components {
              */
             access_mode: "scoped" | "full_access";
             /** @description Permission scopes this key is authorized for, each one the platform offers (`GET .../api-keys/scopes`). Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
-            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage")[];
+            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage")[];
             /** @description Expiration date (ISO 8601). Omit for no expiration. */
             expires_at?: string;
         };
@@ -3680,6 +3858,11 @@ export interface components {
              * @example GET
              */
             method: string;
+            /**
+             * @description The request's correlation id, the same value as the `X-Correlation-Id` response header. Quote it to support: it finds this exact request in Canopy's logs and error reports.
+             * @example 6d7f2c8e-2f0b-4d0f-9b0e-2b0b2b0b2b0b
+             */
+            correlation_id: string | null;
             /**
              * @description Field-level validation messages, present only on 400 responses from request-body validation.
              * @example [
@@ -6383,6 +6566,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": null,
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiIdentitiesController_getIdentity: {
@@ -8537,6 +8741,27 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": null,
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/bulk-create",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -15299,7 +15524,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The organization's own provisioning events, newest first */
+            /** @description The organization's own directory events (provisioning, group mapping, and changes to its connection, tokens and allowed roles), newest first */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19509,6 +19734,732 @@ export interface operations {
             };
         };
     };
+    ApiOAuthClientsController_list: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search term */
+                q?: string;
+                /** @description Column to sort by. Allowed values depend on the endpoint. */
+                sort_by?: string;
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OAuthClientResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOAuthClientDto"];
+            };
+        };
+        responses: {
+            /** @description Client created — client_secret is only shown once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthClientCreatedResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": null,
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_summary: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth client active/inactive summary returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ActiveSummaryDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/summary",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth client returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthClientResponseDto"];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth client deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOAuthClientDto"];
+            };
+        };
+        responses: {
+            /** @description OAuth client updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthClientResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_rotateSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth client secret rotated — the new secret is only shown once */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthClientSecretRotatedResponseDto"];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
     ApiApiKeysController_list: {
         parameters: {
             query?: {
@@ -19705,6 +20656,27 @@ export interface operations {
                      *         "statusCode": 409,
                      *         "code": null,
                      *         "message": "The account has reached its plan's monthly limit on active API keys (`m2m_tokens`); `data` carries the limit, the usage and an upgrade URL",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": null,
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "POST"

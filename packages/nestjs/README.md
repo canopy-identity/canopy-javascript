@@ -52,6 +52,7 @@ CanopyModule.forRootAsync({
   inject: [ConfigService],
   useFactory: (config: ConfigService) => ({
     apiKey: config.getOrThrow("CANOPY_API_KEY"),
+    verify: { environmentId: config.getOrThrow("CANOPY_ENVIRONMENT_ID") },
     resolveIdentity: (request) => request.user?.sub,
     resolveNode: (request) => request.params?.orgId,
   }),
@@ -130,7 +131,10 @@ so `resolveIdentity` has something trustworthy to read.
 ```ts
 CanopyModule.forRoot<AuthedRequest>({
   apiKey: process.env.CANOPY_API_KEY,
-  verify: { audience: process.env.CANOPY_OAUTH_CLIENT_ID }, // omit for Direct API
+  verify: {
+    environmentId: process.env.CANOPY_ENVIRONMENT_ID,
+    audience: process.env.CANOPY_OAUTH_CLIENT_ID, // omit for Direct API
+  },
   resolveIdentity: (request) => request.canopyToken?.sub,
 });
 ```
@@ -218,11 +222,12 @@ So two things are held, split by what they depend on:
 
 and a check is a walk up from the node in question looking for a grant root. An `app_wide` check is simpler still: the permission appearing at all is the answer, and no hierarchy is needed.
 
-**Both are held for at most 60 seconds**, which is therefore the delay between an access change and it taking effect. The hierarchy is revalidated rather than re-read — a conditional request that normally answers `304`, so nothing transfers.
+**Both are held for at most 60 seconds**, which is therefore the delay between an access change and it taking effect. `authorizationTtlMs` changes it, up to five minutes (`300_000`); a longer value throws at startup. The hierarchy is revalidated rather than re-read — a conditional request that normally answers `304`, so nothing transfers.
 
 ```ts
 CanopyModule.forRoot({
   apiKey: process.env.CANOPY_API_KEY,
+  verify: { environmentId: process.env.CANOPY_ENVIRONMENT_ID },
   authorizationTtlMs: 30_000,
   resolveIdentity: (request) => request.user?.sub,
 });
@@ -273,6 +278,7 @@ For an application that cannot tolerate a stale allow **anywhere**, set the wind
 ```ts
 CanopyModule.forRoot({
   apiKey: process.env.CANOPY_API_KEY,
+  verify: { environmentId: process.env.CANOPY_ENVIRONMENT_ID },
   authorizationTtlMs: 0,
   resolveIdentity: (request) => request.user?.sub,
 });

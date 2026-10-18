@@ -100,6 +100,7 @@ function harness(config: {
 
   const options: CanopyModuleOptions<unknown> = {
     apiKey: "cnpy_test",
+    verify: { environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47" },
     resolveIdentity: config.throwingIdentityResolver
       ? // The exact expression the README shows, which throws when unauthenticated.
         (request: unknown) => (request as { user: { sub: string } }).user.sub
