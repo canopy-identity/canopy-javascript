@@ -125,13 +125,17 @@ function readBearerToken(header: string | string[] | undefined): string | null {
     return null;
   }
 
-  const match = /^bearer\s+(.+)$/i.exec(value.trim());
+  // Split by hand rather than with `/^bearer\s+(.+)$/i`: the header is the
+  // caller's to write, and that pattern backtracks on a long run of spaces.
+  const trimmed = value.trim();
+  const scheme = trimmed.slice(0, 6);
+  const separator = trimmed.charAt(6);
 
-  if (!match?.[1]) {
+  if (scheme.toLowerCase() !== "bearer" || !/\s/.test(separator)) {
     return null;
   }
 
-  const token = match[1].trim();
+  const token = trimmed.slice(7).trim();
 
   return token.length > 0 ? token : null;
 }

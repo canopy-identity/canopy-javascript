@@ -110,6 +110,8 @@ describe("CanopyTokenGuard — refusing", () => {
     ["the scheme alone", "Bearer"],
     ["a scheme with no token", "Bearer   "],
     ["a different scheme", "Basic dXNlcjpwYXNz"],
+    ["the scheme run into the token", "Bearertoken"],
+    ["a long run of spaces and nothing after", `Bearer${" ".repeat(50_000)}`],
   ])("401s on %s", async (_label, authorization) => {
     const { guard, verifyMock } = setup(() => Promise.resolve(CLAIMS));
 
