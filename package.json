@@ -31,21 +31,29 @@
     "release": "npm run build && changeset publish"
   },
   "volta": {
-    "node": "20.19.0",
-    "npm": "10.8.2"
+    "node": "24.22.0",
+    "npm": "11.19.1"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
-    "@changesets/cli": "^2.31.1",
-    "@eslint/js": "^9.39.2",
-    "@types/node": "^22.20.1",
-    "eslint": "^9.39.2",
+    "@changesets/cli": "3.0.3",
+    "@eslint/js": "9.39.5",
+    "@types/node": "22.20.5",
+    "eslint": "9.39.5",
     "husky": "9.1.7",
-    "prettier": "^3.6.2",
-    "tsup": "^8.5.1",
-    "tsx": "^4.23.1",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.54.0",
-    "vitest": "^4.0.18"
+    "prettier": "3.9.10",
+    "tsup": "8.5.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.2",
+    "vitest": "4.1.12"
+  },
+  "overrides": {
+    "fastify": "5.12.7",
+    "esbuild": "0.28.2"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true
   }
 }
