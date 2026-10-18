@@ -1,7 +1,7 @@
 {
   "name": "@canopy-io/node",
   "version": "0.7.0",
-  "description": "Official TypeScript SDK for Canopy — hierarchical identity and access management.",
+  "description": "Official TypeScript SDK for Canopy \u2014 hierarchical identity and access management.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
   "homepage": "https://github.com/canopy-identity/canopy-javascript#readme",
@@ -64,6 +64,6 @@
     "generate:check": "tsx scripts/generate-types.ts --check"
   },
   "devDependencies": {
-    "openapi-typescript": "^7.13.0"
+    "openapi-typescript": "7.13.0"
   }
 }
