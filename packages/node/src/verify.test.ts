@@ -622,3 +622,53 @@ describe("orgContext", () => {
     expect(orgContext(forged)).toBeNull();
   });
 });
+
+describe("TokenVerifier — which issuer", () => {
+  it("accepts the hosted Environment's tokens, reading its own key set", async () => {
+    const environmentId = "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47";
+    const issuer = `https://auth.canopy-io.com/environments/${environmentId}`;
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({ environmentId, fetch });
+
+    const claims = await verifier.verify(
+      await signer.sign(validClaims({ iss: issuer })),
+    );
+
+    expect(claims.iss).toBe(issuer);
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+      `${issuer}/.well-known/jwks.json`,
+    );
+  });
+
+  it("refuses a token from another Environment", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47",
+      fetch,
+    });
+
+    await expect(
+      verifier.verify(
+        await signer.sign(
+          validClaims({
+            iss: "https://auth.canopy-io.com/environments/c9e1f7a2-3b4d-4f6e-8a9c-1d2e3f4a5b6c",
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "token.issuer_mismatch" });
+  });
+
+  it("refuses to start with neither an Environment nor an issuer", () => {
+    expect(() => new TokenVerifier()).toThrow(TypeError);
+  });
+
+  it("refuses to start with both", () => {
+    expect(
+      () =>
+        new TokenVerifier({
+          environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47",
+          issuer: "https://auth.acme.com",
+        }),
+    ).toThrow(TypeError);
+  });
+});

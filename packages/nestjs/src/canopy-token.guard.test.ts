@@ -50,6 +50,7 @@ function setup(
 
   const guard = new CanopyTokenGuard(verifier, {
     resolveIdentity: () => undefined,
+    verify: { environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47" },
     ...options,
   } satisfies CanopyModuleOptions<unknown>);
 
@@ -109,6 +110,8 @@ describe("CanopyTokenGuard — refusing", () => {
     ["the scheme alone", "Bearer"],
     ["a scheme with no token", "Bearer   "],
     ["a different scheme", "Basic dXNlcjpwYXNz"],
+    ["the scheme run into the token", "Bearertoken"],
+    ["a long run of spaces and nothing after", `Bearer${" ".repeat(50_000)}`],
   ])("401s on %s", async (_label, authorization) => {
     const { guard, verifyMock } = setup(() => Promise.resolve(CLAIMS));
 

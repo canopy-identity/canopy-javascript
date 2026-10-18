@@ -19,6 +19,7 @@ import { CANOPY_CLIENT, CANOPY_PERMISSION } from "./tokens.js";
  */
 
 const OPTIONS = {
+  verify: { environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47" },
   apiKey: "cnpy_test",
   resolveIdentity: () => "idn_1",
   resolveNode: () => "nod_1",

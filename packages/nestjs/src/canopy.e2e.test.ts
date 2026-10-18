@@ -107,6 +107,7 @@ class TestController {
   imports: [
     CanopyModule.forRoot<TestRequest>({
       apiKey: "cnpy_test",
+      verify: { environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47" },
       baseUrl: "https://api.test",
       maxRetries: 0,
       fetch: fakeFetch,

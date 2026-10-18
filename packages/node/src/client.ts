@@ -3,6 +3,7 @@ import {
   CanopyError,
   type CanopyErrorBody,
 } from "./errors.js";
+import { withoutTrailingSlashes } from "./strings.js";
 
 /**
  * Offset pagination — the default across the API.
@@ -197,7 +198,7 @@ export class CanopyClient {
       );
     }
 
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = withoutTrailingSlashes(options.baseUrl ?? DEFAULT_BASE_URL);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;

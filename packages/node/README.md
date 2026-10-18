@@ -110,8 +110,16 @@ rather than ignored when you have not said which client you are:
 new TokenVerifier({ audience: process.env.CANOPY_OAUTH_CLIENT_ID });
 ```
 
-Self-hosted instances set `issuer`. Getting it wrong fails closed: tokens are
-rejected, never mistakenly accepted.
+Every Environment is its own issuer, so name yours:
+
+```ts
+new TokenVerifier({ environmentId: process.env.CANOPY_ENVIRONMENT_ID });
+```
+
+On a custom auth domain or a self-hosted instance, set `issuer` instead
+(`https://auth.acme.com`, or `<origin>/environments/<id>`). The constructor
+throws with neither. Getting it wrong fails closed: tokens are rejected, never
+mistakenly accepted.
 
 With an Environment's **organizations** container on, an identity token also
 names the organization the session is acting in and the one role held there. Read the pair through `orgContext` rather than off the raw claims —
@@ -227,8 +235,9 @@ everything beneath it_, so the roots are never expanded into their descendants.
 
 Both are held for at most 60 seconds, which is the delay between an access
 change and it taking effect, including a moved node. Set `ttlMs` to change it,
-knowing that shortening it below the gap between a user's requests saves
-nothing — every request then finds the cache expired and refetches.
+up to five minutes (`300_000`); a longer value throws when the authorizer is
+created. Shortening it below the gap between a user's requests saves nothing:
+every request then finds the cache expired and refetches.
 
 `canopy.permissions.evaluate` remains for a decision with no staleness at all.
 
