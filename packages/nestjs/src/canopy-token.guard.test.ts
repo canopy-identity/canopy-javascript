@@ -50,6 +50,7 @@ function setup(
 
   const guard = new CanopyTokenGuard(verifier, {
     resolveIdentity: () => undefined,
+    verify: { environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47" },
     ...options,
   } satisfies CanopyModuleOptions<unknown>);
 

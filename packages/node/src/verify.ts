@@ -16,7 +16,9 @@ import { CanopyTokenError } from "./errors.js";
  * they exist.
  *
  * ```ts
- * const verifier = new TokenVerifier();
+ * const verifier = new TokenVerifier({
+ *   environmentId: process.env.CANOPY_ENVIRONMENT_ID,
+ * });
  * const claims = await verifier.verify(token);
  * ```
  *
@@ -25,8 +27,8 @@ import { CanopyTokenError } from "./errors.js";
  * logins holds neither.
  */
 
-/** Canopy's hosted issuer. Matches the client's default base URL. */
-const DEFAULT_ISSUER = "https://auth.canopy-io.com";
+/** Canopy's hosted origin. Matches the client's default base URL. */
+const HOSTED_ORIGIN = "https://auth.canopy-io.com";
 
 /** How long a fetched key set is reused before being refreshed. */
 const DEFAULT_JWKS_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -61,13 +63,53 @@ const PRINCIPAL_TYPES = new Set(["user", "identity", "api_key", "platform"]);
  */
 const DEFAULT_CLOCK_TOLERANCE_SEC = 60;
 
+/**
+ * The issuer a verifier accepts: the hosted Environment's, or the one named.
+ * There is no default, because every Environment is its own issuer and a
+ * guess would reject every real token.
+ */
+function resolveIssuer(options: TokenVerifierOptions): string {
+  const { environmentId, issuer } = options;
+
+  if (environmentId && issuer) {
+    throw new TypeError(
+      "TokenVerifier takes environmentId or issuer, not both.",
+    );
+  }
+
+  if (issuer) {
+    return issuer.replace(/\/+$/, "");
+  }
+
+  if (environmentId) {
+    return `${HOSTED_ORIGIN}/environments/${environmentId}`;
+  }
+
+  throw new TypeError(
+    "TokenVerifier needs environmentId (the Environment your tokens come from) " +
+      "or, on a custom auth domain or self-hosted instance, issuer.",
+  );
+}
+
 export interface TokenVerifierOptions {
   /**
-   * The issuer whose tokens are accepted, matched against `iss` exactly.
-   * Defaults to Canopy's hosted issuer; set it for a self-hosted instance.
+   * The Environment whose tokens are accepted. Every Environment is its own
+   * issuer with its own signing keys, at
+   * `https://auth.canopy-io.com/environments/<id>`, so on hosted Canopy this is
+   * all verification needs. A token from any other Environment fails.
    *
-   * Safe to default because it fails closed: pointed at the wrong issuer, a
-   * token is rejected rather than accepted.
+   * Set exactly one of `environmentId` and `issuer`; the constructor throws
+   * with neither or both.
+   */
+  environmentId?: string;
+
+  /**
+   * The issuer whose tokens are accepted, matched against `iss` exactly. Set it
+   * instead of `environmentId` on a custom auth domain (`https://auth.acme.com`)
+   * or a self-hosted instance (`<origin>/environments/<id>`).
+   *
+   * Pointed at the wrong issuer, verification fails closed: a token is
+   * rejected, never mistakenly accepted.
    */
   issuer?: string;
 
@@ -272,7 +314,7 @@ export class TokenVerifier {
   private inFlight: Promise<void> | null = null;
 
   constructor(options: TokenVerifierOptions = {}) {
-    this.issuer = (options.issuer ?? DEFAULT_ISSUER).replace(/\/+$/, "");
+    this.issuer = resolveIssuer(options);
     this.audience = options.audience;
     this.jwksUri = options.jwksUri ?? `${this.issuer}/.well-known/jwks.json`;
     this.jwksCacheMaxAgeMs =

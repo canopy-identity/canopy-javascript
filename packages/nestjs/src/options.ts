@@ -97,12 +97,10 @@ export interface CanopyModuleOptions<
 
   /**
    * Token verification, for `CanopyTokenGuard`. Everything
-   * `TokenVerifierOptions` accepts is accepted here.
-   *
-   * Only read when you actually use that guard; a project with its own auth
-   * layer leaves this unset and nothing changes.
+   * `TokenVerifierOptions` accepts is accepted here, and `environmentId` (or
+   * `issuer`) is required: the module builds the verifier at startup.
    */
-  verify?: TokenVerifierOptions;
+  verify: TokenVerifierOptions;
 
   /**
    * Request property `CanopyTokenGuard` attaches verified claims to. Defaults
