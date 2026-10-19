@@ -44,6 +44,10 @@ jobs:
       # blip does not read as "the API changed".
       - run: npm run generate:check
       - run: npm run test
+      # What the authorizer's hierarchy cache costs per node, the figure the
+      # Canopy docs give for sizing a server. Apart from the unit tests
+      # because it needs --expose-gc; fails a change that bloats the cache.
+      - run: npm run test:memory --workspace=@canopy-io/node
       # Packs each package and resolves it the four ways a consumer can
       # (node10, node16-CJS, node16-ESM, bundler). This is the guard for the
       # bug class where a require() works at runtime but TypeScript rejects
