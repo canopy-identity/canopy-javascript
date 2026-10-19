@@ -197,6 +197,24 @@ describe("LocalAuthorizer — caching", () => {
 
     expect(requestConditional).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * A cold start is a new instance: nothing a previous one held carries over,
+   * even against the same client, so its first check pays for both reads.
+   */
+  it("starts a new instance empty, reading both the grants and the tree", async () => {
+    const { authorizer, request, requestConditional } = makeAuthorizer();
+    const client = { request, requestConditional } as unknown as CanopyClient;
+
+    await authorizer.evaluate(check("frontend"));
+
+    const coldStart = new LocalAuthorizer(client);
+
+    await coldStart.evaluate(check("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(requestConditional).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("LocalAuthorizer — revalidating the hierarchy", () => {
@@ -472,6 +490,32 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
     expect(request).toHaveBeenCalledTimes(3);
     expect(requestConditional).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Two instances stand in for two server processes behind a load balancer:
+   * an invalidation lands on one, and the other keeps its cached answer until
+   * its own window lapses.
+   */
+  it("invalidates only its own instance, leaving another's cache warm", async () => {
+    const { authorizer, request, requestConditional } = makeAuthorizer();
+    const client = { request, requestConditional } as unknown as CanopyClient;
+    const otherInstance = new LocalAuthorizer(client);
+
+    await authorizer.evaluate(check("frontend"));
+    await otherInstance.evaluate(check("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(2);
+
+    authorizer.invalidate();
+
+    await otherInstance.evaluate(check("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(2);
+
+    await authorizer.evaluate(check("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(3);
   });
 
   it("does not drop the hierarchy on a per-identity invalidate", async () => {
