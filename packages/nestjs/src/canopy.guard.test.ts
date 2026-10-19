@@ -24,7 +24,7 @@ interface FakeRequest {
   user?: { sub?: string };
   params?: { nodeId?: string };
   /** What `CanopyTokenGuard` attaches, under its default property. */
-  canopyToken?: { org_id?: unknown };
+  canopyToken?: { org_id?: unknown; permissions?: unknown };
   [attached: string]: unknown;
 }
 
@@ -355,6 +355,27 @@ describe("failing closed", () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  /**
+   * A token issued with the `permissions` OAuth scope lists the permissions
+   * held anywhere in the Environment. The guard never reads it: the
+   * authorizer's answer is the only source, so a claim cannot outvote a deny.
+   */
+  it("ignores a permissions claim on the token and denies when Canopy denies", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: { permission: "reports.view", scope: "app_wide" },
+      request: {
+        user: { sub: "idn_1" },
+        canopyToken: { permissions: ["reports.view"] },
+      },
+      evaluate: () => Promise.resolve({ allowed: false }),
+    });
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(evaluate).toHaveBeenCalledTimes(1);
   });
 
   it("denies when no identity resolves, without asking Canopy", async () => {

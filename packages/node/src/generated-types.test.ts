@@ -41,6 +41,45 @@ describe("generated types", () => {
 });
 
 /**
+ * Freshness is enforced by `generate:check`, which regenerates from the
+ * published spec and fails when the committed file differs. These assert it
+ * stays wired into the gates: CI on every push and PR, `verify`, which the
+ * release job runs before it publishes, and the weekly drift job. A run that
+ * cannot reach the spec skips rather than fails, by design.
+ */
+describe("keeping the generated types current", () => {
+  const REPO = resolve(import.meta.dirname, "../../..");
+
+  const read = (path: string): string =>
+    readFileSync(resolve(REPO, path), "utf-8");
+
+  const scripts = (path: string): Record<string, string> =>
+    (JSON.parse(read(path)) as { scripts: Record<string, string> }).scripts;
+
+  it("checks the types against the published spec on every pull request, before every release and weekly", () => {
+    const source = readFileSync(GENERATED, "utf-8");
+
+    expect(source).toContain("Source: https://canopy-io.com/openapi/api.json");
+    expect(scripts("packages/node/package.json")["generate:check"]).toBe(
+      "tsx scripts/generate-types.ts --check",
+    );
+    expect(read(".github/workflows/ci.yml")).toContain(
+      "- run: npm run generate:check",
+    );
+    expect(scripts("package.json")["verify"]).toContain(
+      "npm run generate:check",
+    );
+    expect(read(".github/workflows/release.yml")).toContain(
+      "- run: npm run verify",
+    );
+    expect(read(".github/workflows/spec-drift.yml")).toContain(
+      "npm run --silent generate:check",
+    );
+    expect(read(".github/workflows/spec-drift.yml")).toMatch(/schedule:/);
+  });
+});
+
+/**
  * Compile-time assertions. These cost nothing at runtime and fail under `tsc`
  * if the named operation stops existing — which is what would happen if the
  * API renamed it, and exactly what a caller needs to hear about at build time
