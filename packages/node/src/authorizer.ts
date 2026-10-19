@@ -438,8 +438,25 @@ export class LocalAuthorizer {
     const parents = new Map<string, string | null>();
 
     if (result.modified) {
+      // One string per node. A parsed response holds each id twice, once as
+      // its own node's `id` and again, as a separate copy, in every child's
+      // `parent_node_id`; storing those copies doubled the cache. So the
+      // parent is stored as the node's own `id` string, found through a map
+      // of the response's ids first, since a parent may arrive after its
+      // children. The lookup map is gone once this returns.
+      const ids = new Map<string, string>();
+
       for (const edge of result.data.items) {
-        parents.set(edge.id, edge.parent_node_id ?? null);
+        ids.set(edge.id, edge.id);
+      }
+
+      for (const edge of result.data.items) {
+        const parent = edge.parent_node_id ?? null;
+
+        parents.set(
+          edge.id,
+          parent === null ? null : (ids.get(parent) ?? parent),
+        );
       }
     }
 

@@ -60,6 +60,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:memory": "vitest run --config vitest.memory.config.ts",
     "generate": "tsx scripts/generate-types.ts",
     "generate:check": "tsx scripts/generate-types.ts --check"
   },
