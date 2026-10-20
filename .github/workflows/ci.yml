@@ -43,6 +43,10 @@ jobs:
       # Skips (exit 0, loudly) when the spec cannot be reached, so a network
       # blip does not read as "the API changed".
       - run: npm run generate:check
+      # Every TypeScript block in the agent skill (plugins/canopy) compiles
+      # against the packages just built, so the code an assistant copies from
+      # the skill cannot drift from the SDK it ships with.
+      - run: npm run check:skill
       - run: npm run test
       # What the authorizer's hierarchy cache costs per node, the figure the
       # Canopy docs give for sizing a server. Apart from the unit tests

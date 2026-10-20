@@ -1,0 +1,12 @@
+{
+  "name": "canopy-javascript",
+  "owner": { "name": "Canopy Identity Inc." },
+  "description": "Agent skills for integrating Canopy with the official JavaScript SDKs.",
+  "plugins": [
+    {
+      "name": "canopy",
+      "source": "./plugins/canopy",
+      "description": "Integrate Canopy authentication and hierarchical authorization with @canopy-io/node and @canopy-io/nestjs."
+    }
+  ]
+}

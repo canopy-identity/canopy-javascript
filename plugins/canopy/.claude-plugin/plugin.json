@@ -1,0 +1,8 @@
+{
+  "name": "canopy",
+  "description": "Integrate Canopy authentication and hierarchical authorization with @canopy-io/node and @canopy-io/nestjs.",
+  "author": { "name": "Canopy Identity Inc." },
+  "homepage": "https://canopy-io.com/docs",
+  "repository": "https://github.com/canopy-identity/canopy-javascript",
+  "license": "MIT"
+}

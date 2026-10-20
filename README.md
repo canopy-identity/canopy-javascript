@@ -21,6 +21,19 @@ Every request and response type is generated from the same [OpenAPI document](ht
 
 These are the only official SDKs. That specification is published so a generator can produce a client for Python, Go, or anything else, which serves those languages better than a partly-maintained SDK would.
 
+## For AI coding assistants
+
+The [Canopy agent skill](plugins/canopy/skills/canopy/SKILL.md) teaches an assistant to integrate Canopy correctly: which sign-in shape to choose, verifying tokens, authorizing locally, failing closed, and the mistakes to avoid. Every code block in it is compiled against these packages in CI.
+
+In Claude Code:
+
+```
+/plugin marketplace add canopy-identity/canopy-javascript
+/plugin install canopy@canopy-javascript
+```
+
+Other assistants can read the same Markdown files directly, starting from [`SKILL.md`](plugins/canopy/skills/canopy/SKILL.md). [`AGENTS.md`](AGENTS.md) points there too.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for building, testing, and releasing.
