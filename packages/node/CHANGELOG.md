@@ -1,5 +1,11 @@
 # @canopy-io/node
 
+## 0.7.2
+
+### Patch Changes
+
+- 66415c2: The NestJS README's first `CanopyModule.forRoot` example now includes the required `verify` option, and `@canopy-io/node`'s types are regenerated from the published spec, adding the `branding.view` and `branding.manage` API key scopes. No behaviour changes.
+
 ## 0.7.1
 
 ### Patch Changes
