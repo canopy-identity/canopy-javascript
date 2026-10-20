@@ -289,7 +289,7 @@ export interface paths {
         put?: never;
         /**
          * Set an identity's password (admin)
-         * @description Sets an identity's password directly (server-to-server admin), primarily for migrating users off a legacy store without the user present. Reuses the argon2id + HaveIBeenPwned path, so a breached password returns `400`; the prior hash is recorded to password history, any active failed-login lockout is cleared, and the identity's active sessions are revoked so a rotated credential can't keep a stale session alive. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
+         * @description Sets an identity's password directly (server-to-server admin), primarily for migrating users off a legacy store without the user present. Reuses the argon2id + HaveIBeenPwned path, so a breached password returns `400`; any active failed-login lockout is cleared, and the identity's active sessions are revoked so a rotated credential can't keep a stale session alive. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
          */
         post: operations["ApiIdentitiesController_setIdentityPassword"];
         delete?: never;
@@ -327,7 +327,7 @@ export interface paths {
         };
         /**
          * List an identity's active sessions (admin)
-         * @description Lists an identity's active sessions (server-to-server admin): the rows a customer reads to confirm from its own side that a sign-out took, or to show a person where they are signed in. Each row is a session's current refresh token, so `id` changes on every refresh. Returns `404` when the identity has no membership in this Environment.
+         * @description Lists an identity's active sessions in the caller's Environment (server-to-server admin): the rows a customer reads to confirm from its own side that a sign-out took, or to show a person where they are signed in. Each row is a session's current refresh token, so `id` changes on every refresh. Sessions the identity holds in its other Environments are not listed. Returns `404` when the identity has no membership in this Environment.
          */
         get: operations["ApiIdentitiesController_listIdentitySessions"];
         put?: never;
@@ -350,7 +350,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke one of an identity's sessions (admin)
-         * @description Revokes one of an identity's sessions (server-to-server admin) by marking its refresh token revoked, so the next refresh from that device returns `401` while every other session carries on. Audited as `identity.session.revoked`, the same row the person's own per-session sign-out writes. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment, or when the session is not the identity's or is already revoked.
+         * @description Revokes one of an identity's sessions in the caller's Environment (server-to-server admin) by marking its refresh token revoked, so the next refresh from that device returns `401` while every other session carries on. Audited as `identity.session.revoked`, the same row the person's own per-session sign-out writes. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment, or when the session is not the identity's, belongs to another Environment, or is already revoked.
          */
         delete: operations["ApiIdentitiesController_revokeIdentitySession"];
         options?: never;
@@ -369,7 +369,7 @@ export interface paths {
         put?: never;
         /**
          * Revoke all of an identity's sessions (admin)
-         * @description Revokes all of an identity's sessions (server-to-server admin) by marking every active refresh token revoked, so the next refresh on any device returns `401` and the user must sign in again. In-flight access tokens remain valid until their short TTL lapses. Idempotent — revoking when no tokens are active is a no-op. Audits twice: `identity.sessions.admin_revoked` for the identity's own security log, and `session.all_revoked`, the subscribable webhook event, so a revoke made here reaches subscribers exactly as one made from the Console does. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
+         * @description Revokes all of an identity's sessions in the caller's Environment (server-to-server admin) by marking every active refresh token it holds there revoked, so the next refresh on any device returns `401` and the user must sign in again. Sessions in the identity's other Environments are left alone; the Console's account route is the one that signs a person out everywhere. In-flight access tokens remain valid until their short TTL lapses. Idempotent — revoking when no tokens are active is a no-op. Audits twice: `identity.sessions.admin_revoked` for the identity's own security log, and `session.all_revoked`, the subscribable webhook event, so a revoke made here reaches subscribers exactly as one made from the Console does. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
          */
         post: operations["ApiIdentitiesController_revokeIdentitySessions"];
         delete?: never;
@@ -631,7 +631,7 @@ export interface paths {
         };
         /**
          * List hierarchy (scoped tree)
-         * @description Returns the caller's accessible hierarchy as a nested tree for the current Environment, each node annotated with `access_state`, `can_access`, and `can_manage`. `user` principals (dashboard) see the full tree; API-key principals see only the subtree their `access_mode`/scopes grant — `full_access` unlocks everything, while scoped keys see nodes reachable via `hierarchy.view`. The response also includes a `scope` block listing `accessible_node_ids`, `scope_root_node_ids`, and `entry_node_ids`.
+         * @description Returns the caller's accessible hierarchy as a nested tree for the current Environment, each node annotated with `access_state`, `can_access`, and `can_manage`. `user` principals (dashboard), which need the Console capability covering `hierarchy.view`, see the full tree; API-key principals see only the subtree their `access_mode`/scopes grant — `full_access` unlocks everything, while scoped keys see nodes reachable via `hierarchy.view`. The response also includes a `scope` block listing `accessible_node_ids`, `scope_root_node_ids`, and `entry_node_ids`.
          */
         get: operations["ApiNodesController_listNodes"];
         put?: never;
@@ -2101,7 +2101,7 @@ export interface paths {
         put?: never;
         /**
          * Create a new API key
-         * @description Issues a new API key in the active Application, scoped to the current Environment. The full `cnpy_`-prefixed secret is returned in the `key` field of the response and is not recoverable afterward, only a masked `key_preview` and metadata persist; the one exception is a retry carrying the same `Idempotency-Key` within 24 hours, which replays this response. `access_mode: "scoped"` requires a non-empty `scopes` array and enforces it on every authorization check; `access_mode: "full_access"` forbids `scopes` and bypasses RBAC entirely within the Application. Pass `expires_at` (ISO 8601) for an expiring key or omit it for none. Supports `Idempotency-Key` for safe retries, emits an `api_key.created` event, and is limited to 20 requests a minute per caller. A scope the platform does not offer is refused with `400`.
+         * @description Issues a new API key in the active Application, scoped to the current Environment. The full `cnpy_`-prefixed secret is returned in the `key` field of the response and is not recoverable afterward, only a masked `key_preview` and metadata persist; the one exception is a retry carrying the same `Idempotency-Key` within 24 hours, which replays this response. `access_mode: "scoped"` requires a non-empty `scopes` array and enforces it on every authorization check; `access_mode: "full_access"` forbids `scopes` and bypasses RBAC entirely within the Application. Pass `expires_at` (ISO 8601) for an expiring key or omit it for none. Supports `Idempotency-Key` for safe retries, emits an `api_key.created` event, and is limited to 20 requests a minute per caller. A scope the platform does not offer is refused with `400`. A scoped API key can create only scoped keys whose scopes it holds itself; asking for more is refused with `403`.
          */
         post: operations["ApiApiKeysController_create"];
         delete?: never;
@@ -3703,7 +3703,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             /**
-             * @description The issuer this client's tokens name, which a relying party configures: `https://<custom auth domain>` while the Environment has an active one, else the platform's. Its discovery document is at `<issuer>/.well-known/openid-configuration`.
+             * @description The issuer this client's tokens name, which a relying party configures: `https://<custom auth domain>` while the Environment has an active one, else the Environment's own, `<platform origin>/environments/<environment_id>`. Its discovery document is at `<issuer>/.well-known/openid-configuration`.
              * @example https://auth.yourapp.com
              */
             issuer: string;
@@ -3740,7 +3740,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             /**
-             * @description The issuer this client's tokens name, which a relying party configures: `https://<custom auth domain>` while the Environment has an active one, else the platform's. Its discovery document is at `<issuer>/.well-known/openid-configuration`.
+             * @description The issuer this client's tokens name, which a relying party configures: `https://<custom auth domain>` while the Environment has an active one, else the Environment's own, `<platform origin>/environments/<environment_id>`. Its discovery document is at `<issuer>/.well-known/openid-configuration`.
              * @example https://auth.yourapp.com
              */
             issuer: string;
@@ -3753,6 +3753,7 @@ export interface components {
         };
         UpdateOAuthClientDto: {
             name?: string;
+            /** @description Replaces the registered redirect URIs. At least one is required, as at creation: a client with none could never complete a sign-in. */
             redirect_uris?: string[];
             /** @description Where this client may send someone after RP-initiated logout. Matched exactly. An empty array removes every destination, which leaves logout working with nowhere to return to. */
             post_logout_redirect_uris?: string[];
@@ -3793,12 +3794,12 @@ export interface components {
             /** @description API key description */
             description?: string;
             /**
-             * @description Required. `scoped` enforces the `scopes` array on every authorization check (deny if the requested permission isn't listed). `full_access` bypasses RBAC entirely within the key's Application — every permission is granted. Pick `scoped` whenever possible; `full_access` should be a deliberate choice (use cases: bootstrap automation, trusted backend services that legitimately need App-wide access). `scoped` requires a non-empty `scopes` array; `full_access` forbids `scopes`.
+             * @description Required. `scoped` enforces the `scopes` array on every authorization check (deny if the requested permission isn't listed). `full_access` bypasses RBAC entirely within the key's Application — every permission is granted. Pick `scoped` whenever possible; `full_access` should be a deliberate choice (use cases: bootstrap automation, trusted backend services that legitimately need App-wide access). `scoped` requires a non-empty `scopes` array; `full_access` forbids `scopes`. A scoped API key can create only scoped keys whose scopes it holds itself.
              * @enum {string}
              */
             access_mode: "scoped" | "full_access";
             /** @description Permission scopes this key is authorized for, each one the platform offers (`GET .../api-keys/scopes`). Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
-            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage")[];
+            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage" | "branding.view" | "branding.manage")[];
             /** @description Expiration date (ISO 8601). Omit for no expiration. */
             expires_at?: string;
         };
@@ -7423,7 +7424,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The identity is not found, or the session does not belong to it or is already revoked */
+            /** @description The identity is not found, or the session does not belong to it, belongs to another Environment, or is already revoked */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7434,7 +7435,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The identity is not found, or the session does not belong to it or is already revoked",
+                     *         "message": "The identity is not found, or the session does not belong to it, belongs to another Environment, or is already revoked",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions/{sessionId}",
                      *         "method": "DELETE"
@@ -12978,6 +12979,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "The organization does not exist, or the identity is not a member of it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller is an organization administrator and the member also belongs to another organization in the Environment; the second factor is held once per identity, so only the application's administrators may reset it (`organization.member_mfa_shared`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The caller is an organization administrator and the member also belongs to another organization in the Environment; the second factor is held once per identity, so only the application's administrators may reset it (`organization.member_mfa_shared`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
                      *         "method": "POST"
@@ -18907,7 +18929,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -18918,7 +18940,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "GET"
@@ -18996,7 +19018,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19007,7 +19029,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "GET"
@@ -20623,7 +20645,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key asking for more than it holds: `full_access`, or a scope outside its own (`api_key.access_exceeds_caller`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -20634,10 +20656,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key asking for more than it holds: `full_access`, or a scope outside its own (`api_key.access_exceeds_caller`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
-                     *         "method": "GET"
+                     *         "method": "POST"
                      *       }
                      *     }
                      */

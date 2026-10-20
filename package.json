@@ -26,7 +26,8 @@
     "generate": "npm run generate --workspaces --if-present",
     "check:packaging": "attw --pack packages/node && attw --pack packages/nestjs",
     "generate:check": "npm run generate:check --workspaces --if-present",
-    "verify": "npm run build && npm run lint && npm run typecheck && npm run generate:check && npm run test",
+    "check:skill": "node scripts/check-skill-snippets.mjs",
+    "verify": "npm run build && npm run lint && npm run typecheck && npm run generate:check && npm run check:skill && npm run test",
     "changeset": "changeset",
     "release": "npm run build && changeset publish"
   },
@@ -38,6 +39,8 @@
     "@arethetypeswrong/cli": "0.18.5",
     "@changesets/cli": "3.0.3",
     "@eslint/js": "9.39.5",
+    "@nestjs/config": "4.0.4",
+    "@types/express": "5.0.6",
     "@types/node": "22.20.5",
     "eslint": "9.39.5",
     "husky": "9.1.7",
