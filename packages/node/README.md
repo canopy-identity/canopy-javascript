@@ -37,7 +37,8 @@ import { Canopy, isCanopyError } from "@canopy-io/node";
 
 const canopy = new Canopy({ apiKey: process.env.CANOPY_API_KEY });
 
-// The call every integrator makes on every request.
+// A fresh decision from the API. On the request path, prefer LocalAuthorizer
+// (below), which answers in-process.
 const { allowed } = await canopy.permissions.evaluate({
   identity_id: identityId,
   permission: "documents.read",
@@ -102,9 +103,10 @@ try {
 }
 ```
 
-Hosted Login tokens carry an audience, so name your client. Direct API tokens
-carry none and need no option — and a token that has an `aud` is refused
-rather than ignored when you have not said which client you are:
+Hosted Login tokens carry an audience, your `client_id`, so name your client.
+Direct API tokens carry none and need no option. A token that has an `aud` is
+refused rather than ignored when you have not said which client you are, so a
+token minted for another client is never accepted by accident:
 
 ```ts
 new TokenVerifier({ audience: process.env.CANOPY_OAUTH_CLIENT_ID });

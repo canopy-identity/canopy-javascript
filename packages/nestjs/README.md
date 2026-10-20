@@ -34,6 +34,7 @@ import { CanopyModule } from "@canopy-io/nestjs";
   imports: [
     CanopyModule.forRoot<AuthedRequest>({
       apiKey: process.env.CANOPY_API_KEY,
+      verify: { environmentId: process.env.CANOPY_ENVIRONMENT_ID },
       resolveIdentity: (request) => request.user?.sub,
       resolveNode: (request) => request.params?.orgId,
     }),
@@ -41,6 +42,8 @@ import { CanopyModule } from "@canopy-io/nestjs";
 })
 export class AppModule {}
 ```
+
+`verify` names the Environment whose tokens the module accepts (`environmentId`, or `issuer` on a custom auth domain or a self-hosted instance). It is required: the module builds its token verifier at startup.
 
 The two resolvers are how the guard learns _who_ is asking and _where_. Where those live is your application's business — a claim on a verified token, a route parameter, a tenant on the session — so you supply them rather than the library guessing. Pass your own request type to `forRoot` and both resolvers are typed against it.
 

@@ -9,3 +9,6 @@ coverage
 
 # Local planning notes — the canopy repo ignores these by the same convention.
 PLAN.md
+
+# Written and removed by scripts/check-skill-snippets.mjs.
+.skill-snippets
