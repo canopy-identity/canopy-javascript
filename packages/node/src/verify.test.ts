@@ -499,6 +499,71 @@ describe("TokenVerifier — when the key set cannot be loaded", () => {
   });
 
   /**
+   * An issuer outage after keys were loaded. Stale is not invalid: the keys
+   * that verified tokens a minute ago still verify them, and failing here
+   * would turn the outage into a 503 for every working session each time the
+   * floor let another attempt through.
+   */
+  it("keeps verifying with cached keys when a refresh of stale keys fails", async () => {
+    let down = false;
+
+    const fetch = vi.fn(() =>
+      down
+        ? Promise.reject(new TypeError("connection refused"))
+        : Promise.resolve(jwksResponse([signer])),
+    ) as unknown as typeof globalThis.fetch;
+
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      jwksCacheMaxAgeMs: 1,
+      jwksMinRefetchIntervalMs: 0,
+      fetch,
+    });
+
+    const token = await signer.sign(validClaims());
+
+    await expect(verifier.verify(token)).resolves.toMatchObject({
+      sub: "idn_123",
+    });
+
+    down = true;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    await expect(verifier.verify(token)).resolves.toMatchObject({
+      sub: "idn_123",
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports an unknown kid during an outage as unavailable, not as a missing key", async () => {
+    let down = false;
+
+    const fetch = vi.fn(() =>
+      down
+        ? Promise.reject(new TypeError("connection refused"))
+        : Promise.resolve(jwksResponse([signer])),
+    ) as unknown as typeof globalThis.fetch;
+
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      jwksMinRefetchIntervalMs: 0,
+      fetch,
+    });
+
+    await verifier.verify(await signer.sign(validClaims()));
+
+    down = true;
+
+    const rotated = await makeSigner("key-2");
+    const error = await verifier
+      .verify(await rotated.sign(validClaims()))
+      .catch((e: unknown) => e);
+
+    expect(isCanopyTokenError(error)).toBe(true);
+    expect((error as { code: string }).code).toBe("token.jwks_unavailable");
+  });
+
+  /**
    * A hung issuer, as opposed to a refusing one. Without a deadline the read
    * never settles and holds every caller waiting on it.
    */
@@ -567,10 +632,14 @@ describe("TokenVerifier — claims the type promises", () => {
     expect((error as { code: string }).code).toBe("token.malformed");
   });
 
-  it("still accepts each of the four principal kinds", async () => {
+  it("still accepts each of the four principal kinds when they are allowed", async () => {
     const signer = await makeSigner("key-1");
     const { fetch } = jwksFetch([signer]);
-    const verifier = new TokenVerifier({ issuer: ISSUER, fetch });
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      allowedTypes: ["user", "identity", "api_key", "platform"],
+      fetch,
+    });
 
     for (const type of ["user", "identity", "api_key", "platform"]) {
       const token = await signer.sign(validClaims({ type }));
@@ -670,5 +739,38 @@ describe("TokenVerifier — which issuer", () => {
           issuer: "https://auth.acme.com",
         }),
     ).toThrow(TypeError);
+  });
+});
+
+describe("TokenVerifier — principal types", () => {
+  it("accepts only identity tokens by default", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({ issuer: ISSUER, fetch });
+
+    for (const type of ["user", "platform", "api_key"]) {
+      const error = await verifier
+        .verify(await signer.sign(validClaims({ type })))
+        .catch((e: unknown) => e);
+
+      expect(isCanopyTokenError(error)).toBe(true);
+      expect((error as { code: string }).code).toBe("token.type_not_allowed");
+    }
+
+    await expect(
+      verifier.verify(await signer.sign(validClaims())),
+    ).resolves.toMatchObject({ type: "identity" });
+  });
+
+  it("accepts the types named in allowedTypes", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      allowedTypes: ["identity", "user"],
+      fetch,
+    });
+
+    await expect(
+      verifier.verify(await signer.sign(validClaims({ type: "user" }))),
+    ).resolves.toMatchObject({ type: "user" });
   });
 });

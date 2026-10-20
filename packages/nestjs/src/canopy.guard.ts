@@ -11,8 +11,7 @@ import {
 import { Reflector } from "@nestjs/core";
 
 import {
-  isCanopyAuthorizerError,
-  isCanopyError,
+  authorizationErrorStatus,
   type LocalAuthorizer,
   type RequestBody,
 } from "@canopy-io/node";
@@ -197,64 +196,22 @@ export class CanopyGuard implements CanActivate {
    * Every branch denies — nothing here can let a request through — but they say
    * different things, and the difference is what makes an incident diagnosable.
    * Reporting a rejected API key as "temporarily unavailable" invites a retry
-   * that will never succeed and hides a misconfiguration behind an outage.
+   * that will never succeed and hides a misconfiguration behind an outage. The
+   * mapping is `authorizationErrorStatus` in `@canopy-io/node`, so an
+   * integration outside NestJS answers the same way.
    */
   private toHttpException(error: unknown): Error {
-    // The authorizer could not see far enough to decide — a credential that
-    // cannot read the hierarchy, most likely. Not an outage: no retry fixes a
-    // missing scope, and reporting it as one would bury a misconfiguration
-    // under what looks like a blip.
-    if (isCanopyAuthorizerError(error)) {
-      return new InternalServerErrorException(
-        `Authorization is misconfigured: ${error.message}`,
-      );
+    const { status, message } = authorizationErrorStatus(error);
+
+    if (status === 403) {
+      return new ForbiddenException(message);
     }
 
-    if (!isCanopyError(error)) {
-      // Never answered: unreachable, reset, or past the deadline.
-      return new ServiceUnavailableException(
-        "Authorization is temporarily unavailable.",
-      );
+    if (status === 503) {
+      return new ServiceUnavailableException(message);
     }
 
-    // Canopy rejected our own credential. No retry fixes this.
-    if (error.isAuthFailure) {
-      return new InternalServerErrorException(
-        "Authorization is misconfigured. Check the Canopy API key and its scopes.",
-      );
-    }
-
-    // A 404 with no error code is Nest's own "no such route", which here means
-    // this Canopy does not serve the endpoint the authorizer reads — an SDK
-    // newer than the API it is pointed at. Denying would be catastrophic and
-    // silent: every guarded route in the application would answer 403 with
-    // nothing to suggest the cause is a version mismatch rather than policy.
-    if (error.statusCode === 404 && error.code === null) {
-      return new InternalServerErrorException(
-        `Authorization is misconfigured: ${error.request.method} ${error.request.path} is not served by this Canopy. ` +
-          "The SDK requires an API that exposes the identity grants endpoint.",
-      );
-    }
-
-    // A 404 that does carry a code is a real answer — the identity is not in
-    // this Environment. Deny rather than 500, the guard's whole thesis being
-    // that an undecidable request does not proceed, but say nothing about what
-    // was missing.
-    if (error.statusCode === 404) {
-      return new ForbiddenException("Could not evaluate the permission.");
-    }
-
-    if (error.isRateLimited || error.statusCode >= 500) {
-      return new ServiceUnavailableException(
-        "Authorization is temporarily unavailable.",
-      );
-    }
-
-    // A 4xx we did not anticipate is a malformed question — our bug, not a
-    // transient condition.
-    return new InternalServerErrorException(
-      "Authorization could not be evaluated.",
-    );
+    return new InternalServerErrorException(message);
   }
 
   private buildQuery(

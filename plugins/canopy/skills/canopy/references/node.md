@@ -67,11 +67,12 @@ One fetch of the signing keys, then every verification is local. Name the Enviro
 ```ts
 import {
   TokenVerifier,
-  isCanopyTokenError,
+  tokenErrorStatus,
   type CanopyTokenClaims,
 } from "@canopy-io/node";
 
-// One verifier per process: it caches the key set.
+// One verifier per process: it caches the key set. It accepts identity tokens
+// only (your end users); admin, staff and API-key tokens are refused.
 const verifier = new TokenVerifier({
   environmentId: process.env.CANOPY_ENVIRONMENT_ID ?? "",
   // Hosted Login: your OAuth client id. Direct API: leave this out.
@@ -90,18 +91,14 @@ export async function authenticate(
   }
 
   try {
-    const claims = await verifier.verify(token);
-
-    // End users are identities. Refuse admin and API-key tokens here.
-    return claims.type === "identity" ? claims : null;
+    return await verifier.verify(token);
   } catch (error) {
-    if (isCanopyTokenError(error) && error.code !== "token.jwks_unavailable") {
-      // Expired, bad signature, wrong issuer...: a 401 to the caller.
-      // error.code is for your logs, not for the response.
+    // 401 for the token's own faults (expired, bad signature, wrong issuer),
+    // 503 when the keys could not be read. error.code is for your logs.
+    if (tokenErrorStatus(error).status === 401) {
       return null;
     }
 
-    // The keys could not be fetched: not the caller's fault. Answer 503.
     throw error;
   }
 }
