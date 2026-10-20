@@ -9344,7 +9344,7 @@ export interface operations {
                      *         "code": null,
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -9730,7 +9730,7 @@ export interface operations {
                      *         "code": null,
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}/tree",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -9817,7 +9817,7 @@ export interface operations {
                      *         "code": null,
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -9916,7 +9916,7 @@ export interface operations {
                      *         "code": null,
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}/children",
                      *         "method": "GET"
                      *       }
                      *     }
