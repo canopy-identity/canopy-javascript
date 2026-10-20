@@ -112,8 +112,9 @@ export class CanopyConnectionError extends Error {
  * whole point of verifying a signature rather than calling an endpoint.
  *
  * Branch on `code`; it follows the same dot-notation contract as the API's own
- * codes. Every one of them means the same thing to an HTTP caller — 401 — so
- * the code is for your logs and your tests, not usually for the response.
+ * codes. Every one but `token.jwks_unavailable` means the same thing to an
+ * HTTP caller, 401; that one means the keys could not be read, so the token may
+ * be good and the answer is 503. {@link tokenErrorStatus} maps them.
  */
 export class CanopyTokenError extends Error {
   override readonly name = "CanopyTokenError";
@@ -131,6 +132,8 @@ export class CanopyTokenError extends Error {
    * - `token.audience_mismatch` — `aud` does not include the configured audience
    * - `token.audience_unverified` — token has an `aud` but none was configured
    * - `token.preauth_not_allowed` — a pre-auth token, which grants no access
+   * - `token.type_not_allowed` — a principal type the verifier does not accept
+   *   (see `allowedTypes`)
    */
   readonly code: string;
 

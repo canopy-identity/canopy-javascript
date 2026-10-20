@@ -82,26 +82,38 @@ access tokens RS256 and publishes the keys, so a token is checked locally —
 one JWKS fetch, then no network on any verification after it.
 
 ```ts
-import { TokenVerifier, isCanopyTokenError } from "@canopy-io/node";
+import { TokenVerifier, tokenErrorStatus } from "@canopy-io/node";
 
-const verifier = new TokenVerifier();
+const verifier = new TokenVerifier({
+  environmentId: process.env.CANOPY_ENVIRONMENT_ID,
+});
 
 try {
   const claims = await verifier.verify(bearerToken);
 
-  claims.sub; // the identity or user id
-  claims.type; // "identity" | "user" | "api_key" | "platform"
+  claims.sub; // the identity's id
+  claims.type; // "identity", the only type accepted by default
   claims.environment_id; // present on identity tokens
 } catch (error) {
-  if (isCanopyTokenError(error)) {
-    // Every code here means 401 to the caller who presented the token.
-    // `error.code` is for your logs: token.expired, token.signature_invalid,
-    // token.issuer_mismatch, and so on.
-  }
+  // 401 when the token is at fault, 503 when the signing keys could not be
+  // read and the token may be good. `error.code` is for your logs:
+  // token.expired, token.signature_invalid, token.jwks_unavailable, ...
+  const { status, message } = tokenErrorStatus(error);
 
-  throw error;
+  return response.status(status).json({ message });
 }
 ```
+
+A verifier accepts only identity tokens, the people who sign in to your
+application. Canopy signs tokens for its own administrators (`user`), its
+staff (`platform`) and some API key flows (`api_key`) with the same keys and
+issuer, so they are refused with `token.type_not_allowed` unless you name them:
+`new TokenVerifier({ ..., allowedTypes: ["identity", "user"] })`.
+
+If Canopy cannot be reached when the cached keys are due for a refresh, the
+verifier keeps verifying with the keys it holds; only a verifier that has never
+loaded a key set, or a token signed by a key it has never seen, answers
+`token.jwks_unavailable`.
 
 Hosted Login tokens carry an audience, your `client_id`, so name your client.
 Direct API tokens carry none and need no option. A token that has an `aud` is
@@ -242,6 +254,34 @@ created. Shortening it below the gap between a user's requests saves nothing:
 every request then finds the cache expired and refetches.
 
 `canopy.permissions.evaluate` remains for a decision with no staleness at all.
+
+`authorizer.invalidate(identityId)` drops one identity's cached grants, so
+the next check reads them fresh. It reaches only this process: with several
+instances behind a load balancer, each keeps its own cache until its TTL runs
+out or it is told to invalidate too.
+
+A failed check (Canopy unreachable, a credential that cannot read the
+hierarchy, an identity not in the Environment) throws rather than answering
+`false`. `authorizationErrorStatus` turns the error into the response to send:
+`503` when Canopy did not answer, `500` for a misconfiguration no retry fixes,
+`403` for an identity Canopy does not know. The NestJS guard uses the same
+mapping.
+
+```ts
+import { authorizationErrorStatus } from "@canopy-io/node";
+
+try {
+  const { allowed } = await authorizer.evaluate(query);
+
+  if (!allowed) {
+    return response.status(403).json({ message: "Forbidden" });
+  }
+} catch (error) {
+  const { status, message } = authorizationErrorStatus(error);
+
+  return response.status(status).json({ message });
+}
+```
 
 The credential needs to be able to read both halves. A `full_access` API key
 already can; a **scoped** one must list `identity.view` (the grant roots) and
