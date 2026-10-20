@@ -10,6 +10,7 @@ import {
 import {
   type CanopyTokenClaims,
   isCanopyTokenError,
+  tokenErrorStatus,
   TokenVerifier,
 } from "@canopy-io/node";
 
@@ -81,14 +82,14 @@ export class CanopyTokenGuard implements CanActivate {
       // another, which aims a refresh storm at the issuer that is already
       // down. And an outage that only ever emits 4xx is invisible to anything
       // watching 5xx.
-      if (
-        isCanopyTokenError(error) &&
-        error.code === "token.jwks_unavailable"
-      ) {
-        throw new ServiceUnavailableException(
-          "Authentication is temporarily unavailable.",
-          { cause: error },
-        );
+      if (!isCanopyTokenError(error)) {
+        throw error;
+      }
+
+      const { status, message } = tokenErrorStatus(error);
+
+      if (status === 503) {
+        throw new ServiceUnavailableException(message, { cause: error });
       }
 
       // Every other cause is the token itself, and a 401 whatever the detail:
@@ -96,13 +97,7 @@ export class CanopyTokenGuard implements CanActivate {
       // specific code stays on the error for logs rather than going to the
       // caller, who has no use for the difference and should not be told which
       // check failed.
-      if (isCanopyTokenError(error)) {
-        throw new UnauthorizedException("Invalid or expired access token.", {
-          cause: error,
-        });
-      }
-
-      throw error;
+      throw new UnauthorizedException(message, { cause: error });
     }
 
     request[this.options.attachTokenAs ?? "canopyToken"] = claims;

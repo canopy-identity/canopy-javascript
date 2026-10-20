@@ -153,7 +153,12 @@ findAll() {}
 is resolved before anything has established one.
 
 Verification is local: one fetch of the key set, then a signature check per
-request with no network at all.
+request with no network at all. If Canopy cannot be reached when the keys are
+due for a refresh, the guard keeps verifying with the keys it holds.
+
+Only identity tokens are accepted, the people who sign in to your application.
+A token Canopy signed for one of its own administrators or staff answers `401`
+unless you add its type to `verify.allowedTypes`.
 
 A rejected token is a 401 whatever the detail, with the specific code left on
 `error.cause` for your logs rather than handed to the caller — who has no use

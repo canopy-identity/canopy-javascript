@@ -158,6 +158,17 @@ export interface TokenVerifierOptions {
    */
   jwksTimeoutMs?: number;
 
+  /**
+   * The principal types accepted, matched against the `type` claim. Defaults to
+   * `["identity"]`: the people who sign in to your application.
+   *
+   * Canopy also signs tokens for its own administrators (`user`), its staff
+   * (`platform`) and, for some flows, API keys (`api_key`), all with the same
+   * keys and issuer. A backend that serves your end users should accept none
+   * of them, so they are refused unless you name them here.
+   */
+  allowedTypes?: ReadonlyArray<CanopyTokenClaims["type"]>;
+
   /** Injectable for tests and for runtimes with a non-global fetch. */
   fetch?: typeof globalThis.fetch;
 }
@@ -305,12 +316,15 @@ export class TokenVerifier {
   private readonly jwksTimeoutMs: number;
   private readonly clockToleranceSec: number;
   private readonly allowPreAuthTokens: boolean;
+  private readonly allowedTypes: ReadonlySet<string>;
   private readonly fetchImpl: typeof globalThis.fetch;
 
   /** Imported keys by `kid`, so a repeat verification skips the import cost. */
   private keys = new Map<string, CryptoKey>();
   private keysFetchedAt = 0;
   private lastFetchAttemptAt = 0;
+  /** Whether the latest read of the key set failed, for an unknown `kid`. */
+  private lastFetchFailed = false;
   /** In-flight fetch, so a burst of requests triggers one call, not N. */
   private inFlight: Promise<void> | null = null;
 
@@ -326,6 +340,7 @@ export class TokenVerifier {
     this.clockToleranceSec =
       options.clockToleranceSec ?? DEFAULT_CLOCK_TOLERANCE_SEC;
     this.allowPreAuthTokens = options.allowPreAuthTokens ?? false;
+    this.allowedTypes = new Set(options.allowedTypes ?? ["identity"]);
 
     const boundFetch = options.fetch ?? globalThis.fetch;
 
@@ -435,6 +450,17 @@ export class TokenVerifier {
       );
     }
 
+    if (!this.allowedTypes.has(claims.type)) {
+      throw new CanopyTokenError(
+        "token.type_not_allowed",
+        `Token is for a "${claims.type}" principal; this verifier accepts ${[
+          ...this.allowedTypes,
+        ]
+          .map((type) => `"${type}"`)
+          .join(", ")}. Set \`allowedTypes\` to accept another.`,
+      );
+    }
+
     if (claims.iss !== this.issuer) {
       throw new CanopyTokenError(
         "token.issuer_mismatch",
@@ -539,7 +565,18 @@ export class TokenVerifier {
       // `lastFetchAttemptAt` starts at 0, so a genuine cold start is never
       // delayed by this — only a retry after a recent attempt is.
       if (this.shouldRefresh()) {
-        await this.refreshKeys();
+        try {
+          await this.refreshKeys();
+        } catch (error) {
+          // Stale is not invalid. Keys that verified tokens a minute ago still
+          // verify them while the issuer is unreachable; failing here would
+          // turn an issuer outage into a 503 for every working session, every
+          // time the floor lets another attempt through. With nothing cached
+          // there is nothing to fall back on, so the failure stands.
+          if (this.keys.size === 0) {
+            throw error;
+          }
+        }
       } else if (this.keys.size === 0) {
         // Backing off with nothing cached: say so, rather than falling through
         // to `key_not_found`, which would claim the key set was read and
@@ -567,6 +604,16 @@ export class TokenVerifier {
 
     if (rotated) {
       return rotated;
+    }
+
+    // The key set could not be read, so whether this `kid` exists is unknown:
+    // a token signed after a rotation is as likely as a forged one. Saying the
+    // key does not exist would turn an outage into a 401 for good tokens.
+    if (this.lastFetchFailed) {
+      throw new CanopyTokenError(
+        "token.jwks_unavailable",
+        `Signing keys at ${this.jwksUri} could not be read to look up kid "${kid}".`,
+      );
     }
 
     throw new CanopyTokenError(
@@ -609,6 +656,16 @@ export class TokenVerifier {
   private async fetchKeys(): Promise<void> {
     this.lastFetchAttemptAt = Date.now();
 
+    try {
+      await this.readKeys();
+      this.lastFetchFailed = false;
+    } catch (error) {
+      this.lastFetchFailed = true;
+      throw error;
+    }
+  }
+
+  private async readKeys(): Promise<void> {
     let response: Response;
 
     // Bounded: an issuer that accepts the connection and then never answers

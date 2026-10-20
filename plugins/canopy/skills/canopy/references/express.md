@@ -1,6 +1,6 @@
 # Express, Fastify and other Node backends
 
-There is no package for these frameworks. Build the guard from `TokenVerifier` and `LocalAuthorizer`, the same pieces `@canopy-io/nestjs` uses, and keep its status mapping: a denial is `403`, an unreachable Canopy is `503`, a broken integration is `500`.
+There is no package for these frameworks. Build the guard from `TokenVerifier` and `LocalAuthorizer`, the same pieces `@canopy-io/nestjs` uses, and answer failures with `tokenErrorStatus` and `authorizationErrorStatus`, the mapping its guards use: a denial is `403`, an unreachable Canopy is `503`, a broken integration is `500`.
 
 ```ts
 import express, {
@@ -12,9 +12,8 @@ import {
   Canopy,
   LocalAuthorizer,
   TokenVerifier,
-  isCanopyAuthorizerError,
-  isCanopyError,
-  isCanopyTokenError,
+  authorizationErrorStatus,
+  tokenErrorStatus,
   type CanopyTokenClaims,
 } from "@canopy-io/node";
 
@@ -47,22 +46,12 @@ export async function authenticate(
   }
 
   try {
-    const claims = await verifier.verify(token);
-
-    if (claims.type !== "identity") {
-      response.sendStatus(401);
-      return;
-    }
-
-    (response.locals as CanopyLocals).claims = claims;
+    // Identity tokens only, by default: admin and staff tokens are refused.
+    (response.locals as CanopyLocals).claims = await verifier.verify(token);
     next();
   } catch (error) {
-    if (isCanopyTokenError(error) && error.code !== "token.jwks_unavailable") {
-      response.sendStatus(401);
-      return;
-    }
-
-    response.sendStatus(503);
+    // 401 when the token is at fault, 503 when the keys could not be read.
+    response.sendStatus(tokenErrorStatus(error).status);
   }
 }
 
@@ -95,34 +84,10 @@ export function requirePermission(
 
       response.sendStatus(403);
     } catch (error) {
-      response.sendStatus(statusFor(error));
+      // The mapping CanopyGuard uses. Never collapse these into one 403.
+      response.sendStatus(authorizationErrorStatus(error).status);
     }
   };
-}
-
-// The same mapping CanopyGuard uses. Never collapse these into one 403.
-function statusFor(error: unknown): number {
-  if (isCanopyAuthorizerError(error)) {
-    return 500; // e.g. the API key cannot read the hierarchy
-  }
-
-  if (!isCanopyError(error)) {
-    return 503; // unreachable or timed out: nothing was decided
-  }
-
-  if (error.isAuthFailure) {
-    return 500; // our API key was rejected
-  }
-
-  if (error.statusCode === 404 && error.code !== null) {
-    return 403; // the identity is not in this Environment
-  }
-
-  if (error.isRateLimited || error.statusCode >= 500) {
-    return 503;
-  }
-
-  return 500;
 }
 
 const app = express();

@@ -43,6 +43,9 @@ export {
 } from "./errors.js";
 export type { CanopyErrorBody } from "./errors.js";
 
+export { authorizationErrorStatus, tokenErrorStatus } from "./status.js";
+export type { FailureStatus } from "./status.js";
+
 export { orgContext, TokenVerifier } from "./verify.js";
 export type {
   CanopyOrgContext,
