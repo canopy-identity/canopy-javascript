@@ -34,10 +34,25 @@ function json(body: unknown): Response {
   });
 }
 
+/** A whole collection as the single page the API answers it in. */
+function onePage<T>(items: T[]) {
+  return {
+    items,
+    pagination: {
+      page: 1,
+      take: 100,
+      item_count: items.length,
+      page_count: 1,
+      has_previous_page: false,
+      has_next_page: false,
+    },
+  };
+}
+
 /** Set per test: which grant roots the identity holds. */
 let respond: () => Promise<Response> = () =>
   Promise.resolve(
-    json({ items: [{ permission: "orders.refund", nodes: ["nod_1"] }] }),
+    json(onePage([{ permission: "orders.refund", node_id: "nod_1" }])),
   );
 
 const fakeFetch = ((url: unknown) => {
@@ -45,7 +60,7 @@ const fakeFetch = ((url: unknown) => {
 
   if (href.includes("/nodes")) {
     return Promise.resolve(
-      json({ items: [{ id: "nod_1", parent_node_id: null }] }),
+      json(onePage([{ id: "nod_1", parent_node_id: null }])),
     );
   }
 
@@ -115,7 +130,7 @@ describe("the guard on a real Fastify app", () => {
   });
 
   it("denies when the identity holds the permission nowhere", async () => {
-    respond = () => Promise.resolve(json({ items: [] }));
+    respond = () => Promise.resolve(json(onePage([])));
 
     // A different identity from the allowed case: grant roots are cached per
     // identity for the life of the app, so reusing one would be answered from

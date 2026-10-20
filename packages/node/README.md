@@ -46,10 +46,13 @@ const { allowed } = await canopy.permissions.evaluate({
   node_id: nodeId,
 });
 
-// Pagination is handled for you, whichever style the endpoint uses.
+// Pagination is handled for you, whichever style the endpoint uses. Every
+// list method returns a Paginator: `for await`, `.all()` or `.first()`.
 for await (const identity of canopy.identities.list({ take: 50 })) {
   console.log(identity.email);
 }
+
+const newest = await canopy.identities.sessions(identityId).first();
 
 // Errors carry a stable code, not just a message.
 try {
@@ -66,6 +69,10 @@ try {
   }
 }
 ```
+
+Lists answer 20 items a page by default and at most 100 (`take`).
+`permissions.evaluateBulk` takes 1 to 100 checks in one request; more is
+refused with a `400` and nothing is evaluated, so send a larger set in batches.
 
 Anything without a typed wrapper is reachable the same way, with the same envelope handling and retry policy:
 
@@ -243,9 +250,19 @@ const { allowed } = await authorizer.evaluate({
 
 It holds two things: the identity's grant roots, and one copy of your hierarchy
 — read as parent edges from `GET /api/v1/nodes/parents` rather than the full
-tree, which is 3.7x smaller — shared across every identity in the process. A check walks up from the node in
+node list, which is 3.7x smaller — shared across every identity in the process. A check walks up from the node in
 question looking for a grant root — a grant already means _this node and
 everything beneath it_, so the roots are never expanded into their descendants.
+
+Both reads are paged, and the authorizer reads every page, 100 rows at a time:
+`GET /api/v1/identities/:id/grants` answers one row per permission and node
+it was granted at, and the hierarchy arrives 100 parent edges to a page. Only
+the hierarchy's first page is revalidated: its `ETag` covers the whole
+hierarchy, so a `304` keeps the copy held without reading any other page. When
+the hierarchy has changed, every page is read again and the copy rebuilt; a
+rebuild over several pages is then confirmed against the first page's `ETag`,
+and read again if the hierarchy changed while its pages were being read. At
+50,000 nodes a rebuild is 501 requests, and a revalidation is one.
 
 Both are held for at most 60 seconds, which is the delay between an access
 change and it taking effect, including a moved node. Set `ttlMs` to change it,

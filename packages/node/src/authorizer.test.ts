@@ -6,6 +6,34 @@ import { LocalAuthorizer } from "./authorizer.js";
 import { isCanopyAuthorizerError } from "./errors.js";
 import type { CanopyClient } from "./client.js";
 
+/** The `pagination` block of one page of `item_count` rows, 100 to a page. */
+function meta(page: number, itemCount: number, take = 100) {
+  const pageCount = Math.max(1, Math.ceil(itemCount / take));
+
+  return {
+    page,
+    take,
+    item_count: itemCount,
+    page_count: pageCount,
+    has_previous_page: page > 1,
+    has_next_page: page < pageCount,
+  };
+}
+
+/** `items` as the API pages them, 100 to a page by default. */
+function paged<T>(items: T[], take = 100) {
+  const pages: { items: T[]; pagination: ReturnType<typeof meta> }[] = [];
+
+  for (let start = 0; start === 0 || start < items.length; start += take) {
+    pages.push({
+      items: items.slice(start, start + take),
+      pagination: meta(pages.length + 1, items.length, take),
+    });
+  }
+
+  return pages;
+}
+
 /**
  *   root
  *    ├── engineering        ← the grant
@@ -15,18 +43,22 @@ import type { CanopyClient } from "./client.js";
  * As parent edges, which is what `GET /api/v1/nodes/parents` answers and all a
  * walk upward needs.
  */
-const TREE = {
-  items: [
-    { id: "root", parent_node_id: null },
-    { id: "engineering", parent_node_id: "root" },
-    { id: "frontend", parent_node_id: "engineering" },
-    { id: "sales", parent_node_id: "root" },
-  ],
+const EDGES = [
+  { id: "root", parent_node_id: null },
+  { id: "engineering", parent_node_id: "root" },
+  { id: "frontend", parent_node_id: "engineering" },
+  { id: "sales", parent_node_id: "root" },
+];
+
+const TREE = { items: EDGES, pagination: meta(1, EDGES.length) };
+
+/** One row per permission and node it was granted at. */
+const GRANTS = {
+  items: [{ permission: "reports.view", node_id: "engineering" }],
+  pagination: meta(1, 1),
 };
 
-const GRANTS = {
-  items: [{ permission: "reports.view", nodes: ["engineering"] }],
-};
+const EMPTY_TREE = { items: [], pagination: meta(1, 0) };
 
 interface Harness {
   authorizer: LocalAuthorizer;
@@ -264,6 +296,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
           { id: "sales", parent_node_id: "root" },
           { id: "frontend", parent_node_id: "sales" },
         ],
+        pagination: meta(1, 4),
       },
     });
 
@@ -288,7 +321,9 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
     expect(authorizer.snapshot()).toEqual({
       grantFetches: 2,
+      grantPages: 2,
       treeRequests: 2,
+      treePages: 2,
       treeNotModified: 1,
     });
   });
@@ -316,12 +351,14 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
       timeoutMs: 750,
       maxRetries: 0,
       maxBackoffMs: 750,
+      query: { page: 1, take: 100 },
     });
 
     expect(requestConditional.mock.calls[0]?.[3]).toEqual({
       timeoutMs: 750,
       maxRetries: 0,
       maxBackoffMs: 750,
+      query: { page: 1, take: 100 },
     });
   });
 
@@ -394,16 +431,16 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
   /**
    * The false-deny this exists to prevent.
    *
-   * `GET /api/v1/nodes` answers a tree scoped to the caller, and a credential
-   * without `hierarchy.view` gets an empty one — with a `200`, so nothing looks
-   * broken. Walking off that map would answer `false` on every node-scoped
+   * `GET /api/v1/nodes/parents` answers a hierarchy scoped to the caller,
+   * and a credential without `hierarchy.view` gets an empty one — with a
+   * `200`, so nothing looks broken. Walking off that map would answer `false` on every node-scoped
    * route: a silent, total denial that reads as ordinary policy.
    */
   it("refuses to decide when the tree does not contain the node", async () => {
     const request = vi.fn().mockResolvedValue(GRANTS);
     const requestConditional = vi
       .fn()
-      .mockResolvedValue({ modified: true, data: { items: [] }, etag: null });
+      .mockResolvedValue({ modified: true, data: EMPTY_TREE, etag: null });
 
     const authorizer = new LocalAuthorizer({
       request,
@@ -422,11 +459,12 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
   it("still answers from a grant at the node itself, with no tree at all", async () => {
     const request = vi.fn().mockResolvedValue({
-      items: [{ permission: "reports.view", nodes: ["frontend"] }],
+      items: [{ permission: "reports.view", node_id: "frontend" }],
+      pagination: meta(1, 1),
     });
     const requestConditional = vi
       .fn()
-      .mockResolvedValue({ modified: true, data: { items: [] }, etag: null });
+      .mockResolvedValue({ modified: true, data: EMPTY_TREE, etag: null });
 
     const authorizer = new LocalAuthorizer({
       request,
@@ -528,5 +566,279 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
     await authorizer.evaluate(check("frontend"));
 
     expect(requestConditional).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A fake Canopy that pages both reads the way the API does: grants by
+ * `page`/`take` on `request`, the hierarchy's first page on
+ * `requestConditional` and every later page on `request`.
+ */
+function pagedCanopy(options: {
+  grants: { permission: string; node_id: string }[];
+  /** One entry per hierarchy version; `etag` names it. */
+  trees: {
+    etag: string;
+    edges: { id: string; parent_node_id: string | null }[];
+  }[];
+  take?: number;
+  /** Called after each later page of the hierarchy is served. */
+  onTreePage?: (page: number) => void;
+}) {
+  const take = options.take ?? 100;
+  let version = 0;
+
+  const treePage = (page: number) =>
+    paged(options.trees[version]?.edges ?? [], take)[page - 1];
+
+  const request = vi.fn(
+    (_method: string, path: string, opts: { query: { page: number } }) => {
+      if (path.endsWith("/grants")) {
+        return Promise.resolve(
+          paged(options.grants, take)[opts.query.page - 1],
+        );
+      }
+
+      const page = treePage(opts.query.page);
+
+      options.onTreePage?.(opts.query.page);
+
+      return Promise.resolve(page);
+    },
+  );
+
+  const requestConditional = vi.fn(
+    (_method: string, _path: string, etag: string | undefined) => {
+      const current = options.trees[version];
+
+      if (etag !== undefined && etag === current?.etag) {
+        return Promise.resolve({ modified: false });
+      }
+
+      return Promise.resolve({
+        modified: true,
+        data: treePage(1),
+        etag: current?.etag ?? null,
+      });
+    },
+  );
+
+  return {
+    client: { request, requestConditional } as unknown as CanopyClient,
+    request,
+    requestConditional,
+    /** Moves the hierarchy to the next version. */
+    change: () => {
+      version += 1;
+    },
+  };
+}
+
+describe("LocalAuthorizer — paged reads", () => {
+  it("reads every page of grant roots and joins a permission's nodes", async () => {
+    // 150 rows over two pages; the permission under test is granted at a node
+    // on each, and a second permission appears only on the second.
+    const filler = Array.from({ length: 148 }, (_, i) => ({
+      permission: "audit.view",
+      node_id: `n${String(i).padStart(3, "0")}`,
+    }));
+    const { client, request } = pagedCanopy({
+      grants: [
+        { permission: "reports.view", node_id: "engineering" },
+        ...filler,
+        { permission: "reports.view", node_id: "sales" },
+      ],
+      trees: [{ etag: 'W/"v1"', edges: EDGES }],
+    });
+    const authorizer = new LocalAuthorizer(client);
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: true,
+    });
+    expect(await authorizer.evaluate(check("sales"))).toEqual({
+      allowed: true,
+    });
+    expect(await authorizer.evaluate(check("root"))).toEqual({
+      allowed: false,
+    });
+
+    const grantPages = request.mock.calls.filter(([, path]) =>
+      path.endsWith("/grants"),
+    );
+
+    expect(grantPages.map(([, , opts]) => opts.query)).toEqual([
+      { page: 1, take: 100 },
+      { page: 2, take: 100 },
+    ]);
+    expect(authorizer.snapshot()).toMatchObject({
+      grantFetches: 1,
+      grantPages: 2,
+    });
+  });
+
+  it("walks every page of the hierarchy, a child's parent arriving on a later page", async () => {
+    // Two to a page: `frontend` is on the first page, its parent
+    // `engineering` on the second and the root on the third.
+    const { client, request, requestConditional } = pagedCanopy({
+      grants: [{ permission: "reports.view", node_id: "root" }],
+      trees: [
+        {
+          etag: 'W/"v1"',
+          edges: [
+            { id: "frontend", parent_node_id: "engineering" },
+            { id: "sales", parent_node_id: "root" },
+            { id: "engineering", parent_node_id: "root" },
+            { id: "x-ray", parent_node_id: "sales" },
+            { id: "root", parent_node_id: null },
+          ],
+        },
+      ],
+      take: 2,
+    });
+    const authorizer = new LocalAuthorizer(client);
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: true,
+    });
+
+    const treePages = request.mock.calls.filter(
+      ([, path]) => path === "/api/v1/nodes/parents",
+    );
+
+    expect(treePages.map(([, , opts]) => opts.query)).toEqual([
+      { page: 2, take: 100 },
+      { page: 3, take: 100 },
+    ]);
+
+    // Page 1, then confirming the walk with the validator page 1 came with.
+    expect(requestConditional.mock.calls.map(([, , etag]) => etag)).toEqual([
+      undefined,
+      'W/"v1"',
+    ]);
+    expect(authorizer.snapshot()).toMatchObject({
+      treeRequests: 1,
+      treePages: 4,
+      treeNotModified: 0,
+    });
+  });
+
+  it("keeps the whole paged hierarchy on a 304 to its first page", async () => {
+    let clock = 1_000;
+    const { client, request, requestConditional } = pagedCanopy({
+      grants: [{ permission: "reports.view", node_id: "engineering" }],
+      trees: [{ etag: 'W/"v1"', edges: EDGES }],
+      take: 2,
+    });
+    const authorizer = new LocalAuthorizer(client, {
+      ttlMs: 60_000,
+      now: () => clock,
+    });
+
+    await authorizer.evaluate(check("frontend"));
+
+    const before = request.mock.calls.length;
+
+    clock += 61_000;
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: true,
+    });
+
+    // The revalidation is one conditional request for page 1, answered 304:
+    // no later page is read.
+    expect(requestConditional).toHaveBeenLastCalledWith(
+      "GET",
+      "/api/v1/nodes/parents",
+      'W/"v1"',
+      expect.objectContaining({ query: { page: 1, take: 100 } }),
+    );
+    expect(
+      request.mock.calls
+        .slice(before)
+        .filter(([, path]) => path === "/api/v1/nodes/parents"),
+    ).toHaveLength(0);
+    expect(authorizer.snapshot()).toMatchObject({
+      treeRequests: 2,
+      treePages: 4,
+      treeNotModified: 1,
+    });
+  });
+
+  it("walks again when the hierarchy changed while its pages were read", async () => {
+    // `frontend` moves from Engineering to Sales after the first page is
+    // read; the confirmation sees the new version and the walk restarts.
+    const moved = EDGES.map((edge) =>
+      edge.id === "frontend" ? { ...edge, parent_node_id: "sales" } : edge,
+    );
+    let changed = false;
+    const canopy = pagedCanopy({
+      grants: [{ permission: "reports.view", node_id: "engineering" }],
+      trees: [
+        { etag: 'W/"v1"', edges: EDGES },
+        { etag: 'W/"v2"', edges: moved },
+      ],
+      take: 2,
+      onTreePage: () => {
+        if (!changed) {
+          changed = true;
+          canopy.change();
+        }
+      },
+    });
+
+    const authorizer = new LocalAuthorizer(canopy.client);
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: false,
+    });
+    expect(
+      canopy.requestConditional.mock.calls.map(([, , etag]) => etag),
+    ).toEqual([undefined, 'W/"v1"', 'W/"v2"']);
+  });
+
+  it("keeps a hierarchy it could not confirm without a validator, so the next refresh rereads it", async () => {
+    let clock = 1_000;
+    const request = vi.fn(
+      (_method: string, path: string, opts: { query: { page: number } }) =>
+        Promise.resolve(
+          path.endsWith("/grants")
+            ? GRANTS
+            : paged(EDGES, 2)[opts.query.page - 1],
+        ),
+    );
+    // Every first page is a new version: the hierarchy never holds still.
+    let version = 0;
+    const requestConditional = vi.fn(
+      (_method: string, _path: string, _etag?: string) => {
+        version += 1;
+
+        return Promise.resolve({
+          modified: true,
+          data: paged(EDGES, 2)[0],
+          etag: `W/"v${version}"`,
+        });
+      },
+    );
+    const authorizer = new LocalAuthorizer(
+      { request, requestConditional } as unknown as CanopyClient,
+      { ttlMs: 60_000, now: () => clock },
+    );
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: true,
+    });
+
+    // Three walks, each confirmed against the next version.
+    expect(requestConditional.mock.calls.map((call) => call[2])).toEqual([
+      undefined,
+      'W/"v1"',
+      'W/"v2"',
+      'W/"v3"',
+    ]);
+
+    clock += 61_000;
+    await authorizer.evaluate(check("frontend"));
+
+    expect(requestConditional.mock.calls[4]?.[2]).toBeUndefined();
   });
 });

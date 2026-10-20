@@ -117,7 +117,7 @@ export interface paths {
         put?: never;
         /**
          * Bulk evaluate authorization
-         * @description Evaluates many permission checks in a single request, returning a `{ items }` array of decisions in the same order as the input `checks`, each with the same shape as the single evaluate endpoint. Every check is resolved independently against its own `identity_id`, `permission`, and `scope` (`node` lineage walk or `app_wide`). Scoped API keys must carry the evaluate scope (`403` otherwise). Rate-limited to 500 requests/minute.
+         * @description Evaluates up to 100 permission checks in a single request (more is refused with `400`), returning a `{ items }` array of decisions in the same order as the input `checks`, each with the same shape as the single evaluate endpoint. Every check is resolved independently against its own `identity_id`, `permission`, and `scope` (`node` lineage walk or `app_wide`). Scoped API keys must carry the evaluate scope (`403` otherwise). Rate-limited to 500 requests/minute.
          */
         post: operations["ApiPermissionsController_evaluateBulk"];
         delete?: never;
@@ -327,7 +327,7 @@ export interface paths {
         };
         /**
          * List an identity's active sessions (admin)
-         * @description Lists an identity's active sessions in the caller's Environment (server-to-server admin): the rows a customer reads to confirm from its own side that a sign-out took, or to show a person where they are signed in. Each row is a session's current refresh token, so `id` changes on every refresh. Sessions the identity holds in its other Environments are not listed. Returns `404` when the identity has no membership in this Environment.
+         * @description Lists one page of an identity's active sessions in the caller's Environment (server-to-server admin), newest first, taking `page` and `take` only: the rows a customer reads to confirm from its own side that a sign-out took, or to show a person where they are signed in. Each row is a session's current refresh token, so `id` changes on every refresh. Sessions the identity holds in its other Environments are not listed. Returns `404` when the identity has no membership in this Environment.
          */
         get: operations["ApiIdentitiesController_listIdentitySessions"];
         put?: never;
@@ -507,7 +507,7 @@ export interface paths {
         };
         /**
          * Get where an identity holds each permission
-         * @description Returns, for the current Environment, every permission the identity holds mapped to the hierarchy nodes its grants were made at — the nodes themselves, **not** expanded through their descendants. A grant already means "this node and everything beneath it", so a caller answers a node-scoped question by walking up from the node in question and looking for one of these roots, using a copy of the tree fetched once from `GET /api/v1/nodes` and shared across identities. Answers both scopes without a further call: the permission appearing at all is the Application-wide answer, and the walk is the node-scoped one. Scheduled assignments outside their effective window are excluded. Returns `404` when the identity has no membership in this Environment.
+         * @description Returns, for the current Environment, one page of `(permission, node_id)` rows: every permission the identity holds, paired with each hierarchy node its grants were made at — the nodes themselves, **not** expanded through their descendants. Rows are ordered by permission, then node; a caller building the whole map walks every page. A grant already means "this node and everything beneath it", so a caller answers a node-scoped question by walking up from the node in question and looking for one of these roots, using a copy of the parent edges fetched once from `GET /api/v1/nodes/parents` and shared across identities. Answers both scopes without a further call: the permission appearing at all is the Application-wide answer, and the walk is the node-scoped one. Scheduled assignments outside their effective window are excluded. Returns `404` when the identity has no membership in this Environment.
          */
         get: operations["ApiIdentitiesController_getIdentityGrants"];
         put?: never;
@@ -630,8 +630,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List hierarchy (scoped tree)
-         * @description Returns the caller's accessible hierarchy as a nested tree for the current Environment, each node annotated with `access_state`, `can_access`, and `can_manage`. `user` principals (dashboard), which need the Console capability covering `hierarchy.view`, see the full tree; API-key principals see only the subtree their `access_mode`/scopes grant — `full_access` unlocks everything, while scoped keys see nodes reachable via `hierarchy.view`. The response also includes a `scope` block listing `accessible_node_ids`, `scope_root_node_ids`, and `entry_node_ids`.
+         * List hierarchy nodes (scoped, paged)
+         * @description Returns one page of the caller's hierarchy for the current Environment as a flat list, each node carrying its `parent_node_id` and annotated with `access_state`, `can_access`, `can_manage` and its identity counts. A caller rebuilding the tree walks every page and links each node to its parent; a node whose parent is not in the listing is a top of the caller's scope. `user` principals (dashboard), which need the Console capability covering `hierarchy.view`, see every node; API-key principals see only what their `access_mode`/scopes grant — `full_access` unlocks everything, while scoped keys see nodes reachable via `hierarchy.view`. `context_only` nodes are the ancestors shown as the path to the caller's scope. Searches names and slugs with `q`; sorts by `name` or `created` (default, oldest first).
          */
         get: operations["ApiNodesController_listNodes"];
         put?: never;
@@ -655,7 +655,7 @@ export interface paths {
         };
         /**
          * List the hierarchy as parent edges
-         * @description Returns the same hierarchy `GET /api/v1/nodes` describes, scoped identically, but as a flat list of `{ id, parent_node_id }` and nothing else. Intended for a client that evaluates authorization locally: it walks upward from a node and reads none of the tree's names, statuses, access flags or counts. At fifty thousand nodes the tree is roughly 18.6 MB against 4 MB of edges, on a read that runs at every consuming process's startup. Supports the same `If-None-Match` revalidation, with a validator distinct from the tree's — a tag from one representation never satisfies a request for the other.
+         * @description Returns the same hierarchy `GET /api/v1/nodes` describes, scoped identically, but as `{ id, parent_node_id }` pairs and nothing else, one page at a time, ordered by node id. Intended for a client that evaluates authorization locally: it walks every page into a child-to-parent map and reads none of the nodes' names, statuses, access flags or counts. At fifty thousand nodes the full listing is roughly 18.6 MB against 4 MB of edges, on a read that runs at every consuming process's startup. Supports the same `If-None-Match` revalidation, with a validator distinct from the node listing's and from every other page's: a tag from one representation or page never satisfies a request for another. A `304` on the first page means the whole hierarchy is unchanged.
          */
         get: operations["ApiNodesController_listNodeParents"];
         put?: never;
@@ -703,7 +703,7 @@ export interface paths {
         };
         /**
          * Get subtree from a node
-         * @description Returns the subtree rooted at the given node as a nested structure, drawn from the caller's accessible hierarchy in the current Environment. The node must be within the caller's accessible scope (otherwise `403`); a node id that resolves but is absent from the scoped tree returns `404`. Each node carries the same access annotations as the full tree listing.
+         * @description Returns one page of the given node and its descendants within the caller's scope in the current Environment, flat, each node carrying its `parent_node_id` and the same access annotations and counts as `GET /api/v1/nodes`. The node must be within the caller's accessible scope (otherwise `403`). Searches names and slugs with `q`; sorts by `name` or `created` (default, oldest first).
          */
         get: operations["ApiNodesController_getSubtree"];
         put?: never;
@@ -743,7 +743,7 @@ export interface paths {
         };
         /**
          * Get direct children of a node
-         * @description Returns the direct children of a node as an `items` array (one level only, not the full subtree), scoped to the current Environment. The node must be within the caller's accessible scope, otherwise `403` is returned.
+         * @description Returns one page of a node's direct children (one level only, not the full subtree) in the current Environment. The node must be within the caller's accessible scope, otherwise `403` is returned. Searches names and slugs with `q`; sorts by `name` or `created` (default, oldest first).
          */
         get: operations["ApiNodesController_getChildren"];
         put?: never;
@@ -1077,7 +1077,7 @@ export interface paths {
         put?: never;
         /**
          * Add a member to an organization
-         * @description Adds a member: assigns `role_id` to `identity_id` at the organization. The identity must already hold an active membership in this Environment (invite by email instead for someone who does not). A member holds exactly one role per organization, so an identity that is already a member returns `409` — use the change-role operation. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.added`.
+         * @description Adds a member: assigns `role_id` to `identity_id` at the organization. The identity must already hold an active membership in this Environment (invite by email instead for someone who does not). A member holds exactly one role per organization, so an identity that is already a member returns `409` — use the change-role operation. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.added`. An organization's own administrator, signed in with an identity token and admitted by `canopy:organization.manage` alone, is refused with `403` (`organization.member_add_requires_invite`): the person never agreed to join, so the administrator invites them instead.
          */
         post: operations["ApiOrganizationsController_addMember"];
         delete?: never;
@@ -1121,7 +1121,7 @@ export interface paths {
         put?: never;
         /**
          * Reset a member's multi-factor authentication
-         * @description The organization's own administrator, or the developer, clears a member's multi-factor enrolment: every factor, the recovery codes and the trusted devices, so the person enrols afresh at their next sign-in. For a member who lost their authenticator. Sessions already open are left alone. Audited as `identity.mfa.admin.forced_reset`. Returns `404` when the identity is not a member. Responds `204 No Content`; requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
+         * @description The organization's own administrator, or the developer, clears a member's multi-factor enrolment: every factor and the recovery codes, held once per identity, and the devices trusted in this Environment, so the person enrols afresh at their next sign-in. For a member who lost their authenticator. Sessions already open are left alone. Audited as `identity.mfa.admin.forced_reset`. Returns `404` when the identity is not a member. Responds `204 No Content`; requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
          */
         post: operations["ApiOrganizationsController_resetMemberMfa"];
         delete?: never;
@@ -1491,7 +1491,7 @@ export interface paths {
         };
         /**
          * List the groups an organization's provider has pushed
-         * @description Pushed groups returned, each with its role mapping and member count
+         * @description One page of pushed groups, each with its role mapping and member count, by display name unless sorted (`sort_by` `name` or `created`); `q` searches display names and external ids
          */
         get: operations["ApiOrganizationDirectoryGroupsController_list"];
         put?: never;
@@ -2009,7 +2009,7 @@ export interface paths {
         put?: never;
         /**
          * Register a new OAuth client
-         * @description Registers a new confidential OAuth client in the current Environment with the given `name`, `redirect_uris`, and optional `scopes` (defaulting to `openid profile email`). Generates the `client_id` and a `client_secret` that is bcrypt-hashed at rest; the raw secret is returned in this response only and is never retrievable again. Responds `201 Created`.
+         * @description Registers a new confidential OAuth client in the current Environment with the given `name`, `redirect_uris`, and optional `scopes` (defaulting to `openid profile email`), each one of `openid`, `profile`, `email`, `org` and `permissions`; any other value is refused with `400` (`oauth.client_scope_unknown`). Generates the `client_id` and a `client_secret` that is bcrypt-hashed at rest; the raw secret is returned in this response only and is never retrievable again. Responds `201 Created`.
          */
         post: operations["ApiOAuthClientsController_create"];
         delete?: never;
@@ -2061,7 +2061,7 @@ export interface paths {
         head?: never;
         /**
          * Update OAuth client
-         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`), scoped to the current Environment. Returns the updated client, or `404` when the client is not found in this Environment. The secret is not rotated here.
+         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. The secret is not rotated here.
          */
         patch: operations["ApiOAuthClientsController_update"];
         trace?: never;
@@ -2122,14 +2122,14 @@ export interface paths {
         post?: never;
         /**
          * Delete an API key
-         * @description Permanently deletes an API key from the active Environment. The row is removed entirely rather than just disabled, so the key can never authenticate again and disappears from listings; the lifecycle remains traceable in the audit log. Returns `204 No Content` on success and `404` when no key with the given id exists in the active Environment.
+         * @description Permanently deletes an API key from the active Environment. The row is removed entirely rather than just disabled, so the key can never authenticate again and disappears from listings; the lifecycle remains traceable in the audit log. Returns `204 No Content` on success and `404` when no key with the given id exists in the active Environment. A scoped API key can act only on scoped keys whose scopes it holds itself; any other key is refused with `403`.
          */
         delete: operations["ApiApiKeysController_delete"];
         options?: never;
         head?: never;
         /**
          * Activate or deactivate an API key
-         * @description Enables or disables an existing API key in the current Environment via the `is_active` flag. Disabling is reversible: a disabled key is rejected by authentication immediately and can be re-enabled later. Returns the key's metadata with no secret. Returns `404` when no key with the given id exists in the active Environment.
+         * @description Enables or disables an existing API key in the current Environment via the `is_active` flag. Disabling is reversible: a disabled key is rejected by authentication immediately and can be re-enabled later. Returns the key's metadata with no secret. Returns `404` when no key with the given id exists in the active Environment. A scoped API key can act only on scoped keys whose scopes it holds itself; any other key is refused with `403`.
          */
         patch: operations["ApiApiKeysController_update"];
         trace?: never;
@@ -2145,7 +2145,7 @@ export interface paths {
         put?: never;
         /**
          * Rotate an API key's secret
-         * @description Rotates the secret of an existing API key in place, minting a brand-new `cnpy_`-prefixed value for the same row while preserving its id, name, `scopes`, `access_mode`, expiry, and audit lineage. The previous secret is invalidated immediately and the new plaintext is returned exactly once in the `key` field. `is_active` is left untouched — rotating does not re-enable a disabled key. Returns `404` when no key with the given id exists in the active Environment.
+         * @description Rotates the secret of an existing API key in place, minting a brand-new `cnpy_`-prefixed value for the same row while preserving its id, name, `scopes`, `access_mode`, expiry, and audit lineage. The previous secret is invalidated immediately and the new plaintext is returned exactly once in the `key` field. `is_active` is left untouched — rotating does not re-enable a disabled key. Returns `404` when no key with the given id exists in the active Environment. A scoped API key can act only on scoped keys whose scopes it holds itself; any other key is refused with `403`.
          */
         post: operations["ApiApiKeysController_rotateSecret"];
         delete?: never;
@@ -2216,11 +2216,11 @@ export interface components {
             allowed: boolean;
             permission: string;
             /**
-             * @description Echo of the `scope` the caller asked for. `app_wide` answers are 'matched somewhere in the tree' — never treat them as scoped to a specific node.
+             * @description Echo of the `scope` the caller asked for. `app_wide` answers are 'matched somewhere in the Environment' — never treat them as scoped to a specific node.
              * @enum {string}
              */
             scope_evaluated: "node" | "app_wide";
-            /** @description The hierarchy node the decision was anchored to. Always set for `scope_evaluated: "node"`; always null for `scope_evaluated: "app_wide"` because the answer is org-scoped, not node-scoped. */
+            /** @description The hierarchy node the decision was anchored to. Always set for `scope_evaluated: "node"`; always null for `scope_evaluated: "app_wide"` because the answer covers the whole Environment, not one node. */
             effective_node_id?: string | null;
             /** @description Ids of the roles whose assignments produced a node-scoped allow. Always empty for `scope_evaluated: "app_wide"`, whose answer is not tied to a node, and for a deny. */
             granting_roles: string[];
@@ -2231,7 +2231,7 @@ export interface components {
             identity_id: string;
             permission: string;
             /**
-             * @description Required. `node` asks 'does this identity have the permission *at* `node_id`?' (lineage walk). `app_wide` asks the coarse-grained 'does this identity have the permission *anywhere* in the org?' question — useful for UI gating, **never** for resource-scoped enforcement. `node` requires `node_id`; `app_wide` forbids it.
+             * @description Required. `node` asks 'does this identity have the permission *at* `node_id`?' (lineage walk). `app_wide` asks the coarse-grained 'does this identity have the permission *anywhere* in the Environment?' question — useful for UI gating, **never** for resource-scoped enforcement. `node` requires `node_id`; `app_wide` forbids it.
              * @enum {string}
              */
             scope: "node" | "app_wide";
@@ -2243,7 +2243,7 @@ export interface components {
             identity_id: string;
             permission: string;
             /**
-             * @description Required. `node` asks 'does this identity have the permission *at* `node_id`?' (lineage walk). `app_wide` asks the coarse-grained 'does this identity have the permission *anywhere* in the org?' question — useful for UI gating, **never** for resource-scoped enforcement. `node` requires `node_id`; `app_wide` forbids it.
+             * @description Required. `node` asks 'does this identity have the permission *at* `node_id`?' (lineage walk). `app_wide` asks the coarse-grained 'does this identity have the permission *anywhere* in the Environment?' question — useful for UI gating, **never** for resource-scoped enforcement. `node` requires `node_id`; `app_wide` forbids it.
              * @enum {string}
              */
             scope: "node" | "app_wide";
@@ -2251,6 +2251,7 @@ export interface components {
             node_id?: string;
         };
         BulkEvaluatePermissionDto: {
+            /** @description Between 1 and 100 checks. More is refused with a 400. */
             checks: components["schemas"]["EvaluateCheckDto"][];
         };
         PermissionTraceAssignmentDto: {
@@ -2481,8 +2482,11 @@ export interface components {
         IdentityGrantResponseDto: {
             /** @example reports.view */
             permission: string;
-            /** @description Hierarchy node ids the permission was granted at. Not expanded through descendants. */
-            nodes: string[];
+            /**
+             * Format: uuid
+             * @description The hierarchy node the permission was granted at. Not expanded through descendants.
+             */
+            node_id: string;
         };
         IdentityInviteResponseDto: {
             id: string;
@@ -2602,7 +2606,7 @@ export interface components {
             /** @description Arbitrary metadata */
             metadata?: Record<string, unknown>;
         };
-        HierarchyTreeNodeDto: {
+        ScopedNodeResponseDto: {
             id: string;
             name: string;
             /** @description Optional free-text description shown under the node name. */
@@ -2616,22 +2620,12 @@ export interface components {
             access_state: "accessible" | "context_only";
             can_access: boolean;
             can_manage: boolean;
-            children: components["schemas"]["HierarchyTreeNodeDto"][];
             /** @description Optimistic-lock version. Send back as the `If-Match` header when mutating this node to detect concurrent edits. */
             version: number;
             /** @description Distinct active identities directly assigned at this node (excludes inherited). */
             direct_count: number;
             /** @description Distinct active identities inherited from this node's ancestors. */
             inherited_count: number;
-        };
-        HierarchyScopeDto: {
-            accessible_node_ids: string[];
-            scope_root_node_ids: string[];
-            entry_node_ids: string[];
-        };
-        ScopedHierarchyTreeResponseDto: {
-            tree: components["schemas"]["HierarchyTreeNodeDto"][];
-            scope: components["schemas"]["HierarchyScopeDto"];
         };
         NodeParentEdgeResponseDto: {
             id: string;
@@ -6017,12 +6011,14 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search names and emails */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `name`, A to Z. */
+                sort_by?: "name" | "email" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
+                /** @description Filter by active/inactive status. Omit to show all. */
+                status?: "active" | "inactive";
             };
             header?: never;
             path?: never;
@@ -6245,16 +6241,16 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search names and emails */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `name`, A to Z. */
+                sort_by?: "name" | "email" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
-                /** @description Filter by role ID (UUID) or "no_assignment" for unassigned identities */
-                role_id?: string;
                 /** @description Filter by active/inactive status. Omit to show all. */
                 status?: "active" | "inactive";
+                /** @description Filter by role ID (UUID) or "no_assignment" for unassigned identities */
+                role_id?: string;
             };
             header?: never;
             path?: never;
@@ -7236,7 +7232,12 @@ export interface operations {
     };
     ApiIdentitiesController_listIdentitySessions: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+            };
             header?: never;
             path: {
                 id: string;
@@ -7245,7 +7246,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Every session the identity holds that is neither revoked nor expired, newest first: the session's current refresh token id (what the per-session revoke takes), when it was signed in and when it expires, the browser's address and user agent, and the organization it is acting in. */
+            /** @description One page of the sessions the identity holds that are neither revoked nor expired, newest first: the session's current refresh token id (what the per-session revoke takes), when it was signed in and when it expires, the browser's address and user agent, and the organization it is acting in. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7253,6 +7254,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         items: components["schemas"]["IdentitySessionResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
                     };
                 };
             };
@@ -7982,10 +7984,10 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search role and node names */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `created`, oldest first. */
+                sort_by?: "role" | "node" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
             };
@@ -8205,7 +8207,12 @@ export interface operations {
     };
     ApiIdentitiesController_getIdentityGrants: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+            };
             header?: never;
             path: {
                 id: string;
@@ -8214,7 +8221,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Grant map returned */
+            /** @description One page of grant roots, one row per permission and node, ordered by permission then node */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8222,6 +8229,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         items: components["schemas"]["IdentityGrantResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
                     };
                 };
             };
@@ -8985,9 +8993,20 @@ export interface operations {
     };
     ApiNodesController_listNodes: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search node names and slugs */
+                q?: string;
+                /** @description Sort column. Defaults to `created`, oldest first. */
+                sort_by?: "name" | "created";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
             header?: {
-                /** @description An `ETag` from a previous response. Answers `304 Not Modified` when the hierarchy has not changed since, so a client holding a cached tree can revalidate on a short interval without re-reading it. */
+                /** @description An `ETag` from a previous response for the same page and query. Answers `304 Not Modified` when the hierarchy has not changed since, so a client holding a cached copy can revalidate on a short interval without re-reading it. */
                 "If-None-Match"?: string;
             };
             path?: never;
@@ -8995,25 +9014,26 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Scoped hierarchy tree returned */
+            /** @description One page of the caller's scoped nodes */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["ScopedHierarchyTreeResponseDto"];
+                        items: components["schemas"]["ScopedNodeResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
                     };
                 };
             };
-            /** @description The hierarchy is unchanged since the supplied `ETag`. No body; keep using the cached tree. */
+            /** @description The hierarchy is unchanged since the supplied `ETag`. No body; keep using the cached copy. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9024,7 +9044,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -9190,9 +9210,14 @@ export interface operations {
     };
     ApiNodesController_listNodeParents: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+            };
             header?: {
-                /** @description An `ETag` from a previous response. Answers `304 Not Modified` when the hierarchy has not changed since, so a client holding a cached tree can revalidate on a short interval without re-reading it. */
+                /** @description An `ETag` from a previous response for the same page and query. Answers `304 Not Modified` when the hierarchy has not changed since, so a client holding a cached copy can revalidate on a short interval without re-reading it. */
                 "If-None-Match"?: string;
             };
             path?: never;
@@ -9200,7 +9225,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Parent edges returned */
+            /** @description One page of parent edges, by node id */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9208,17 +9233,18 @@ export interface operations {
                 content: {
                     "application/json": {
                         items: components["schemas"]["NodeParentEdgeResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
                     };
                 };
             };
-            /** @description The hierarchy is unchanged since the supplied `ETag`. No body; keep using the cached tree. */
+            /** @description The hierarchy is unchanged since the supplied `ETag`. No body; keep using the cached copy. */
             304: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9229,7 +9255,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/parents",
                      *         "method": "GET"
@@ -9659,7 +9685,18 @@ export interface operations {
     };
     ApiNodesController_getSubtree: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search node names and slugs */
+                q?: string;
+                /** @description Sort column. Defaults to `created`, oldest first. */
+                sort_by?: "name" | "created";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
             header?: never;
             path: {
                 id: string;
@@ -9668,18 +9705,19 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Subtree returned */
+            /** @description One page of the node and its descendants in scope */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["HierarchyTreeNodeDto"];
+                        items: components["schemas"]["ScopedNodeResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
                     };
                 };
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9690,7 +9728,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -9833,7 +9871,18 @@ export interface operations {
     };
     ApiNodesController_getChildren: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search node names and slugs */
+                q?: string;
+                /** @description Sort column. Defaults to `created`, oldest first. */
+                sort_by?: "name" | "created";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
             header?: never;
             path: {
                 id: string;
@@ -9842,7 +9891,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Children returned */
+            /** @description One page of the node's children */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9850,10 +9899,11 @@ export interface operations {
                 content: {
                     "application/json": {
                         items: components["schemas"]["NodeResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
                     };
                 };
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9864,7 +9914,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "GET"
@@ -10298,10 +10348,10 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search organization names and slugs */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `name`, A to Z. */
+                sort_by?: "name" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
                 /** @description Exact match on the organization's `external_id` (your own id for it). Answers one organization or none. */
@@ -12375,10 +12425,10 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search member names and emails */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `created`, oldest membership first. */
+                sort_by?: "name" | "email" | "role" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
                 /** @description Only members holding this role */
@@ -12560,7 +12610,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller is an organization administrator signed in as an identity and holds no `rbac.manage_assignments` at the organization; an organization administrator adds people by invitation (`organization.member_add_requires_invite`). Also a caller without the permissions the route needs */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -12571,10 +12621,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller is an organization administrator signed in as an identity and holds no `rbac.manage_assignments` at the organization; an organization administrator adds people by invitation (`organization.member_add_requires_invite`). Also a caller without the permissions the route needs",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/members",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -12897,7 +12947,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Factors, recovery codes and trusted devices cleared; the member enrols again at their next sign-in */
+            /** @description Factors and recovery codes cleared, and the devices trusted in this Environment; the member enrols again at their next sign-in */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -12988,7 +13038,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The caller is an organization administrator and the member also belongs to another organization in the Environment; the second factor is held once per identity, so only the application's administrators may reset it (`organization.member_mfa_shared`) */
+            /** @description The caller is an organization administrator and the member also belongs to another organization, or holds an active membership in another Environment of the Account; the second factor is held once per identity, so only the application's administrators may reset it (`organization.member_mfa_shared`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12999,7 +13049,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The caller is an organization administrator and the member also belongs to another organization in the Environment; the second factor is held once per identity, so only the application's administrators may reset it (`organization.member_mfa_shared`)",
+                     *         "message": "The caller is an organization administrator and the member also belongs to another organization, or holds an active membership in another Environment of the Account; the second factor is held once per identity, so only the application's administrators may reset it (`organization.member_mfa_shared`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
                      *         "method": "POST"
@@ -13020,11 +13070,11 @@ export interface operations {
                 take?: number;
                 /** @description Search term */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Column to sort by. Defaults to `created`, newest first. */
+                sort_by?: "name" | "email" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
-                /** @description Filter by invitation status */
+                /** @description Filter by invite status */
                 status?: "pending" | "accepted" | "revoked" | "expired";
             };
             header?: never;
@@ -15886,7 +15936,18 @@ export interface operations {
     };
     ApiOrganizationDirectoryGroupsController_list: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search group display names and external ids */
+                q?: string;
+                /** @description Sort column. Defaults to `name`, A to Z. */
+                sort_by?: "name" | "created";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
             header?: never;
             path: {
                 id: string;
@@ -15895,7 +15956,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Pushed groups returned, each with its role mapping and member count */
+            /** @description One page of pushed groups, each with its role mapping and member count, by display name unless sorted (`sort_by` `name` or `created`); `q` searches display names and external ids */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -15903,6 +15964,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         items: components["schemas"]["ScimGroupResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
                     };
                 };
             };
@@ -19048,10 +19110,10 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search the endpoint URL */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `created`, newest first. */
+                sort_by?: "url" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
             };
@@ -19319,10 +19381,10 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search the event type */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `created`, newest first. */
+                sort_by?: "created" | "event_type" | "status";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
             };
@@ -19763,10 +19825,10 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search client names */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `created`, newest first. */
+                sort_by?: "name" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
             };
@@ -19877,7 +19939,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -19888,7 +19950,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "POST"
@@ -20288,7 +20350,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -20299,7 +20361,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, or `initiate_login_uri` is malformed or not `https` (loopback hosts excepted); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "PATCH"
@@ -20489,10 +20551,10 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
-                /** @description Search term */
+                /** @description Search key names */
                 q?: string;
-                /** @description Column to sort by. Allowed values depend on the endpoint. */
-                sort_by?: string;
+                /** @description Sort column. Defaults to `created`, newest first. */
+                sort_by?: "name" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
             };
@@ -20791,7 +20853,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -20802,10 +20864,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/api-keys",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/api-keys/{id}",
+                     *         "method": "DELETE"
                      *       }
                      *     }
                      */
@@ -20903,7 +20965,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -20914,10 +20976,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/api-keys",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/api-keys/{id}",
+                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -21011,7 +21073,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -21022,10 +21084,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/api-keys",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/api-keys/{id}/rotate-secret",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */

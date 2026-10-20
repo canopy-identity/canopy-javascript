@@ -26,6 +26,21 @@ import { RequirePermission } from "./require-permission.decorator.js";
 
 type FetchResult = { status: number; body: unknown };
 
+/** A whole collection as the single page the API answers it in. */
+function onePage<T>(items: T[]) {
+  return {
+    items,
+    pagination: {
+      page: 1,
+      take: 100,
+      item_count: items.length,
+      page_count: 1,
+      has_previous_page: false,
+      has_next_page: false,
+    },
+  };
+}
+
 /**
  * What Canopy answers, keyed by the read the authorizer actually makes.
  *
@@ -36,15 +51,13 @@ type FetchResult = { status: number; body: unknown };
  */
 let grants: () => FetchResult = () => ({
   status: 200,
-  body: { items: [{ permission: "orders.refund", nodes: ["nod_1"] }] },
+  body: onePage([{ permission: "orders.refund", node_id: "nod_1" }]),
 });
 
-const TREE = {
-  items: [
-    { id: "nod_root", parent_node_id: null },
-    { id: "nod_1", parent_node_id: "nod_root" },
-  ],
-};
+const TREE = onePage([
+  { id: "nod_root", parent_node_id: null },
+  { id: "nod_1", parent_node_id: "nod_root" },
+]);
 
 const fakeFetch = ((input: string | URL | Request) => {
   const url =
@@ -69,12 +82,10 @@ const fakeFetch = ((input: string | URL | Request) => {
 /** Grant roots holding both permissions the controller guards. */
 const HOLDS_BOTH: FetchResult = {
   status: 200,
-  body: {
-    items: [
-      { permission: "orders.refund", nodes: ["nod_1"] },
-      { permission: "reports.view", nodes: ["nod_root"] },
-    ],
-  },
+  body: onePage([
+    { permission: "orders.refund", node_id: "nod_1" },
+    { permission: "reports.view", node_id: "nod_root" },
+  ]),
 };
 
 interface TestRequest {
@@ -166,7 +177,7 @@ describe("a real request through the guard", () => {
   });
 
   it("returns 403 when Canopy denies", async () => {
-    grants = () => ({ status: 200, body: { items: [] } });
+    grants = () => ({ status: 200, body: onePage([]) });
 
     const response = await call("/orgs/nod_1/refund", "idn_2");
 
