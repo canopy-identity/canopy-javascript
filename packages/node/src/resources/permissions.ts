@@ -50,6 +50,10 @@ export class Permissions {
    *
    * Prefer this to a loop over `evaluate` when rendering a screen: the checks
    * are answered together instead of paying request latency for each.
+   *
+   * One request carries between 1 and 100 checks. More is refused with a
+   * `400` (`CanopyError`, `statusCode` 400) and nothing is evaluated, so split
+   * a larger set into batches of 100.
    */
   evaluateBulk(
     input: RequestBody<"ApiPermissionsController_evaluateBulk">,

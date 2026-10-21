@@ -49,6 +49,52 @@ function harness(body: unknown = { data: { ok: true } }) {
   return { canopy, calls };
 }
 
+/** Replays a queue of responses so a walk across pages can be observed. */
+function paged(pages: unknown[]) {
+  const calls: string[] = [];
+  let index = 0;
+
+  const fetch = vi.fn((url: string | URL | Request) => {
+    calls.push(
+      typeof url === "string" ? url : url instanceof URL ? url.href : url.url,
+    );
+
+    const body = pages[Math.min(index, pages.length - 1)];
+
+    index++;
+
+    return Promise.resolve(
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  });
+
+  const canopy = new Canopy({
+    apiKey: "cnpy_test",
+    baseUrl: "https://api.test",
+    timeoutMs: 0,
+    fetch,
+  });
+
+  return { canopy, calls };
+}
+
+function page(items: unknown[], pageNumber: number, hasNext: boolean) {
+  return {
+    items,
+    pagination: {
+      page: pageNumber,
+      take: 20,
+      item_count: 2,
+      page_count: 2,
+      has_previous_page: pageNumber > 1,
+      has_next_page: hasNext,
+    },
+  };
+}
+
 describe("permissions", () => {
   it("POSTs an evaluation to the evaluate path", async () => {
     const { canopy, calls } = harness({
@@ -127,17 +173,34 @@ describe("identities", () => {
   });
 
   it("lists an identity's sessions under its own path", async () => {
-    const { canopy, calls } = harness({
-      items: [{ id: "rt_1", active_org_node_id: null }],
-    });
+    const { canopy, calls } = paged([
+      page([{ id: "rt_1", active_org_node_id: null }], 1, false),
+    ]);
 
-    const result = await canopy.identities.sessions("idn 1");
+    const first = await canopy.identities.sessions("idn 1").first();
 
-    expect(calls[0]?.method).toBe("GET");
-    expect(calls[0]?.url).toBe(
-      "https://api.test/api/v1/identities/idn%201/sessions",
+    expect(new URL(calls[0] ?? "").pathname).toBe(
+      "/api/v1/identities/idn%201/sessions",
     );
-    expect(result.items).toHaveLength(1);
+    expect(first).toEqual({ id: "rt_1", active_org_node_id: null });
+  });
+
+  it("walks every page of an identity's sessions", async () => {
+    const { canopy, calls } = paged([
+      page([{ id: "rt_1" }], 1, true),
+      page([{ id: "rt_2" }], 2, false),
+    ]);
+
+    const all = await canopy.identities.sessions("idn_1", { take: 100 }).all();
+
+    expect(all).toEqual([{ id: "rt_1" }, { id: "rt_2" }]);
+    expect(calls).toHaveLength(2);
+
+    const second = new URL(calls[1] ?? "");
+
+    expect(second.pathname).toBe("/api/v1/identities/idn_1/sessions");
+    expect(second.searchParams.get("page")).toBe("2");
+    expect(second.searchParams.get("take")).toBe("100");
   });
 
   it("revokes one session with DELETE, both ids encoded", async () => {
@@ -243,52 +306,6 @@ describe("assignments", () => {
  * the dangerous direction to be wrong in on an authorization surface.
  */
 describe("identity assignments", () => {
-  /** Replays a queue of responses so a walk across pages can be observed. */
-  function paged(pages: unknown[]) {
-    const calls: string[] = [];
-    let index = 0;
-
-    const fetch = vi.fn((url: string | URL | Request) => {
-      calls.push(
-        typeof url === "string" ? url : url instanceof URL ? url.href : url.url,
-      );
-
-      const body = pages[Math.min(index, pages.length - 1)];
-
-      index++;
-
-      return Promise.resolve(
-        new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-      );
-    });
-
-    const canopy = new Canopy({
-      apiKey: "cnpy_test",
-      baseUrl: "https://api.test",
-      timeoutMs: 0,
-      fetch,
-    });
-
-    return { canopy, calls };
-  }
-
-  function page(items: unknown[], pageNumber: number, hasNext: boolean) {
-    return {
-      items,
-      pagination: {
-        page: pageNumber,
-        take: 20,
-        item_count: 2,
-        page_count: 2,
-        has_previous_page: pageNumber > 1,
-        has_next_page: hasNext,
-      },
-    };
-  }
-
   it("walks every page rather than answering the first", async () => {
     const { canopy, calls } = paged([
       page([{ id: "asg_1" }], 1, true),
@@ -604,7 +621,6 @@ describe("organizations", () => {
       role_id: "role_lead",
     });
     await canopy.organizations.unmapDirectoryGroup("org_1", "grp_1");
-    await canopy.organizations.listDirectoryGroups("org_1");
     await canopy.organizations.listDirectoryActivity("org_1");
 
     const mapping =
@@ -616,10 +632,31 @@ describe("organizations", () => {
     expect(calls[1]?.method).toBe("DELETE");
     expect(calls[1]?.url).toBe(mapping);
     expect(calls[2]?.url).toBe(
-      "https://api.test/api/v1/organizations/org_1/directory/groups",
-    );
-    expect(calls[3]?.url).toBe(
       "https://api.test/api/v1/organizations/org_1/directory/activity",
     );
+  });
+
+  it("walks every page of the pushed groups, passing search and sort", async () => {
+    const { canopy, calls } = paged([
+      page([{ id: "grp_1" }], 1, true),
+      page([{ id: "grp_2" }], 2, false),
+    ]);
+
+    const all = await canopy.organizations
+      .listDirectoryGroups("org 1", { q: "eng", sort_by: "created" })
+      .all();
+
+    expect(all).toEqual([{ id: "grp_1" }, { id: "grp_2" }]);
+    expect(calls).toHaveLength(2);
+
+    const [first, second] = calls.map((url) => new URL(url));
+
+    expect(first?.pathname).toBe(
+      "/api/v1/organizations/org%201/directory/groups",
+    );
+    expect(first?.searchParams.get("q")).toBe("eng");
+    expect(first?.searchParams.get("sort_by")).toBe("created");
+    expect(second?.searchParams.get("page")).toBe("2");
+    expect(second?.searchParams.get("q")).toBe("eng");
   });
 });

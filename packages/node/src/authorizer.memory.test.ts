@@ -1,9 +1,7 @@
-import { randomUUID } from "node:crypto";
-
 import { describe, expect, it } from "vitest";
 
 import { LocalAuthorizer } from "./authorizer.js";
-import type { CanopyClient } from "./client.js";
+import type { CanopyClient, RequestOptions } from "./client.js";
 
 /**
  * What the authorizer's copy of the hierarchy costs in memory, the figure the
@@ -17,25 +15,51 @@ import type { CanopyClient } from "./client.js";
 
 const NODES = 50_000;
 
-/**
- * Parent edges for a wide, shallow tree of `count` nodes under `rootId`, its
- * first child `childId`, as
- * the JSON text `GET /api/v1/nodes/parents` answers with, parsed. Built and
- * parsed on demand, so nothing of it exists before the fetch and every id
- * string is allocated the way an HTTP response allocates it.
- */
-function parentEdges(rootId: string, childId: string, count: number): unknown {
-  const ids = [
-    rootId,
-    childId,
-    ...Array.from({ length: count - 2 }, () => randomUUID()),
-  ];
-  const items = ids.map((id, i) => ({
-    id,
-    parent_node_id: i === 0 ? null : ids[Math.floor((i - 1) / 10)],
-  }));
+const PAGE_SIZE = 100;
 
-  return JSON.parse(JSON.stringify({ items }));
+/**
+ * The id of node `index`, UUID-shaped like a real one and built afresh on
+ * every call, so no id string exists until a page is asked for.
+ */
+function nodeId(index: number): string {
+  return `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
+}
+
+/**
+ * One page of the parent edges of a wide, shallow tree of `count` nodes, node
+ * 0 the root and each node the parent of the next ten, as
+ * `GET /api/v1/nodes/parents` answers it, parsed. Built and parsed on demand,
+ * so nothing of it exists before the fetch and every id string is allocated
+ * the way an HTTP response allocates it.
+ */
+function edgePage(count: number, page: number): unknown {
+  const pageCount = Math.ceil(count / PAGE_SIZE);
+  const items = [];
+
+  for (
+    let i = (page - 1) * PAGE_SIZE;
+    i < Math.min(count, page * PAGE_SIZE);
+    i++
+  ) {
+    items.push({
+      id: nodeId(i),
+      parent_node_id: i === 0 ? null : nodeId(Math.floor((i - 1) / 10)),
+    });
+  }
+
+  return JSON.parse(
+    JSON.stringify({
+      items,
+      pagination: {
+        page,
+        take: PAGE_SIZE,
+        item_count: count,
+        page_count: pageCount,
+        has_previous_page: page > 1,
+        has_next_page: page < pageCount,
+      },
+    }),
+  );
 }
 
 function heapUsed(): number {
@@ -53,23 +77,38 @@ function heapUsed(): number {
 
 describe("LocalAuthorizer memory", () => {
   it("holds the hierarchy at about 90 bytes per node, one id string each", async () => {
-    const rootId = randomUUID();
+    const rootId = nodeId(0);
     // Asked about a node beneath the grant: a grant at the node itself is
     // answered without the tree, which would leave nothing to measure.
-    const childId = randomUUID();
+    const childId = nodeId(1);
     // Plain functions rather than mocks: a mock keeps every result it
-    // returned, which would hold the parsed response alive and count it.
+    // returned, which would hold the parsed responses alive and count them.
     const client = {
-      request: () =>
-        Promise.resolve({
-          items: [{ permission: "report.view", nodes: [rootId] }],
-        }),
-      requestConditional: () =>
-        Promise.resolve({
-          modified: true,
-          data: parentEdges(rootId, childId, NODES),
-          etag: '"tree-1"',
-        }),
+      request: (_method: string, path: string, options: RequestOptions) =>
+        Promise.resolve(
+          path.endsWith("/grants")
+            ? {
+                items: [{ permission: "report.view", node_id: rootId }],
+                pagination: {
+                  page: 1,
+                  take: PAGE_SIZE,
+                  item_count: 1,
+                  page_count: 1,
+                  has_previous_page: false,
+                  has_next_page: false,
+                },
+              }
+            : edgePage(NODES, Number(options.query?.["page"])),
+        ),
+      // A single page has nothing to confirm against, and a confirmation
+      // answered 304 holds nothing: answer the first request in full and
+      // every later one unchanged.
+      requestConditional: (_method: string, _path: string, etag?: string) =>
+        Promise.resolve(
+          etag === undefined
+            ? { modified: true, data: edgePage(NODES, 1), etag: '"tree-1"' }
+            : { modified: false },
+        ),
     } as unknown as CanopyClient;
     const authorizer = new LocalAuthorizer(client);
 
@@ -89,6 +128,10 @@ describe("LocalAuthorizer memory", () => {
     // change that stores each id twice again (about 150).
     expect(perNode).toBeGreaterThan(60);
     expect(perNode).toBeLessThan(120);
-    expect(authorizer.snapshot().treeRequests).toBe(1);
+    expect(authorizer.snapshot()).toMatchObject({
+      treeRequests: 1,
+      // Every page of 100, and the request confirming the walk.
+      treePages: NODES / PAGE_SIZE + 1,
+    });
   });
 });

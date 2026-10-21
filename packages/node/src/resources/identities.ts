@@ -103,13 +103,27 @@ export class Identities {
    * newest first: when and where it was signed in, when it expires, and the
    * organization it is acting in. Read it back after a revoke to confirm,
    * from your own side, that a sign-out took.
+   *
+   * Paginated (20 per page by default, `take` up to 100), so this returns a
+   * `Paginator`: iterate it for every session, or call `.first()` for the
+   * newest. The list takes `page` and `take` only; its order is fixed.
+   *
+   * ```ts
+   * for await (const session of canopy.identities.sessions(id)) { … }
+   * ```
    */
   sessions(
     id: string,
-  ): Promise<ResponseBody<"ApiIdentitiesController_listIdentitySessions">> {
-    return this.client.request(
-      "GET",
-      `/api/v1/identities/${encodeURIComponent(id)}/sessions`,
+    query: QueryParams<"ApiIdentitiesController_listIdentitySessions"> = {},
+  ): Paginator<IdentitySessionItem> {
+    return paginate<IdentitySessionItem>(
+      (params) =>
+        this.client.request(
+          "GET",
+          `/api/v1/identities/${encodeURIComponent(id)}/sessions`,
+          { query: params },
+        ),
+      { ...query },
     );
   }
 
