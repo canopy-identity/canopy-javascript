@@ -6211,7 +6211,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The email or external_id already belongs to an identity in this Account, or the Account has reached its plan's identity signup ceiling */
+            /** @description The email or external_id already belongs to an identity in this Account, the Account has reached its plan's identity signup ceiling, or the starting role is placed beneath an organization, where a new identity holds no membership yet */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6222,7 +6222,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The email or external_id already belongs to an identity in this Account, or the Account has reached its plan's identity signup ceiling",
+                     *         "message": "The email or external_id already belongs to an identity in this Account, the Account has reached its plan's identity signup ceiling, or the starting role is placed beneath an organization, where a new identity holds no membership yet",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "POST"
@@ -8228,6 +8228,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @description The version of the authorization model these rows describe. A client that evaluates from them refuses a version it does not know rather than guessing. */
+                        model_version: number;
                         items: components["schemas"]["IdentityGrantResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
@@ -9232,6 +9234,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @description The version of the authorization model these rows describe. A client that evaluates from them refuses a version it does not know rather than guessing. */
+                        model_version: number;
                         items: components["schemas"]["NodeParentEdgeResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
                     };
@@ -17387,7 +17391,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The identity already has this role at this node, or the node belongs to an organization the identity is not a member of */
+            /** @description The identity already has this role at this node, already holds its one role at this organization, or the node sits beneath an organization the identity has no membership in effect at */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17398,7 +17402,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The identity already has this role at this node, or the node belongs to an organization the identity is not a member of",
+                     *         "message": "The identity already has this role at this node, already holds its one role at this organization, or the node sits beneath an organization the identity has no membership in effect at",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
                      *         "method": "POST"

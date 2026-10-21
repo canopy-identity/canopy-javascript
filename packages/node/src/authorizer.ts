@@ -165,6 +165,34 @@ type GrantRow = GrantPage["items"][number];
 type ParentPage = ResponseBody<"ApiNodesController_listNodeParents">;
 type ParentEdge = ParentPage["items"][number];
 
+/**
+ * The versions of Canopy's authorization model this authorizer understands.
+ *
+ * The grants and parents responses name the model their rows describe. Canopy
+ * raises the version when a change makes a walk up the tree answer
+ * differently for the same rows (a deny that narrows a grant, a root that no
+ * longer reaches every descendant). An authorizer that walked on regardless
+ * would allow what the API has started to deny, so a version not listed here
+ * is refused, and the fix is upgrading this package.
+ */
+const KNOWN_MODEL_VERSIONS: ReadonlySet<number> = new Set([1]);
+
+/** A page as served, once its model version is known to be understood. */
+function understood<T extends { model_version: number }>(
+  page: T,
+  path: string,
+): T {
+  if (!KNOWN_MODEL_VERSIONS.has(page.model_version)) {
+    throw new CanopyAuthorizerError(
+      "authorizer.model_version_unknown",
+      `${path} describes authorization model version ${page.model_version}, which this version of @canopy-io/node does not understand. ` +
+        `It knows ${[...KNOWN_MODEL_VERSIONS].join(", ")}. Upgrade @canopy-io/node; until then this authorizer cannot decide, rather than guess.`,
+    );
+  }
+
+  return page;
+}
+
 const GRANTS_PATH = (identityId: string): string =>
   `/api/v1/identities/${encodeURIComponent(identityId)}/grants`;
 
@@ -431,10 +459,12 @@ export class LocalAuthorizer {
       (query) => {
         this.stats.grantPages += 1;
 
-        return this.client.request<GrantPage>("GET", path, {
-          ...this.readOptions,
-          query,
-        });
+        return this.client
+          .request<GrantPage>("GET", path, {
+            ...this.readOptions,
+            query,
+          })
+          .then((page) => understood(page, path));
       },
       { page: 1, take: PAGE_SIZE },
       { maxPages: MAX_PAGES },
@@ -546,12 +576,19 @@ export class LocalAuthorizer {
   ): Promise<ConditionalResult<ParentPage>> {
     this.stats.treePages += 1;
 
-    return this.client.requestConditional<ParentPage>(
-      "GET",
-      PARENTS_PATH,
-      etag,
-      { ...this.readOptions, query: { page: 1, take: PAGE_SIZE } },
-    );
+    return this.client
+      .requestConditional<ParentPage>("GET", PARENTS_PATH, etag, {
+        ...this.readOptions,
+        query: { page: 1, take: PAGE_SIZE },
+      })
+      .then((result) => {
+        // A `304` carries no body; it confirms edges already checked.
+        if (result.modified) {
+          understood(result.data, PARENTS_PATH);
+        }
+
+        return result;
+      });
   }
 
   /** The first page's edges followed by every later page's. */
@@ -568,10 +605,12 @@ export class LocalAuthorizer {
       (query: PageParams) => {
         this.stats.treePages += 1;
 
-        return this.client.request<ParentPage>("GET", PARENTS_PATH, {
-          ...this.readOptions,
-          query,
-        });
+        return this.client
+          .request<ParentPage>("GET", PARENTS_PATH, {
+            ...this.readOptions,
+            query,
+          })
+          .then((page) => understood(page, PARENTS_PATH));
       },
       { page: first.pagination.page + 1, take: PAGE_SIZE },
       { maxPages: MAX_PAGES - 1 },
