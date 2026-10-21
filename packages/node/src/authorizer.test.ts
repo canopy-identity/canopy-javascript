@@ -22,10 +22,15 @@ function meta(page: number, itemCount: number, take = 100) {
 
 /** `items` as the API pages them, 100 to a page by default. */
 function paged<T>(items: T[], take = 100) {
-  const pages: { items: T[]; pagination: ReturnType<typeof meta> }[] = [];
+  const pages: {
+    model_version: number;
+    items: T[];
+    pagination: ReturnType<typeof meta>;
+  }[] = [];
 
   for (let start = 0; start === 0 || start < items.length; start += take) {
     pages.push({
+      model_version: 1,
       items: items.slice(start, start + take),
       pagination: meta(pages.length + 1, items.length, take),
     });
@@ -50,15 +55,20 @@ const EDGES = [
   { id: "sales", parent_node_id: "root" },
 ];
 
-const TREE = { items: EDGES, pagination: meta(1, EDGES.length) };
+const TREE = {
+  model_version: 1,
+  items: EDGES,
+  pagination: meta(1, EDGES.length),
+};
 
 /** One row per permission and node it was granted at. */
 const GRANTS = {
+  model_version: 1,
   items: [{ permission: "reports.view", node_id: "engineering" }],
   pagination: meta(1, 1),
 };
 
-const EMPTY_TREE = { items: [], pagination: meta(1, 0) };
+const EMPTY_TREE = { model_version: 1, items: [], pagination: meta(1, 0) };
 
 interface Harness {
   authorizer: LocalAuthorizer;
@@ -290,6 +300,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
       modified: true,
       etag: 'W/"v2"',
       data: {
+        model_version: 1,
         items: [
           { id: "root", parent_node_id: null },
           { id: "engineering", parent_node_id: "root" },
@@ -459,6 +470,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
   it("still answers from a grant at the node itself, with no tree at all", async () => {
     const request = vi.fn().mockResolvedValue({
+      model_version: 1,
       items: [{ permission: "reports.view", node_id: "frontend" }],
       pagination: meta(1, 1),
     });
