@@ -487,9 +487,29 @@ export interface paths {
         };
         /**
          * Get identity's effective permissions
-         * @description Returns the identity's effective Application-wide permission keys for the current Environment as a flat `items` array of strings, resolved across all of its role assignments. Use this to answer "what can this identity do" without replaying individual assignments. Returns `404` when the identity has no membership in this Environment.
+         * @description Returns the identity's effective permission keys for the current Environment as a flat `items` array of strings. Without `node_id`, the Application-wide answer: every permission its role assignments grant anywhere. With `node_id`, the answer at that node: the permissions granted by assignments on the node's lineage, the list a screen renders its controls from. Returns `404` when the identity has no membership in this Environment, or when `node_id` names no node in it.
          */
         get: operations["ApiIdentitiesController_getIdentityPermissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/identities/{id}/accessible-nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get where an identity may act with one permission
+         * @description Returns where the identity may act with `permission`, for a list query: `roots`, the nodes it holds the permission at that no other such node already covers, and `nodes`, every node beneath those roots, the roots included, when there are at most `max_nodes` of them (default 10,000; at most 50,000). Past the cap `nodes` is null and `complete` false, and the caller filters by `roots` against its own closure table or materialised path. `env_wide` is true when a root is the Environment's own root, so every node qualifies and no filter is needed; `nodes` is null then too. The same rules as `evaluate` decide the roots, so a list filtered by this answer agrees with the check a write makes. Returns `404` when the identity has no membership in this Environment.
+         */
+        get: operations["ApiIdentitiesController_getIdentityAccessibleNodes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -507,7 +527,7 @@ export interface paths {
         };
         /**
          * Get where an identity holds each permission
-         * @description Returns, for the current Environment, one page of `(permission, node_id)` rows: every permission the identity holds, paired with each hierarchy node its grants were made at — the nodes themselves, **not** expanded through their descendants. Rows are ordered by permission, then node; a caller building the whole map walks every page. A grant already means "this node and everything beneath it", so a caller answers a node-scoped question by walking up from the node in question and looking for one of these roots, using a copy of the parent edges fetched once from `GET /api/v1/nodes/parents` and shared across identities. Answers both scopes without a further call: the permission appearing at all is the Application-wide answer, and the walk is the node-scoped one. Scheduled assignments outside their effective window are excluded. Returns `404` when the identity has no membership in this Environment.
+         * @description Returns, for the current Environment, one page of `(permission, node_id)` rows: every permission the identity holds, paired with each hierarchy node its grants were made at — the nodes themselves, **not** expanded through their descendants. Rows are ordered by permission, then node; a caller building the whole map walks every page. A grant already means "this node and everything beneath it", so a caller answers a node-scoped question by walking up from the node in question and looking for one of these roots, using a copy of the parent edges fetched once from `GET /api/v1/nodes/parents` and shared across identities. Answers both scopes without a further call: the permission appearing at all is the Application-wide answer, and the walk is the node-scoped one. By default, assignments outside their effective window are excluded. With `include=windows`, every assignment is a row carrying `effective_from` and `effective_to` (null for an unbounded side), in effect or not, so a caller applies the window itself: it can say why a check fails (the grant has ended, or has not begun) and drop a grant at its boundary without reading again. Returns `404` when the identity has no membership in this Environment.
          */
         get: operations["ApiIdentitiesController_getIdentityGrants"];
         put?: never;
@@ -2479,6 +2499,18 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        IdentityAccessibleNodesResponseDto: {
+            /** @example reports.view */
+            permission: string;
+            /** @description True when a root is the Environment's own root, so every node qualifies and a list needs no filter. `nodes` is null then. */
+            env_wide: boolean;
+            /** @description The nodes the permission is granted at, in effect now, that no other such node already covers. Each reaches everything beneath it. */
+            roots: string[];
+            /** @description Every node beneath the roots, the roots included, for an `IN (...)` filter. Null when `env_wide`, or when there are more than `max_nodes` (then `complete` is false and the caller filters by `roots` instead). */
+            nodes: string[] | null;
+            /** @description False when the set beneath the roots was larger than `max_nodes` and was not sent. */
+            complete: boolean;
+        };
         IdentityGrantResponseDto: {
             /** @example reports.view */
             permission: string;
@@ -2487,6 +2519,16 @@ export interface components {
              * @description The hierarchy node the permission was granted at. Not expanded through descendants.
              */
             node_id: string;
+            /**
+             * Format: date-time
+             * @description When the assignment behind this root begins, or null for no start. Present only with `include=windows`.
+             */
+            effective_from?: string | null;
+            /**
+             * Format: date-time
+             * @description When the assignment behind this root ends, or null for no end. Present only with `include=windows`.
+             */
+            effective_to?: string | null;
         };
         IdentityInviteResponseDto: {
             id: string;
@@ -8099,7 +8141,10 @@ export interface operations {
     };
     ApiIdentitiesController_getIdentityPermissions: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Answer at this node: the permissions granted by assignments on its lineage. Omit for the Application-wide answer. */
+                node_id?: string;
+            };
             header?: never;
             path: {
                 id: string;
@@ -8205,6 +8250,119 @@ export interface operations {
             };
         };
     };
+    ApiIdentitiesController_getIdentityAccessibleNodes: {
+        parameters: {
+            query: {
+                /** @description The permission to answer for, by key. */
+                permission: string;
+                /** @description The largest `nodes` set to return. Past it, `nodes` is null and `complete` false. */
+                max_nodes?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The minimal grant roots for the permission, and the nodes beneath them up to the cap */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["IdentityAccessibleNodesResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/accessible-nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No identity with that id has a membership in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No identity with that id has a membership in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/accessible-nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
     ApiIdentitiesController_getIdentityGrants: {
         parameters: {
             query?: {
@@ -8212,6 +8370,8 @@ export interface operations {
                 page?: number;
                 /** @description Items per page (1-100, default 20) */
                 take?: number;
+                /** @description `windows` adds `effective_from` and `effective_to` to every row and includes assignments outside their window, so the caller applies the window itself. */
+                include?: "windows";
             };
             header?: never;
             path: {

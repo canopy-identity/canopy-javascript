@@ -18,6 +18,7 @@ Nodes model the customer's structure (regions, departments, sites). Each resourc
 - A role granted at a parent is inherited below it; there is nothing to model.
 - A missing node is a denial, never a fallback to `app_wide`.
 - Moving a node changes what inherited grants reach. The SDK revalidates the hierarchy on the same cadence as grants (60 seconds by default).
+- A list of resources is filtered by the nodes the identity may see, not by a check per row: `authorizer.accessibleNodes(identityId, permission)` for `WHERE node_id IN (...)`, or `authorizer.grantRoots(...)` against a closure table or materialised path when the tree is large. An `envWide` answer needs no filter.
 
 ## Organizations
 

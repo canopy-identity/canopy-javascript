@@ -12,10 +12,12 @@ import { CanopyError, isCanopyAuthorizerError } from "./errors.js";
  *
  * Canopy publishes the vectors at `/conformance/authorization.json` and its
  * own suite replays them against the API end to end: the tree, each
- * identity's grant roots, and every `evaluate` answer. This replays the same
+ * identity's grant roots with their windows, the accessible sets, the
+ * permissions at a node, and every `evaluate` answer. This replays the same
  * file from the other side. The authorizer is handed exactly what the vector
- * says the API serves (the grant roots, the parent edges) and must reach the
- * `allowed` the API reaches. `npm run generate` refreshes the file;
+ * says the API serves (the windowed grant roots, the parent edges) and must
+ * reach the same `allowed`, the local reason, the same sets and the same
+ * per-node permissions. `npm run generate` refreshes the file;
  * `generate:check` fails when Canopy has published new rules.
  */
 
@@ -23,12 +25,34 @@ interface Vector {
   name: string;
   tree: Array<{ id: string; parent: string | null }>;
   grants: Record<string, Array<{ permission: string; node: string }> | null>;
+  grant_windows: Record<
+    string,
+    Array<{
+      permission: string;
+      node: string;
+      from_days?: number;
+      to_days?: number;
+    }> | null
+  >;
+  accessible: Array<{
+    identity: string;
+    permission: string;
+    env_wide: boolean;
+    roots: string[];
+    nodes: string[] | null;
+  }>;
+  permissions_at: Array<{
+    identity: string;
+    node: string;
+    permissions: string[];
+  }>;
   checks: Array<{
     identity: string;
     permission: string;
     scope: "node" | "app_wide";
     node?: string;
     allowed: boolean;
+    sdk_reason: string | null;
   }>;
 }
 
@@ -38,6 +62,13 @@ const CONFORMANCE = JSON.parse(
     "utf-8",
   ),
 ) as { model_version: number; vectors: Vector[] };
+
+/** The replay's clock: the vectors write their windows in days from it. */
+const NOW = 1_700_000_000_000;
+const DAY = 24 * 60 * 60 * 1000;
+
+const at = (days: number | undefined): string | null =>
+  days === undefined ? null : new Date(NOW + days * DAY).toISOString();
 
 const page = <T>(items: T[]) => ({
   model_version: CONFORMANCE.model_version,
@@ -58,7 +89,7 @@ function authorizerFor(vector: Vector): LocalAuthorizer {
     const identity = decodeURIComponent(
       /\/identities\/([^/]+)\/grants$/.exec(path)?.[1] ?? "",
     );
-    const roots = vector.grants[identity];
+    const roots = vector.grant_windows[identity];
 
     if (roots === null || roots === undefined) {
       return Promise.reject(
@@ -78,6 +109,8 @@ function authorizerFor(vector: Vector): LocalAuthorizer {
         roots.map((root) => ({
           permission: root.permission,
           node_id: root.node,
+          effective_from: at(root.from_days),
+          effective_to: at(root.to_days),
         })),
       ),
     );
@@ -91,37 +124,39 @@ function authorizerFor(vector: Vector): LocalAuthorizer {
     ),
   });
 
-  return new LocalAuthorizer({
-    request,
-    requestConditional,
-  } as unknown as CanopyClient);
+  return new LocalAuthorizer(
+    { request, requestConditional } as unknown as CanopyClient,
+    { now: () => NOW },
+  );
 }
 
 /**
  * What a guard does with the answer: an identity Canopy does not know is a
- * deny, which is how `@canopy-io/nestjs` treats `identity.not_found`.
+ * deny, which is how `@canopy-io/nestjs` treats `identity.not_found`. The
+ * vector names that case `identity_unknown`.
  */
-async function allowed(
+async function decide(
   authorizer: LocalAuthorizer,
   check: Vector["checks"][number],
-): Promise<boolean> {
+): Promise<{ allowed: boolean; reason: string | null }> {
   try {
-    const answer = await authorizer.evaluate({
+    return await authorizer.evaluate({
       identity_id: check.identity,
       permission: check.permission,
       scope: check.scope,
       ...(check.node ? { node_id: check.node } : {}),
     });
-
-    return answer.allowed;
   } catch (error) {
     if (error instanceof CanopyError && error.code === "identity.not_found") {
-      return false;
+      return { allowed: false, reason: "identity_unknown" };
     }
 
     throw error;
   }
 }
+
+const sorted = (values: string[] | null) =>
+  values === null ? null : [...values].sort();
 
 describe("LocalAuthorizer — Canopy's conformance vectors", () => {
   it("replays the model version this package understands", () => {
@@ -137,8 +172,51 @@ describe("LocalAuthorizer — Canopy's conformance vectors", () => {
           `${check.identity} ${check.permission} ${check.scope}${check.node ? ` at ${check.node}` : ""}`,
           check,
         ]),
-      )("%s", async (_label, check) => {
-        expect(await allowed(authorizerFor(vector), check)).toBe(check.allowed);
+      )("decides %s", async (_label, check) => {
+        expect(await decide(authorizerFor(vector), check)).toEqual({
+          allowed: check.allowed,
+          reason: check.sdk_reason,
+        });
+      });
+
+      it.each(
+        vector.accessible.map((entry) => [
+          `${entry.identity} ${entry.permission}`,
+          entry,
+        ]),
+      )("answers where %s may act", async (_label, entry) => {
+        const authorizer = authorizerFor(vector);
+        const roots = await authorizer.grantRoots(
+          entry.identity,
+          entry.permission,
+        );
+        const set = await authorizer.accessibleNodes(
+          entry.identity,
+          entry.permission,
+        );
+
+        expect({
+          roots: sorted(roots.roots),
+          envWide: roots.envWide,
+          nodes: set.nodes === null ? null : sorted([...set.nodes]),
+          complete: set.complete,
+        }).toEqual({
+          roots: sorted(entry.roots),
+          envWide: entry.env_wide,
+          nodes: sorted(entry.nodes),
+          complete: true,
+        });
+      });
+
+      it.each(
+        vector.permissions_at.map((entry) => [
+          `${entry.identity} at ${entry.node}`,
+          entry,
+        ]),
+      )("lists what %s holds", async (_label, entry) => {
+        expect(
+          await authorizerFor(vector).permissionsAt(entry.identity, entry.node),
+        ).toEqual(sorted(entry.permissions));
       });
     },
   );

@@ -19,13 +19,15 @@ import type { ResponseBody } from "./schema.js";
  *
  * So two things are cached, split by what they depend on:
  *
- *   - grant roots, per identity — small, a handful of assignments
+ *   - grant roots, per identity — small, a handful of assignments, each with
+ *     the window it is in effect for
  *   - the hierarchy, once per process — shared, since its shape does not
  *     depend on who is asking
  *
  * and a check becomes a walk up from the node in question looking for a grant
- * root. Both are held for at most `ttlMs`, which is therefore the delay
- * between an access change and it taking effect.
+ * root in effect. Both are held for at most `ttlMs`, which is therefore the
+ * delay between an access change and it taking effect; a grant whose window
+ * opens or closes sooner than that is re-read at the boundary.
  */
 
 const DEFAULT_TTL_MS = 60_000;
@@ -36,6 +38,13 @@ const DEFAULT_TTL_MS = 60_000;
  * delay is short, so a longer value is refused rather than honoured.
  */
 export const MAX_TTL_MS = 300_000;
+
+/**
+ * The largest node set `accessibleNodes` builds unless told otherwise. Past
+ * it the answer carries the roots alone, and the caller filters against its
+ * own closure table or materialised path instead of an `IN (...)` list.
+ */
+export const DEFAULT_MAX_NODES = 10_000;
 
 /**
  * A tree deep enough to hit this is malformed. The server bounds depth with
@@ -64,6 +73,41 @@ const MAX_PAGES = 10_000;
  * kept anyway, without a validator, so the next refresh reads it in full.
  */
 const MAX_TREE_WALKS = 3;
+
+/**
+ * Why a check was denied, as far as the grant roots and the tree can say.
+ *
+ * - `permission_not_held`: no assignment grants the permission anywhere, in
+ *   effect or not.
+ * - `outside_grants`: it is granted, but at no node on the lineage of the
+ *   node asked about.
+ * - `expired`: a grant that would answer has ended, and none is in effect.
+ * - `not_yet_effective`: a grant that would answer has not begun, and none
+ *   is in effect.
+ * - `node_missing`: a `node` check named no node, which is a denial rather
+ *   than an error, because a request whose subject cannot be established
+ *   must not pass.
+ */
+export type LocalDenialReason =
+  | "permission_not_held"
+  | "outside_grants"
+  | "expired"
+  | "not_yet_effective"
+  | "node_missing";
+
+/** The answer to a check: the verdict, and why when it is no. */
+export interface LocalDecision {
+  allowed: boolean;
+  reason: LocalDenialReason | null;
+}
+
+/** What a decision hook receives, after the verdict is in. */
+export interface LocalDecisionEvent {
+  query: LocalAuthorizationQuery;
+  decision: LocalDecision;
+  /** How long the check took, reads included. */
+  durationMs: number;
+}
 
 export interface LocalAuthorizerOptions {
   /**
@@ -100,6 +144,22 @@ export interface LocalAuthorizerOptions {
   /** Retries for those reads. */
   maxRetries?: number;
 
+  /**
+   * The largest node set {@link LocalAuthorizer.accessibleNodes} builds
+   * unless a call says otherwise. Defaults to {@link DEFAULT_MAX_NODES}.
+   */
+  maxNodes?: number;
+
+  /**
+   * Called after every decision, allowed or not, with the question and the
+   * answer. Never awaited and never allowed to fail the check: a hook that
+   * throws is ignored. For audit trails and metrics.
+   */
+  onDecision?: (event: LocalDecisionEvent) => void;
+
+  /** Called after every denial, the same way. For alerting on refusals. */
+  onDenied?: (event: LocalDecisionEvent) => void;
+
   /** Injectable clock, for tests. */
   now?: () => number;
 }
@@ -110,6 +170,27 @@ export interface LocalAuthorizationQuery {
   /** Defaults to `node`, which is the strict question. */
   scope?: "node" | "app_wide";
   node_id?: string;
+}
+
+/** Where an identity may act with one permission, shaped for a list query. */
+export interface AccessibleNodes {
+  /**
+   * The nodes the permission is granted at, in effect now, that no other
+   * such node already covers. Each reaches everything beneath it.
+   */
+  roots: string[];
+  /**
+   * Every node beneath the roots, the roots included, for an `IN (...)`
+   * filter. Null when `envWide`, or when the set would exceed the cap.
+   */
+  nodes: Set<string> | null;
+  /** False when the set exceeded the cap and `nodes` was not built. */
+  complete: boolean;
+  /**
+   * True when a root is the Environment's own root: every node qualifies, so
+   * a list needs no filter at all.
+   */
+  envWide: boolean;
 }
 
 export interface LocalAuthorizerStats {
@@ -129,20 +210,32 @@ export interface LocalAuthorizerStats {
   treeNotModified: number;
 }
 
+/** One grant root with the window it is in effect for, as epoch milliseconds. */
+interface GrantWindow {
+  node: string;
+  from: number | null;
+  to: number | null;
+}
+
+/** Permission → every root it was granted at, in effect or not. */
+type GrantRoots = Map<string, GrantWindow[]>;
+
 interface GrantEntry {
-  roots: Map<string, Set<string>>;
+  roots: GrantRoots;
   expiresAt: number;
 }
 
 interface TreeEntry {
   parents: Map<string, string | null>;
+  /** Node → its children, for expanding a root through its descendants. */
+  children: Map<string, string[]>;
   etag: string | null;
   expiresAt: number;
 }
 
 /**
  * One page of grant roots, read off the generated operation rather than
- * restated here: one row per permission and node it was granted at.
+ * restated here: one row per permission, node and assignment window.
  *
  * Load-bearing beyond tidiness: typing this through the spec is what stops the
  * package building against a Canopy that does not serve the endpoint. A
@@ -198,11 +291,33 @@ const GRANTS_PATH = (identityId: string): string =>
 
 const PARENTS_PATH = "/api/v1/nodes/parents";
 
+/** Whether a grant window is in effect at `now`. */
+function inEffect(window: GrantWindow, now: number): boolean {
+  return (
+    (window.from === null || window.from <= now) &&
+    (window.to === null || window.to > now)
+  );
+}
+
+/** The denial a set of windows that could answer, none in effect, explains. */
+function reasonAmong(
+  windows: GrantWindow[],
+  now: number,
+): "expired" | "not_yet_effective" {
+  return windows.some((window) => window.to !== null && window.to <= now)
+    ? "expired"
+    : "not_yet_effective";
+}
+
 export class LocalAuthorizer {
   private readonly client: CanopyClient;
   private readonly ttlMs: number;
+  private readonly maxNodes: number;
   private readonly now: () => number;
   private readonly readOptions: RequestOptions;
+  private readonly onDecision:
+    ((event: LocalDecisionEvent) => void) | undefined;
+  private readonly onDenied: ((event: LocalDecisionEvent) => void) | undefined;
 
   private readonly grants = new Map<string, GrantEntry>();
   private tree: TreeEntry | undefined;
@@ -215,11 +330,8 @@ export class LocalAuthorizer {
    * is the per-request traffic this class exists to remove, concentrated into
    * the worst possible moment.
    */
-  private readonly pendingGrants = new Map<
-    string,
-    Promise<Map<string, Set<string>>>
-  >();
-  private pendingTree: Promise<Map<string, string | null>> | undefined;
+  private readonly pendingGrants = new Map<string, Promise<GrantRoots>>();
+  private pendingTree: Promise<TreeEntry> | undefined;
 
   private stats: LocalAuthorizerStats = {
     grantFetches: 0,
@@ -243,7 +355,18 @@ export class LocalAuthorizer {
           "It is how long a revoked user keeps access, so it is capped.",
       );
     }
+
+    this.maxNodes = options.maxNodes ?? DEFAULT_MAX_NODES;
+
+    if (!Number.isInteger(this.maxNodes) || this.maxNodes < 1) {
+      throw new RangeError(
+        `maxNodes must be a positive integer; got ${String(this.maxNodes)}.`,
+      );
+    }
+
     this.now = options.now ?? (() => Date.now());
+    this.onDecision = options.onDecision;
+    this.onDenied = options.onDenied;
 
     this.readOptions = {
       ...(options.timeoutMs === undefined
@@ -256,7 +379,7 @@ export class LocalAuthorizer {
   }
 
   /**
-   * Whether the identity holds the permission.
+   * Whether the identity holds the permission, and why not when it does not.
    *
    * Shaped like the API's own evaluate so a caller can swap one for the other.
    * A `node` check with no node is a denial rather than an error: a request
@@ -265,9 +388,20 @@ export class LocalAuthorizer {
   async evaluate(
     query: LocalAuthorizationQuery,
     options: { signal?: AbortSignal } = {},
-  ): Promise<{ allowed: boolean }> {
+  ): Promise<LocalDecision> {
+    const started = this.now();
+    const decided = (decision: LocalDecision): LocalDecision => {
+      this.announce({
+        query,
+        decision,
+        durationMs: Math.max(0, this.now() - started),
+      });
+
+      return decision;
+    };
+
     if (!options.signal) {
-      return this.decide(query);
+      return decided(await this.decide(query));
     }
 
     // Raced rather than passed down. A read in flight may be shared with other
@@ -305,32 +439,217 @@ export class LocalAuthorizer {
     // need cleaning up; the common one — the decision winning — would otherwise
     // leave a listener attached for the life of the signal. Harmless for a
     // per-request controller, a leak for any longer-lived one a caller passes.
-    return Promise.race([this.decide(query), aborted]).finally(() => {
-      if (onAbort) {
-        signal.removeEventListener("abort", onAbort);
-      }
-    });
+    return Promise.race([this.decide(query), aborted])
+      .then(decided)
+      .finally(() => {
+        if (onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
+      });
   }
 
-  private async decide(
-    query: LocalAuthorizationQuery,
-  ): Promise<{ allowed: boolean }> {
-    const roots = await this.grantRootsFor(query.identity_id);
-    const granted = roots.get(query.permission);
+  /**
+   * The nodes the identity holds the permission at, in effect now, reduced to
+   * the ones no other such node already covers, and whether one of them is
+   * the Environment's root. The roots alone are enough for an application
+   * that keeps a closure table or a materialised path: it filters by "beneath
+   * one of these" without an expanded set.
+   *
+   * Reads the tree, since minimality and `envWide` are questions about it; a
+   * root the readable hierarchy does not contain raises
+   * `authorizer.hierarchy_incomplete`, as a check at such a node does.
+   */
+  async grantRoots(
+    identityId: string,
+    permission: string,
+  ): Promise<{ roots: string[]; envWide: boolean }> {
+    const now = this.now();
+    const held = (await this.grantRootsFor(identityId)).get(permission) ?? [];
+    const granted = new Set(
+      held.filter((window) => inEffect(window, now)).map((w) => w.node),
+    );
 
-    if (!granted || granted.size === 0) {
-      return { allowed: false };
+    if (granted.size === 0) {
+      return { roots: [], envWide: false };
+    }
+
+    const { parents } = await this.treeEntry();
+    const roots: string[] = [];
+    let envWide = false;
+
+    for (const node of granted) {
+      if (!parents.has(node)) {
+        throw this.hierarchyIncomplete(node);
+      }
+
+      if (parents.get(node) === null) {
+        envWide = true;
+      }
+
+      let covered = false;
+      let depth = 0;
+
+      for (
+        let current = parents.get(node);
+        current && depth < MAX_WALK_DEPTH;
+        current = parents.get(current), depth += 1
+      ) {
+        if (granted.has(current)) {
+          covered = true;
+
+          break;
+        }
+      }
+
+      if (!covered) {
+        roots.push(node);
+      }
+    }
+
+    return { roots, envWide };
+  }
+
+  /**
+   * Where the identity may act with the permission, as the set a list query
+   * filters by: {@link grantRoots} expanded through their descendants, up to
+   * `maxNodes` (the authorizer's default unless given here).
+   *
+   * Past the cap `nodes` is null and `complete` false: the set is too large
+   * to be worth an `IN (...)` list, and the caller filters by `roots`
+   * instead. An `envWide` answer carries no set either, since every node
+   * qualifies and a filter would only slow the query down.
+   *
+   * Computed from the same cached grant roots and tree a check uses, so a
+   * list filtered by it and the check on a write cannot disagree, and it goes
+   * stale on the same `ttlMs`.
+   */
+  async accessibleNodes(
+    identityId: string,
+    permission: string,
+    options: { maxNodes?: number } = {},
+  ): Promise<AccessibleNodes> {
+    const cap = options.maxNodes ?? this.maxNodes;
+    const { roots, envWide } = await this.grantRoots(identityId, permission);
+
+    if (envWide) {
+      return { roots, envWide: true, nodes: null, complete: true };
+    }
+
+    if (roots.length === 0) {
+      return { roots, envWide: false, nodes: new Set(), complete: true };
+    }
+
+    const { children } = await this.treeEntry();
+    const nodes = new Set<string>();
+    const pending = [...roots];
+
+    while (pending.length > 0) {
+      const node = pending.pop() as string;
+
+      if (nodes.has(node)) {
+        continue;
+      }
+
+      nodes.add(node);
+
+      if (nodes.size > cap) {
+        return { roots, envWide: false, nodes: null, complete: false };
+      }
+
+      for (const child of children.get(node) ?? []) {
+        pending.push(child);
+      }
+    }
+
+    return { roots, envWide: false, nodes, complete: true };
+  }
+
+  /**
+   * Every permission the identity holds at the node, by grant or by
+   * inheritance: the list a screen renders its controls from, answered from
+   * the same cached grant roots and tree a check uses.
+   */
+  async permissionsAt(identityId: string, nodeId: string): Promise<string[]> {
+    const answers = await this.permissionsAtMany(identityId, [nodeId]);
+
+    return answers.get(nodeId) ?? [];
+  }
+
+  /**
+   * {@link permissionsAt} for several nodes at once, as node → permissions:
+   * the rows of a list each with their own controls, answered from one read
+   * of the grant roots and one walk per node.
+   */
+  async permissionsAtMany(
+    identityId: string,
+    nodeIds: readonly string[],
+  ): Promise<Map<string, string[]>> {
+    const now = this.now();
+    const roots = await this.grantRootsFor(identityId);
+    const answers = new Map<string, string[]>();
+
+    for (const nodeId of new Set(nodeIds)) {
+      const path = await this.lineageOf(nodeId);
+      const held: string[] = [];
+
+      for (const [permission, windows] of roots) {
+        if (
+          windows.some(
+            (window) => path.has(window.node) && inEffect(window, now),
+          )
+        ) {
+          held.push(permission);
+        }
+      }
+
+      answers.set(nodeId, held.sort());
+    }
+
+    return answers;
+  }
+
+  private async decide(query: LocalAuthorizationQuery): Promise<LocalDecision> {
+    const now = this.now();
+    const held = (await this.grantRootsFor(query.identity_id)).get(
+      query.permission,
+    );
+
+    if (!held || held.length === 0) {
+      return { allowed: false, reason: "permission_not_held" };
     }
 
     if ((query.scope ?? "node") === "app_wide") {
-      return { allowed: true };
+      return held.some((window) => inEffect(window, now))
+        ? { allowed: true, reason: null }
+        : { allowed: false, reason: reasonAmong(held, now) };
     }
 
     if (!query.node_id) {
-      return { allowed: false };
+      return { allowed: false, reason: "node_missing" };
     }
 
-    return { allowed: await this.holdsAtNode(granted, query.node_id) };
+    // A grant in effect at the node itself needs no tree at all, which also
+    // means an unreachable hierarchy cannot deny a direct grant.
+    if (
+      held.some(
+        (window) => window.node === query.node_id && inEffect(window, now),
+      )
+    ) {
+      return { allowed: true, reason: null };
+    }
+
+    const path = await this.lineageOf(query.node_id);
+    const reachable = held.filter((window) => path.has(window.node));
+
+    if (reachable.some((window) => inEffect(window, now))) {
+      return { allowed: true, reason: null };
+    }
+
+    if (reachable.length === 0) {
+      return { allowed: false, reason: "outside_grants" };
+    }
+
+    return { allowed: false, reason: reasonAmong(reachable, now) };
   }
 
   /** Counters for observability — how much traffic the cache is actually saving. */
@@ -371,55 +690,65 @@ export class LocalAuthorizer {
     this.tree = undefined;
   }
 
-  /** Climb from `nodeId` and look for a grant root among its ancestors. */
-  private async holdsAtNode(
-    granted: Set<string>,
-    nodeId: string,
-  ): Promise<boolean> {
-    // Checked before walking, so a grant at the node itself needs no tree at
-    // all — which also means an unreachable hierarchy cannot deny a direct
-    // grant that was already resolved.
-    if (granted.has(nodeId)) {
-      return true;
-    }
+  /** Fire the decision hooks, after the verdict and without waiting on them. */
+  private announce(event: LocalDecisionEvent): void {
+    for (const hook of [
+      this.onDecision,
+      event.decision.allowed ? undefined : this.onDenied,
+    ]) {
+      if (!hook) {
+        continue;
+      }
 
-    const parents = await this.parents();
+      try {
+        hook(event);
+      } catch {
+        // A hook is observation. Its failure must not become a denial, an
+        // allow, or an error the caller sees.
+      }
+    }
+  }
+
+  /** The node and its ancestors, from the tree this client can read. */
+  private async lineageOf(nodeId: string): Promise<Set<string>> {
+    const { parents } = await this.treeEntry();
 
     // The hierarchy we hold has to actually contain the node being asked
     // about. `GET /api/v1/nodes/parents` answers the hierarchy scoped to the
     // caller, and a credential that cannot read it gets an empty one — with a
     // `200`, so nothing looks wrong. Walking off the end of that map would
-    // return `false`, which reads as "this identity lacks the permission
-    // here" when the truth is that we cannot see far enough to say.
+    // answer as if the node had no ancestors, which reads as "this identity
+    // lacks the permission here" when the truth is that we cannot see far
+    // enough to say.
     //
     // Denying would be a silent, total false-deny on every node-scoped route.
     // Undecidable is not denied, so this is raised rather than answered.
     if (!parents.has(nodeId)) {
-      throw new CanopyAuthorizerError(
-        "authorizer.hierarchy_incomplete",
-        `The hierarchy this client can read does not contain node "${nodeId}", so authorization at that node cannot be decided. ` +
-          "A scoped API key needs the `hierarchy.view` scope to read the tree.",
-      );
+      throw this.hierarchyIncomplete(nodeId);
     }
 
+    const path = new Set<string>([nodeId]);
     let current = parents.get(nodeId);
     let depth = 0;
 
     while (current && depth < MAX_WALK_DEPTH) {
-      if (granted.has(current)) {
-        return true;
-      }
-
+      path.add(current);
       current = parents.get(current);
       depth += 1;
     }
 
-    return false;
+    return path;
   }
 
-  private async grantRootsFor(
-    identityId: string,
-  ): Promise<Map<string, Set<string>>> {
+  private hierarchyIncomplete(nodeId: string): CanopyAuthorizerError {
+    return new CanopyAuthorizerError(
+      "authorizer.hierarchy_incomplete",
+      `The hierarchy this client can read does not contain node "${nodeId}", so authorization at that node cannot be decided. ` +
+        "A scoped API key needs the `hierarchy.view` scope to read the tree.",
+    );
+  }
+
+  private async grantRootsFor(identityId: string): Promise<GrantRoots> {
     const cached = this.grants.get(identityId);
 
     if (cached && cached.expiresAt > this.now()) {
@@ -442,16 +771,21 @@ export class LocalAuthorizer {
   }
 
   /**
-   * Every page of the identity's grant roots, folded into permission → nodes.
+   * Every page of the identity's grant roots, with their windows, folded
+   * into permission → roots.
    *
-   * Each row is one permission at one node, so a permission granted at three
-   * nodes arrives as three rows, possibly on different pages. Stopping after
-   * the first page would under-report what the identity holds: a false deny,
-   * the safe direction, but a wrong answer all the same.
+   * Each row is one permission at one node for one assignment, so a
+   * permission granted at three nodes arrives as three rows, possibly on
+   * different pages. Stopping after the first page would under-report what
+   * the identity holds: a false deny, the safe direction, but a wrong answer
+   * all the same.
+   *
+   * Rows outside their window are kept: they are what lets a denial say
+   * `expired` or `not_yet_effective`, and the entry expires at the nearest
+   * window boundary when that comes before the TTL, so a grant takes effect
+   * or ends on time rather than up to `ttlMs` late.
    */
-  private async fetchGrantRoots(
-    identityId: string,
-  ): Promise<Map<string, Set<string>>> {
+  private async fetchGrantRoots(identityId: string): Promise<GrantRoots> {
     this.stats.grantFetches += 1;
 
     const path = GRANTS_PATH(identityId);
@@ -462,7 +796,7 @@ export class LocalAuthorizer {
         return this.client
           .request<GrantPage>("GET", path, {
             ...this.readOptions,
-            query,
+            query: { ...query, include: "windows" },
           })
           .then((page) => understood(page, path));
       },
@@ -470,29 +804,43 @@ export class LocalAuthorizer {
       { maxPages: MAX_PAGES },
     );
 
-    const roots = new Map<string, Set<string>>();
+    const roots: GrantRoots = new Map();
+    const now = this.now();
+    let boundary = Number.POSITIVE_INFINITY;
 
     for await (const row of rows) {
-      const nodes = roots.get(row.permission);
+      const window: GrantWindow = {
+        node: row.node_id,
+        from: row.effective_from ? Date.parse(row.effective_from) : null,
+        to: row.effective_to ? Date.parse(row.effective_to) : null,
+      };
 
-      if (nodes) {
-        nodes.add(row.node_id);
+      for (const edge of [window.from, window.to]) {
+        if (edge !== null && edge > now && edge < boundary) {
+          boundary = edge;
+        }
+      }
+
+      const windows = roots.get(row.permission);
+
+      if (windows) {
+        windows.push(window);
       } else {
-        roots.set(row.permission, new Set([row.node_id]));
+        roots.set(row.permission, [window]);
       }
     }
 
     this.grants.set(identityId, {
       roots,
-      expiresAt: this.now() + this.ttlMs,
+      expiresAt: Math.min(now + this.ttlMs, boundary),
     });
 
     return roots;
   }
 
-  private async parents(): Promise<Map<string, string | null>> {
+  private async treeEntry(): Promise<TreeEntry> {
     if (this.tree && this.tree.expiresAt > this.now()) {
-      return this.tree.parents;
+      return this.tree;
     }
 
     if (this.pendingTree) {
@@ -526,7 +874,7 @@ export class LocalAuthorizer {
    * were read. A `200` is a fresh first page, and the walk starts again from
    * it, up to {@link MAX_TREE_WALKS} times.
    */
-  private async fetchTree(): Promise<Map<string, string | null>> {
+  private async fetchTree(): Promise<TreeEntry> {
     this.stats.treeRequests += 1;
 
     const held = this.tree;
@@ -538,7 +886,7 @@ export class LocalAuthorizer {
         this.stats.treeNotModified += 1;
         this.tree = { ...held, expiresAt: this.now() + this.ttlMs };
 
-        return held.parents;
+        return this.tree;
       }
 
       // A `304` to a request that carried no validator has nothing to keep.
@@ -625,10 +973,7 @@ export class LocalAuthorizer {
     return edges;
   }
 
-  private keepTree(
-    edges: ParentEdge[],
-    etag: string | null,
-  ): Map<string, string | null> {
+  private keepTree(edges: ParentEdge[], etag: string | null): TreeEntry {
     // One string per node. A parsed response holds each id twice, once as
     // its own node's `id` and again, as a separate copy, in every child's
     // `parent_node_id`; storing those copies doubled the cache. So the
@@ -642,23 +987,35 @@ export class LocalAuthorizer {
     }
 
     const parents = new Map<string, string | null>();
+    const children = new Map<string, string[]>();
 
     for (const edge of edges) {
-      const parent = edge.parent_node_id ?? null;
+      const parent =
+        edge.parent_node_id === null || edge.parent_node_id === undefined
+          ? null
+          : (ids.get(edge.parent_node_id) ?? edge.parent_node_id);
 
-      parents.set(
-        edge.id,
-        parent === null ? null : (ids.get(parent) ?? parent),
-      );
+      parents.set(edge.id, parent);
+
+      if (parent !== null) {
+        const siblings = children.get(parent);
+
+        if (siblings) {
+          siblings.push(edge.id);
+        } else {
+          children.set(parent, [edge.id]);
+        }
+      }
     }
 
     this.tree = {
       parents,
+      children,
       etag,
       expiresAt: this.now() + this.ttlMs,
     };
 
-    return parents;
+    return this.tree;
   }
 }
 
