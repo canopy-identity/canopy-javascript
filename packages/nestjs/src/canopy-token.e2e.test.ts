@@ -83,6 +83,21 @@ let allowed = true;
 /** Which subject the authorization call was asked about. */
 let evaluatedIdentity: string | undefined;
 
+/** A whole collection as the single page the API answers it in. */
+function onePage<T>(items: T[]) {
+  return {
+    items,
+    pagination: {
+      page: 1,
+      take: 100,
+      item_count: items.length,
+      page_count: 1,
+      has_previous_page: false,
+      has_next_page: false,
+    },
+  };
+}
+
 /** Serves the JWKS, the identity's grant roots, and the hierarchy, by URL. */
 const fakeFetch = ((url: string | URL | Request) => {
   const href =
@@ -100,7 +115,7 @@ const fakeFetch = ((url: string | URL | Request) => {
   if (href.includes("/nodes")) {
     return Promise.resolve(
       new Response(
-        JSON.stringify({ items: [{ id: "nod_1", parent_node_id: null }] }),
+        JSON.stringify(onePage([{ id: "nod_1", parent_node_id: null }])),
         {
           status: 200,
           headers: { "content-type": "application/json" },
@@ -116,11 +131,11 @@ const fakeFetch = ((url: string | URL | Request) => {
 
   return Promise.resolve(
     new Response(
-      JSON.stringify({
-        items: allowed
-          ? [{ permission: "reports.view", nodes: ["nod_1"] }]
-          : [],
-      }),
+      JSON.stringify(
+        onePage(
+          allowed ? [{ permission: "reports.view", node_id: "nod_1" }] : [],
+        ),
+      ),
       { status: 200, headers: { "content-type": "application/json" } },
     ),
   );

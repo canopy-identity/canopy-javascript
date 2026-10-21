@@ -230,7 +230,7 @@ So two things are held, split by what they depend on:
 
 and a check is a walk up from the node in question looking for a grant root. An `app_wide` check is simpler still: the permission appearing at all is the answer, and no hierarchy is needed.
 
-**Both are held for at most 60 seconds**, which is therefore the delay between an access change and it taking effect. `authorizationTtlMs` changes it, up to five minutes (`300_000`); a longer value throws at startup. The hierarchy is revalidated rather than re-read — a conditional request that normally answers `304`, so nothing transfers.
+**Both are held for at most 60 seconds**, which is therefore the delay between an access change and it taking effect. `authorizationTtlMs` changes it, up to five minutes (`300_000`); a longer value throws at startup. The hierarchy is revalidated rather than re-read — a conditional request for its first page that normally answers `304`, so nothing transfers. Both reads are paged and read in full, 100 rows to a page; when the hierarchy has changed, every page of it is read again (see [`LocalAuthorizer`](../node#authorizing-without-a-call-per-request) for how a rebuild over several pages is kept consistent).
 
 ```ts
 CanopyModule.forRoot({
@@ -250,7 +250,7 @@ of the permissions the guard reads with, because a scoped key is granted
 exactly the permission keys listed on it:
 
 - **`identity.view`** — to read an identity's grant roots.
-- **`hierarchy.view`** — to read the hierarchy the walk runs against, taken as parent edges (`GET /api/v1/nodes/parents`) rather than the dashboard's tree.
+- **`hierarchy.view`** — to read the hierarchy the walk runs against, taken as parent edges (`GET /api/v1/nodes/parents`, every page) rather than the dashboard's node list.
 
 Miss the first and every guarded route answers `500` naming the failed read.
 Miss the second and the tree comes back **empty with a `200`** — the API is

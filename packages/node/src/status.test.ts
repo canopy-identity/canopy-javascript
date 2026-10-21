@@ -72,6 +72,14 @@ describe("authorizationErrorStatus", () => {
     ).toBe(403);
   });
 
+  /**
+   * A read Canopy refused as malformed, such as a page size above the 100 it
+   * serves, is a bug in the reader that no retry fixes, not an outage.
+   */
+  it("answers 500 when Canopy refuses the read as malformed", () => {
+    expect(authorizationErrorStatus(canopyError(400)).status).toBe(500);
+  });
+
   it("answers 503 when Canopy is rate limiting or failing", () => {
     expect(authorizationErrorStatus(canopyError(429)).status).toBe(503);
     expect(authorizationErrorStatus(canopyError(502)).status).toBe(503);

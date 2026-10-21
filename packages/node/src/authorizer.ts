@@ -1,5 +1,10 @@
-import type { CanopyClient, RequestOptions } from "./client.js";
+import type {
+  CanopyClient,
+  ConditionalResult,
+  RequestOptions,
+} from "./client.js";
 import { CanopyAuthorizerError } from "./errors.js";
+import { paginate, type PageParams } from "./pagination.js";
 import type { ResponseBody } from "./schema.js";
 
 /**
@@ -38,6 +43,27 @@ export const MAX_TTL_MS = 300_000;
  * not loop forever if that assumption ever fails.
  */
 const MAX_WALK_DEPTH = 256;
+
+/**
+ * The page size every read here asks for: the largest the API serves, so a
+ * walk makes the fewest calls it can.
+ */
+const PAGE_SIZE = 100;
+
+/**
+ * Pages a single read may take before it stops: a million rows at
+ * {@link PAGE_SIZE}. Far past any real hierarchy; it exists so a server that
+ * keeps promising another page cannot hold a read open forever.
+ */
+const MAX_PAGES = 10_000;
+
+/**
+ * Walks of the hierarchy a refresh may make while the hierarchy keeps
+ * changing under it. A walk over several pages is confirmed afterwards (see
+ * `fetchTree`); a walk that cannot be confirmed this many times running is
+ * kept anyway, without a validator, so the next refresh reads it in full.
+ */
+const MAX_TREE_WALKS = 3;
 
 export interface LocalAuthorizerOptions {
   /**
@@ -87,10 +113,18 @@ export interface LocalAuthorizationQuery {
 }
 
 export interface LocalAuthorizerStats {
-  /** Calls made to read an identity's grant roots. */
+  /** Reads of an identity's grant roots, one per refresh however many pages it took. */
   grantFetches: number;
-  /** Calls made to read the hierarchy, including revalidations. */
+  /** Page requests those reads made: at least one per read, one more per further 100 grants. */
+  grantPages: number;
+  /** Reads of the hierarchy, one per refresh, including revalidations. */
   treeRequests: number;
+  /**
+   * Page requests those reads made: one for a revalidation the server answers
+   * `304`, otherwise one per page of 100 nodes, plus the request that confirms
+   * a walk of several pages was not torn by a change made during it.
+   */
+  treePages: number;
   /** Revalidations the server answered `304`, so no tree was transferred. */
   treeNotModified: number;
 }
@@ -107,7 +141,8 @@ interface TreeEntry {
 }
 
 /**
- * The grant map, read off the generated operation rather than restated here.
+ * One page of grant roots, read off the generated operation rather than
+ * restated here: one row per permission and node it was granted at.
  *
  * Load-bearing beyond tidiness: typing this through the spec is what stops the
  * package building against a Canopy that does not serve the endpoint. A
@@ -115,17 +150,25 @@ interface TreeEntry {
  * at runtime, which the guard turns into a blanket `403` — a failure no test
  * with a faked endpoint can see.
  */
-type GrantMap = ResponseBody<"ApiIdentitiesController_getIdentityGrants">;
+type GrantPage = ResponseBody<"ApiIdentitiesController_getIdentityGrants">;
+type GrantRow = GrantPage["items"][number];
 
 /**
- * The hierarchy as parent edges, read off the generated operation.
+ * One page of the hierarchy as parent edges, read off the generated
+ * operation, ordered by node id.
  *
- * Deliberately not the tree. `GET /api/v1/nodes` answers what a dashboard
- * renders — names, statuses, access flags, per-node counts — and a walk upward
- * reads none of it. Measured at 50,000 nodes that is 18.6 MB against 5.0 MB,
- * on a read every consuming process makes at startup.
+ * Deliberately not the node list. `GET /api/v1/nodes` answers what a
+ * dashboard renders — names, statuses, access flags, per-node counts — and a
+ * walk upward reads none of it. Measured at 50,000 nodes that is 18.6 MB
+ * against 5.0 MB, on a read every consuming process makes at startup.
  */
-type ParentEdges = ResponseBody<"ApiNodesController_listNodeParents">;
+type ParentPage = ResponseBody<"ApiNodesController_listNodeParents">;
+type ParentEdge = ParentPage["items"][number];
+
+const GRANTS_PATH = (identityId: string): string =>
+  `/api/v1/identities/${encodeURIComponent(identityId)}/grants`;
+
+const PARENTS_PATH = "/api/v1/nodes/parents";
 
 export class LocalAuthorizer {
   private readonly client: CanopyClient;
@@ -152,7 +195,9 @@ export class LocalAuthorizer {
 
   private stats: LocalAuthorizerStats = {
     grantFetches: 0,
+    grantPages: 0,
     treeRequests: 0,
+    treePages: 0,
     treeNotModified: 0,
   };
 
@@ -313,8 +358,8 @@ export class LocalAuthorizer {
     const parents = await this.parents();
 
     // The hierarchy we hold has to actually contain the node being asked
-    // about. `GET /api/v1/nodes` answers a tree scoped to the caller, and a
-    // credential that cannot read the hierarchy gets an empty one — with a
+    // about. `GET /api/v1/nodes/parents` answers the hierarchy scoped to the
+    // caller, and a credential that cannot read it gets an empty one — with a
     // `200`, so nothing looks wrong. Walking off the end of that map would
     // return `false`, which reads as "this identity lacks the permission
     // here" when the truth is that we cannot see far enough to say.
@@ -368,21 +413,43 @@ export class LocalAuthorizer {
     return read;
   }
 
+  /**
+   * Every page of the identity's grant roots, folded into permission → nodes.
+   *
+   * Each row is one permission at one node, so a permission granted at three
+   * nodes arrives as three rows, possibly on different pages. Stopping after
+   * the first page would under-report what the identity holds: a false deny,
+   * the safe direction, but a wrong answer all the same.
+   */
   private async fetchGrantRoots(
     identityId: string,
   ): Promise<Map<string, Set<string>>> {
     this.stats.grantFetches += 1;
 
-    const response = await this.client.request<GrantMap>(
-      "GET",
-      `/api/v1/identities/${encodeURIComponent(identityId)}/grants`,
-      this.readOptions,
+    const path = GRANTS_PATH(identityId);
+    const rows = paginate<GrantRow>(
+      (query) => {
+        this.stats.grantPages += 1;
+
+        return this.client.request<GrantPage>("GET", path, {
+          ...this.readOptions,
+          query,
+        });
+      },
+      { page: 1, take: PAGE_SIZE },
+      { maxPages: MAX_PAGES },
     );
 
     const roots = new Map<string, Set<string>>();
 
-    for (const row of response.items ?? []) {
-      roots.set(row.permission, new Set(row.nodes));
+    for await (const row of rows) {
+      const nodes = roots.get(row.permission);
+
+      if (nodes) {
+        nodes.add(row.node_id);
+      } else {
+        roots.set(row.permission, new Set([row.node_id]));
+      }
     }
 
     this.grants.set(identityId, {
@@ -415,57 +482,151 @@ export class LocalAuthorizer {
    * Revalidate rather than re-read. The hierarchy is the expensive half and
    * the one that changes least, so the common case is a `304` and no transfer
    * at all — the tree stays in memory and only its expiry moves.
+   *
+   * The edges come a page at a time, so only the first page is conditional:
+   * its validator covers the whole hierarchy, and a `304` to it means no page
+   * has changed. On a `200` the remaining pages are read plainly and the map
+   * is rebuilt from every page.
+   *
+   * A walk over several pages is not one snapshot. A node added or removed
+   * between two page reads shifts the rows under the offset, so a row can be
+   * skipped, which would leave a node out of the map until the next refresh.
+   * So the walk is confirmed by asking for the first page again with the
+   * validator it came with: a `304` proves nothing changed while the pages
+   * were read. A `200` is a fresh first page, and the walk starts again from
+   * it, up to {@link MAX_TREE_WALKS} times.
    */
   private async fetchTree(): Promise<Map<string, string | null>> {
     this.stats.treeRequests += 1;
 
     const held = this.tree;
 
-    const result = await this.client.requestConditional<ParentEdges>(
+    let first = await this.parentsFirstPage(held?.etag ?? undefined);
+
+    if (!first.modified) {
+      if (held) {
+        this.stats.treeNotModified += 1;
+        this.tree = { ...held, expiresAt: this.now() + this.ttlMs };
+
+        return held.parents;
+      }
+
+      // A `304` to a request that carried no validator has nothing to keep.
+      return this.keepTree([], null);
+    }
+
+    for (let walk = 1; ; walk++) {
+      const edges = await this.parentsRemainingPages(first.data);
+
+      // One page is one response, so it cannot have been torn; without a
+      // validator there is nothing to confirm with.
+      if (!spansPages(first.data) || first.etag === null) {
+        return this.keepTree(edges, first.etag);
+      }
+
+      const confirm = await this.parentsFirstPage(first.etag);
+
+      if (!confirm.modified) {
+        return this.keepTree(edges, first.etag);
+      }
+
+      if (walk >= MAX_TREE_WALKS) {
+        // Still changing. Keep the latest walk, but with no validator, so the
+        // next refresh reads every page again rather than revalidating a map
+        // that may be missing a node.
+        return this.keepTree(edges, null);
+      }
+
+      first = confirm;
+    }
+  }
+
+  private parentsFirstPage(
+    etag: string | undefined,
+  ): Promise<ConditionalResult<ParentPage>> {
+    this.stats.treePages += 1;
+
+    return this.client.requestConditional<ParentPage>(
       "GET",
-      "/api/v1/nodes/parents",
-      held?.etag ?? undefined,
-      this.readOptions,
+      PARENTS_PATH,
+      etag,
+      { ...this.readOptions, query: { page: 1, take: PAGE_SIZE } },
+    );
+  }
+
+  /** The first page's edges followed by every later page's. */
+  private async parentsRemainingPages(
+    first: ParentPage,
+  ): Promise<ParentEdge[]> {
+    const edges: ParentEdge[] = [...first.items];
+
+    if (!spansPages(first)) {
+      return edges;
+    }
+
+    const rest = paginate<ParentEdge>(
+      (query: PageParams) => {
+        this.stats.treePages += 1;
+
+        return this.client.request<ParentPage>("GET", PARENTS_PATH, {
+          ...this.readOptions,
+          query,
+        });
+      },
+      { page: first.pagination.page + 1, take: PAGE_SIZE },
+      { maxPages: MAX_PAGES - 1 },
     );
 
-    if (!result.modified && held) {
-      this.stats.treeNotModified += 1;
-      this.tree = { ...held, expiresAt: this.now() + this.ttlMs };
+    for await (const page of rest.pages()) {
+      for (const edge of page.items) {
+        edges.push(edge);
+      }
+    }
 
-      return held.parents;
+    return edges;
+  }
+
+  private keepTree(
+    edges: ParentEdge[],
+    etag: string | null,
+  ): Map<string, string | null> {
+    // One string per node. A parsed response holds each id twice, once as
+    // its own node's `id` and again, as a separate copy, in every child's
+    // `parent_node_id`; storing those copies doubled the cache. So the
+    // parent is stored as the node's own `id` string, found through a map
+    // of every page's ids first, since a parent may arrive after its
+    // children, on a later page. The lookup map is gone once this returns.
+    const ids = new Map<string, string>();
+
+    for (const edge of edges) {
+      ids.set(edge.id, edge.id);
     }
 
     const parents = new Map<string, string | null>();
 
-    if (result.modified) {
-      // One string per node. A parsed response holds each id twice, once as
-      // its own node's `id` and again, as a separate copy, in every child's
-      // `parent_node_id`; storing those copies doubled the cache. So the
-      // parent is stored as the node's own `id` string, found through a map
-      // of the response's ids first, since a parent may arrive after its
-      // children. The lookup map is gone once this returns.
-      const ids = new Map<string, string>();
+    for (const edge of edges) {
+      const parent = edge.parent_node_id ?? null;
 
-      for (const edge of result.data.items) {
-        ids.set(edge.id, edge.id);
-      }
-
-      for (const edge of result.data.items) {
-        const parent = edge.parent_node_id ?? null;
-
-        parents.set(
-          edge.id,
-          parent === null ? null : (ids.get(parent) ?? parent),
-        );
-      }
+      parents.set(
+        edge.id,
+        parent === null ? null : (ids.get(parent) ?? parent),
+      );
     }
 
     this.tree = {
       parents,
-      etag: result.modified ? result.etag : (held?.etag ?? null),
+      etag,
       expiresAt: this.now() + this.ttlMs,
     };
 
     return parents;
   }
+}
+
+/**
+ * Whether a first page says more follow. An empty page ends the walk however
+ * the server describes it, as the paginator's own loop does.
+ */
+function spansPages(first: ParentPage): boolean {
+  return first.pagination.has_next_page && first.items.length > 0;
 }

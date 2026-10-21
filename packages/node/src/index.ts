@@ -63,6 +63,7 @@ export type {
 } from "./resources/identities.js";
 export { Organizations } from "./resources/organizations.js";
 export type {
+  OrganizationDirectoryGroupItem,
   OrganizationInviteItem,
   OrganizationItem,
   OrganizationMemberItem,

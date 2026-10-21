@@ -7,7 +7,7 @@ Every Canopy Environment has a hierarchy of nodes. Roles are assigned to an iden
 Every Environment starts flat: a single root node, and every assignment lands on it.
 
 - Check with `scope: "app_wide"`: "does the identity hold this permission in the Environment". No node is needed.
-- Or check with the default `node` scope at the root node's id (read it once from `GET /api/v1/nodes`). Never send a `node` check without a node: it is denied.
+- Or check with the default `node` scope at the root node's id. Read it once from `GET /api/v1/nodes`, a paged `{ items, pagination }` list of flat nodes: the root is the one whose `parent_node_id` is `null`, and in a flat Environment it is the only item. Never send a `node` check without a node: it is denied.
 - If the Environment may later become a hierarchy, prefer the `node` form at the resource's node now, falling back to the root: the code then keeps working when nodes appear.
 
 ## Hierarchy

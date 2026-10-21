@@ -368,13 +368,29 @@ export class Organizations {
     );
   }
 
-  /** The groups the provider has pushed, each with its role mapping. */
+  /**
+   * The groups the provider has pushed, each with its role mapping.
+   *
+   * Paginated (20 per page by default, `take` up to 100), so this returns a
+   * `Paginator`. Sorted by display name unless `sort_by: "created"`; `q`
+   * searches display names and external ids.
+   *
+   * ```ts
+   * for await (const group of canopy.organizations.listDirectoryGroups(id)) { … }
+   * ```
+   */
   listDirectoryGroups(
     id: string,
-  ): Promise<ResponseBody<"ApiOrganizationDirectoryGroupsController_list">> {
-    return this.client.request(
-      "GET",
-      `/api/v1/organizations/${enc(id)}/directory/groups`,
+    query: QueryParams<"ApiOrganizationDirectoryGroupsController_list"> = {},
+  ): Paginator<OrganizationDirectoryGroupItem> {
+    return paginate<OrganizationDirectoryGroupItem>(
+      (params) =>
+        this.client.request(
+          "GET",
+          `/api/v1/organizations/${enc(id)}/directory/groups`,
+          { query: params },
+        ),
+      { ...query },
     );
   }
 
@@ -415,6 +431,10 @@ export type OrganizationMemberItem = ItemOf<
 >;
 export type OrganizationInviteItem = ItemOf<
   ResponseBody<"ApiOrganizationsController_listInvites">
+>;
+/** One pushed group from an organization's directory. */
+export type OrganizationDirectoryGroupItem = ItemOf<
+  ResponseBody<"ApiOrganizationDirectoryGroupsController_list">
 >;
 
 type ItemOf<T> = T extends { items: (infer Item)[] } ? Item : never;
