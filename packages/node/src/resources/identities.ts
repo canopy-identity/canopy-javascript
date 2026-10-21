@@ -91,10 +91,35 @@ export class Identities {
    */
   permissions(
     id: string,
+    query: QueryParams<"ApiIdentitiesController_getIdentityPermissions"> = {},
   ): Promise<ResponseBody<"ApiIdentitiesController_getIdentityPermissions">> {
     return this.client.request(
       "GET",
       `/api/v1/identities/${encodeURIComponent(id)}/permissions`,
+      { query: { ...query } },
+    );
+  }
+
+  /**
+   * Where the identity may act with one permission, answered by Canopy for a
+   * list query: the minimal grant roots, and every node beneath them up to
+   * `max_nodes` (null past it, with `complete: false`), or `env_wide` when a
+   * root is the Environment's own root and no filter is needed.
+   *
+   * `LocalAuthorizer.accessibleNodes` answers the same question from its
+   * cache without a call; this is the fresh answer, and the one for a process
+   * that does not run the authorizer.
+   */
+  accessibleNodes(
+    id: string,
+    query: QueryParams<"ApiIdentitiesController_getIdentityAccessibleNodes">,
+  ): Promise<
+    ResponseBody<"ApiIdentitiesController_getIdentityAccessibleNodes">
+  > {
+    return this.client.request(
+      "GET",
+      `/api/v1/identities/${encodeURIComponent(id)}/accessible-nodes`,
+      { query: { ...query } },
     );
   }
 

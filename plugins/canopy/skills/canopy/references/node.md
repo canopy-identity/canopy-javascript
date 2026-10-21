@@ -137,6 +137,8 @@ export async function mayViewReports(
 ```
 
 - `scope` defaults to `node`; a `node` check without `node_id` is denied. Use `scope: "app_wide"` only for "holds it anywhere", such as showing a menu item.
+- A denial carries `reason` (`permission_not_held`, `outside_grants`, `expired`, `not_yet_effective`, `node_missing`). `onDecision` / `onDenied` options hear every verdict after it is reached; they are never awaited and cannot change it.
+- To filter a list, do not call `evaluate` per row. `authorizer.accessibleNodes(identityId, permission)` gives the node ids the identity may see as a `Set` for an `IN (...)` filter (`nodes: null, complete: false` past `maxNodes`; `envWide: true` means no filter at all), and `authorizer.grantRoots(...)` gives the roots for a closure-table or path filter. `authorizer.permissionsAt(identityId, nodeId)` lists what someone holds at one node, and `permissionsAtMany(identityId, nodeIds)` several nodes from one read. All three answer from the same cache as a check. The write that follows still checks its node.
 - Answers are cached for at most 60 seconds (`ttlMs`, up to 300 000). That is the revocation delay. Use `canopy.permissions.evaluate` for a decision that must be fresh.
 - A scoped API key needs `identity.view` and `hierarchy.view`. Without `hierarchy.view`, node checks throw `CanopyAuthorizerError` instead of answering `false`: treat that as a broken integration (`500`), not a denial.
 - Mapping failures to HTTP statuses: see [express.md](express.md).

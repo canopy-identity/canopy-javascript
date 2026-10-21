@@ -2,6 +2,7 @@ import type { InjectionToken, ModuleMetadata } from "@nestjs/common";
 
 import type {
   CanopyClientOptions,
+  LocalDecisionEvent,
   TokenVerifierOptions,
 } from "@canopy-io/node";
 
@@ -94,6 +95,17 @@ export interface CanopyModuleOptions<
    * stale allow at all, not a cautious default.
    */
   authorizationTtlMs?: number;
+
+  /**
+   * Called after every decision the guard reaches, allowed or not, with the
+   * question and the answer (the reason, on a denial). Never awaited, and a
+   * hook that throws is ignored: observation cannot change a verdict. For
+   * audit trails and metrics without forking the guard.
+   */
+  onDecision?: (event: LocalDecisionEvent) => void;
+
+  /** Called after every denial, the same way. For alerting on refusals. */
+  onDenied?: (event: LocalDecisionEvent) => void;
 
   /**
    * Token verification, for `CanopyTokenGuard`. Everything
