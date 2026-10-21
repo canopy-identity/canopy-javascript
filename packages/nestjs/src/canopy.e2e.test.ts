@@ -26,9 +26,13 @@ import { RequirePermission } from "./require-permission.decorator.js";
 
 type FetchResult = { status: number; body: unknown };
 
-/** A whole collection as the single page the API answers it in. */
+/**
+ * A whole collection as the single page the API answers it in, describing
+ * authorization model 1, the version the authorizer understands.
+ */
 function onePage<T>(items: T[]) {
   return {
+    model_version: 1,
     items,
     pagination: {
       page: 1,

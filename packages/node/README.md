@@ -278,8 +278,12 @@ instances behind a load balancer, each keeps its own cache until its TTL runs
 out or it is told to invalidate too.
 
 A failed check (Canopy unreachable, a credential that cannot read the
-hierarchy, an identity not in the Environment) throws rather than answering
-`false`. `authorizationErrorStatus` turns the error into the response to send:
+hierarchy, an identity not in the Environment, or a Canopy serving an
+authorization model this version does not know) throws rather than answering
+`false`. The grant roots and the hierarchy each carry the `model_version` of
+the rules they describe; an unknown one is refused with `CanopyAuthorizerError`
+(`authorizer.model_version_unknown`) instead of being walked as if the rules
+had not changed, and upgrading the package is the fix. `authorizationErrorStatus` turns the error into the response to send:
 `503` when Canopy did not answer, `500` for a misconfiguration no retry fixes,
 `403` for an identity Canopy does not know. The NestJS guard uses the same
 mapping.

@@ -49,6 +49,7 @@ function edgePage(count: number, page: number): unknown {
 
   return JSON.parse(
     JSON.stringify({
+      model_version: 1,
       items,
       pagination: {
         page,
@@ -88,6 +89,7 @@ describe("LocalAuthorizer memory", () => {
         Promise.resolve(
           path.endsWith("/grants")
             ? {
+                model_version: 1,
                 items: [{ permission: "report.view", node_id: rootId }],
                 pagination: {
                   page: 1,

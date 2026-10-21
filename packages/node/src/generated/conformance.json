@@ -1,0 +1,607 @@
+{
+  "model_version": 1,
+  "vectors": [
+    {
+      "name": "inheritance",
+      "description": "A role held at a node reaches that node and everything beneath it, and nothing beside or above it. The nearest granting assignment is the effective node.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "west",
+          "parent": "root"
+        },
+        {
+          "id": "cardiology",
+          "parent": "west"
+        },
+        {
+          "id": "team-alpha",
+          "parent": "cardiology"
+        },
+        {
+          "id": "east",
+          "parent": "root"
+        }
+      ],
+      "permissions": [
+        "reports.view",
+        "reports.edit"
+      ],
+      "roles": [
+        {
+          "id": "viewer",
+          "permissions": [
+            "reports.view"
+          ]
+        },
+        {
+          "id": "editor",
+          "permissions": [
+            "reports.edit"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "alice"
+        },
+        {
+          "id": "bob"
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "alice",
+          "role": "viewer",
+          "node": "west"
+        },
+        {
+          "identity": "bob",
+          "role": "viewer",
+          "node": "root"
+        },
+        {
+          "identity": "bob",
+          "role": "editor",
+          "node": "cardiology"
+        }
+      ],
+      "grants": {
+        "alice": [
+          {
+            "permission": "reports.view",
+            "node": "west"
+          }
+        ],
+        "bob": [
+          {
+            "permission": "reports.view",
+            "node": "root"
+          },
+          {
+            "permission": "reports.edit",
+            "node": "cardiology"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "identity": "alice",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "team-alpha",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "west",
+          "granting_roles": [
+            "viewer"
+          ]
+        },
+        {
+          "identity": "alice",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "west",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "west",
+          "granting_roles": [
+            "viewer"
+          ]
+        },
+        {
+          "identity": "alice",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "east",
+          "allowed": false,
+          "reason": "NO_ROLE_ASSIGNMENT",
+          "effective_node": "east",
+          "granting_roles": []
+        },
+        {
+          "identity": "alice",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "root",
+          "allowed": false,
+          "reason": "NO_ROLE_ASSIGNMENT",
+          "effective_node": "root",
+          "granting_roles": []
+        },
+        {
+          "identity": "alice",
+          "permission": "reports.edit",
+          "scope": "node",
+          "node": "cardiology",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": "west",
+          "granting_roles": []
+        },
+        {
+          "identity": "alice",
+          "permission": "reports.view",
+          "scope": "app_wide",
+          "allowed": true,
+          "reason": null,
+          "effective_node": null,
+          "granting_roles": []
+        },
+        {
+          "identity": "alice",
+          "permission": "reports.edit",
+          "scope": "app_wide",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": null,
+          "granting_roles": []
+        },
+        {
+          "identity": "bob",
+          "permission": "reports.edit",
+          "scope": "node",
+          "node": "team-alpha",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "cardiology",
+          "granting_roles": [
+            "editor"
+          ]
+        },
+        {
+          "identity": "bob",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "team-alpha",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "root",
+          "granting_roles": [
+            "viewer"
+          ]
+        },
+        {
+          "identity": "bob",
+          "permission": "reports.edit",
+          "scope": "node",
+          "node": "west",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": "root",
+          "granting_roles": []
+        },
+        {
+          "identity": "bob",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "east",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "root",
+          "granting_roles": [
+            "viewer"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "assignment-windows",
+      "description": "Only an assignment in effect grants. One that has ended denies as expired; one that has not begun denies as if absent. Neither appears among the grant roots.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "office",
+          "parent": "root"
+        }
+      ],
+      "permissions": [
+        "reports.view"
+      ],
+      "roles": [
+        {
+          "id": "viewer",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "carol"
+        },
+        {
+          "id": "dan"
+        },
+        {
+          "id": "erin"
+        },
+        {
+          "id": "frank"
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "carol",
+          "role": "viewer",
+          "node": "office",
+          "from_days": -3,
+          "to_days": -1
+        },
+        {
+          "identity": "dan",
+          "role": "viewer",
+          "node": "office",
+          "from_days": 1,
+          "to_days": 30
+        },
+        {
+          "identity": "erin",
+          "role": "viewer",
+          "node": "office",
+          "from_days": -1,
+          "to_days": 1
+        },
+        {
+          "identity": "frank",
+          "role": "viewer",
+          "node": "root",
+          "from_days": -3,
+          "to_days": -1
+        },
+        {
+          "identity": "frank",
+          "role": "viewer",
+          "node": "office"
+        }
+      ],
+      "grants": {
+        "carol": [],
+        "dan": [],
+        "erin": [
+          {
+            "permission": "reports.view",
+            "node": "office"
+          }
+        ],
+        "frank": [
+          {
+            "permission": "reports.view",
+            "node": "office"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "identity": "carol",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": false,
+          "reason": "ROLE_EXPIRED",
+          "effective_node": "office",
+          "granting_roles": []
+        },
+        {
+          "identity": "dan",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": false,
+          "reason": "NO_ROLE_ASSIGNMENT",
+          "effective_node": "office",
+          "granting_roles": []
+        },
+        {
+          "identity": "dan",
+          "permission": "reports.view",
+          "scope": "app_wide",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": null,
+          "granting_roles": []
+        },
+        {
+          "identity": "erin",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "office",
+          "granting_roles": [
+            "viewer"
+          ]
+        },
+        {
+          "identity": "frank",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "office",
+          "granting_roles": [
+            "viewer"
+          ]
+        },
+        {
+          "identity": "frank",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "root",
+          "allowed": false,
+          "reason": "ROLE_EXPIRED",
+          "effective_node": "root",
+          "granting_roles": []
+        }
+      ]
+    },
+    {
+      "name": "inactive-role",
+      "description": "A role deactivated after it was assigned keeps its assignments but grants nothing; the identity's other roles still grant.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "office",
+          "parent": "root"
+        }
+      ],
+      "permissions": [
+        "reports.view",
+        "reports.edit"
+      ],
+      "roles": [
+        {
+          "id": "viewer",
+          "permissions": [
+            "reports.view"
+          ],
+          "active": false
+        },
+        {
+          "id": "editor",
+          "permissions": [
+            "reports.edit"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "gina"
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "gina",
+          "role": "viewer",
+          "node": "office"
+        },
+        {
+          "identity": "gina",
+          "role": "editor",
+          "node": "office"
+        }
+      ],
+      "grants": {
+        "gina": [
+          {
+            "permission": "reports.edit",
+            "node": "office"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "identity": "gina",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": "office",
+          "granting_roles": []
+        },
+        {
+          "identity": "gina",
+          "permission": "reports.view",
+          "scope": "app_wide",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": null,
+          "granting_roles": []
+        },
+        {
+          "identity": "gina",
+          "permission": "reports.edit",
+          "scope": "node",
+          "node": "office",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "office",
+          "granting_roles": [
+            "editor"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "identity-status",
+      "description": "An identity deactivated at the Account holds nothing, whatever its assignments. One removed from the Environment is unknown to it: the grants endpoint answers 404, which an SDK treats as a deny.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "office",
+          "parent": "root"
+        }
+      ],
+      "permissions": [
+        "reports.view"
+      ],
+      "roles": [
+        {
+          "id": "viewer",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "hank",
+          "active": false
+        },
+        {
+          "id": "ivy",
+          "environment_member": false
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "hank",
+          "role": "viewer",
+          "node": "office"
+        },
+        {
+          "identity": "ivy",
+          "role": "viewer",
+          "node": "office"
+        }
+      ],
+      "grants": {
+        "hank": [],
+        "ivy": null
+      },
+      "checks": [
+        {
+          "identity": "hank",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": false,
+          "reason": "IDENTITY_INACTIVE",
+          "effective_node": "office",
+          "granting_roles": []
+        },
+        {
+          "identity": "ivy",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": false,
+          "reason": "IDENTITY_NOT_ENV_MEMBER",
+          "effective_node": "office",
+          "granting_roles": []
+        }
+      ]
+    },
+    {
+      "name": "management-keys",
+      "description": "A customer may define a permission named like one of Canopy's management keys. For an identity it grants the customer's permission, never Canopy's: evaluate denies it and the grant roots leave it out, so a local answer never allows what the server denies.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        }
+      ],
+      "permissions": [
+        "identity.manage",
+        "reports.view"
+      ],
+      "roles": [
+        {
+          "id": "lookalike",
+          "permissions": [
+            "identity.manage",
+            "reports.view"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "jack"
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "jack",
+          "role": "lookalike",
+          "node": "root"
+        }
+      ],
+      "grants": {
+        "jack": [
+          {
+            "permission": "reports.view",
+            "node": "root"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "identity": "jack",
+          "permission": "identity.manage",
+          "scope": "node",
+          "node": "root",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": "root",
+          "granting_roles": []
+        },
+        {
+          "identity": "jack",
+          "permission": "identity.manage",
+          "scope": "app_wide",
+          "allowed": false,
+          "reason": "PERMISSION_NOT_GRANTED",
+          "effective_node": null,
+          "granting_roles": []
+        },
+        {
+          "identity": "jack",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "root",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "root",
+          "granting_roles": [
+            "lookalike"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -32,7 +32,9 @@ CANOPY_SPEC_URL="$HOME/Development/canopy/apps/canopy-api/spec/openapi.api.json"
   npm run generate --workspace @canopy-io/node
 ```
 
-`npm run generate:check` fails when the committed types no longer match the spec. When the API's surface changes, `EXPECTED_OPERATION_COUNT` in `packages/node/src/coverage.test.ts` moves with it, deliberately, with the reason in the changeset.
+The same step fetches Canopy's authorization conformance vectors into `packages/node/src/generated/conformance.json`, which `authorizer.conformance.test.ts` replays through `LocalAuthorizer`. They default to the published copy at `https://canopy-io.com/conformance/authorization.json`; point `CANOPY_CONFORMANCE_URL` at an absolute path or URL to use an unreleased API's.
+
+`npm run generate:check` fails when the committed types or vectors no longer match what Canopy publishes. A stale vectors file means Canopy changed an authorization rule: make `LocalAuthorizer` answer the new vectors before releasing. When the API's surface changes, `EXPECTED_OPERATION_COUNT` in `packages/node/src/coverage.test.ts` moves with it, deliberately, with the reason in the changeset.
 
 ## After a Canopy deploy
 
