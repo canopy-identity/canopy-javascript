@@ -87,6 +87,108 @@
           }
         ]
       },
+      "grant_windows": {
+        "alice": [
+          {
+            "permission": "reports.view",
+            "node": "west"
+          }
+        ],
+        "bob": [
+          {
+            "permission": "reports.view",
+            "node": "root"
+          },
+          {
+            "permission": "reports.edit",
+            "node": "cardiology"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "alice",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [
+            "west"
+          ],
+          "nodes": [
+            "west",
+            "cardiology",
+            "team-alpha"
+          ]
+        },
+        {
+          "identity": "alice",
+          "permission": "reports.edit",
+          "env_wide": false,
+          "roots": [],
+          "nodes": []
+        },
+        {
+          "identity": "bob",
+          "permission": "reports.view",
+          "env_wide": true,
+          "roots": [
+            "root"
+          ],
+          "nodes": null
+        },
+        {
+          "identity": "bob",
+          "permission": "reports.edit",
+          "env_wide": false,
+          "roots": [
+            "cardiology"
+          ],
+          "nodes": [
+            "cardiology",
+            "team-alpha"
+          ]
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "alice",
+          "node": "team-alpha",
+          "permissions": [
+            "reports.view"
+          ]
+        },
+        {
+          "identity": "alice",
+          "node": "east",
+          "permissions": []
+        },
+        {
+          "identity": "alice",
+          "node": "root",
+          "permissions": []
+        },
+        {
+          "identity": "bob",
+          "node": "team-alpha",
+          "permissions": [
+            "reports.edit",
+            "reports.view"
+          ]
+        },
+        {
+          "identity": "bob",
+          "node": "west",
+          "permissions": [
+            "reports.view"
+          ]
+        },
+        {
+          "identity": "bob",
+          "node": "east",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
       "checks": [
         {
           "identity": "alice",
@@ -98,7 +200,8 @@
           "effective_node": "west",
           "granting_roles": [
             "viewer"
-          ]
+          ],
+          "sdk_reason": null
         },
         {
           "identity": "alice",
@@ -110,7 +213,8 @@
           "effective_node": "west",
           "granting_roles": [
             "viewer"
-          ]
+          ],
+          "sdk_reason": null
         },
         {
           "identity": "alice",
@@ -120,7 +224,8 @@
           "allowed": false,
           "reason": "NO_ROLE_ASSIGNMENT",
           "effective_node": "east",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "outside_grants"
         },
         {
           "identity": "alice",
@@ -130,7 +235,8 @@
           "allowed": false,
           "reason": "NO_ROLE_ASSIGNMENT",
           "effective_node": "root",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "outside_grants"
         },
         {
           "identity": "alice",
@@ -140,7 +246,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": "west",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "permission_not_held"
         },
         {
           "identity": "alice",
@@ -149,7 +256,8 @@
           "allowed": true,
           "reason": null,
           "effective_node": null,
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": null
         },
         {
           "identity": "alice",
@@ -158,7 +266,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": null,
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "permission_not_held"
         },
         {
           "identity": "bob",
@@ -170,7 +279,8 @@
           "effective_node": "cardiology",
           "granting_roles": [
             "editor"
-          ]
+          ],
+          "sdk_reason": null
         },
         {
           "identity": "bob",
@@ -182,7 +292,8 @@
           "effective_node": "root",
           "granting_roles": [
             "viewer"
-          ]
+          ],
+          "sdk_reason": null
         },
         {
           "identity": "bob",
@@ -192,7 +303,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": "root",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "outside_grants"
         },
         {
           "identity": "bob",
@@ -204,7 +316,8 @@
           "effective_node": "root",
           "granting_roles": [
             "viewer"
-          ]
+          ],
+          "sdk_reason": null
         }
       ]
     },
@@ -297,6 +410,108 @@
           }
         ]
       },
+      "grant_windows": {
+        "carol": [
+          {
+            "permission": "reports.view",
+            "node": "office",
+            "from_days": -3,
+            "to_days": -1
+          }
+        ],
+        "dan": [
+          {
+            "permission": "reports.view",
+            "node": "office",
+            "from_days": 1,
+            "to_days": 30
+          }
+        ],
+        "erin": [
+          {
+            "permission": "reports.view",
+            "node": "office",
+            "from_days": -1,
+            "to_days": 1
+          }
+        ],
+        "frank": [
+          {
+            "permission": "reports.view",
+            "node": "root",
+            "from_days": -3,
+            "to_days": -1
+          },
+          {
+            "permission": "reports.view",
+            "node": "office"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "carol",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [],
+          "nodes": []
+        },
+        {
+          "identity": "dan",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [],
+          "nodes": []
+        },
+        {
+          "identity": "erin",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [
+            "office"
+          ],
+          "nodes": [
+            "office"
+          ]
+        },
+        {
+          "identity": "frank",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [
+            "office"
+          ],
+          "nodes": [
+            "office"
+          ]
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "carol",
+          "node": "office",
+          "permissions": []
+        },
+        {
+          "identity": "erin",
+          "node": "office",
+          "permissions": [
+            "reports.view"
+          ]
+        },
+        {
+          "identity": "frank",
+          "node": "root",
+          "permissions": []
+        },
+        {
+          "identity": "frank",
+          "node": "office",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
       "checks": [
         {
           "identity": "carol",
@@ -306,7 +521,8 @@
           "allowed": false,
           "reason": "ROLE_EXPIRED",
           "effective_node": "office",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "expired"
         },
         {
           "identity": "dan",
@@ -316,7 +532,8 @@
           "allowed": false,
           "reason": "NO_ROLE_ASSIGNMENT",
           "effective_node": "office",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "not_yet_effective"
         },
         {
           "identity": "dan",
@@ -325,7 +542,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": null,
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "not_yet_effective"
         },
         {
           "identity": "erin",
@@ -337,7 +555,8 @@
           "effective_node": "office",
           "granting_roles": [
             "viewer"
-          ]
+          ],
+          "sdk_reason": null
         },
         {
           "identity": "frank",
@@ -349,7 +568,8 @@
           "effective_node": "office",
           "granting_roles": [
             "viewer"
-          ]
+          ],
+          "sdk_reason": null
         },
         {
           "identity": "frank",
@@ -359,7 +579,8 @@
           "allowed": false,
           "reason": "ROLE_EXPIRED",
           "effective_node": "root",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "expired"
         }
       ]
     },
@@ -420,6 +641,48 @@
           }
         ]
       },
+      "grant_windows": {
+        "gina": [
+          {
+            "permission": "reports.edit",
+            "node": "office"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "gina",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [],
+          "nodes": []
+        },
+        {
+          "identity": "gina",
+          "permission": "reports.edit",
+          "env_wide": false,
+          "roots": [
+            "office"
+          ],
+          "nodes": [
+            "office"
+          ]
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "gina",
+          "node": "office",
+          "permissions": [
+            "reports.edit"
+          ]
+        },
+        {
+          "identity": "gina",
+          "node": "root",
+          "permissions": []
+        }
+      ],
       "checks": [
         {
           "identity": "gina",
@@ -429,7 +692,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": "office",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "permission_not_held"
         },
         {
           "identity": "gina",
@@ -438,7 +702,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": null,
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "permission_not_held"
         },
         {
           "identity": "gina",
@@ -450,7 +715,8 @@
           "effective_node": "office",
           "granting_roles": [
             "editor"
-          ]
+          ],
+          "sdk_reason": null
         }
       ]
     },
@@ -504,6 +770,26 @@
         "hank": [],
         "ivy": null
       },
+      "grant_windows": {
+        "hank": [],
+        "ivy": null
+      },
+      "accessible": [
+        {
+          "identity": "hank",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [],
+          "nodes": []
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "hank",
+          "node": "office",
+          "permissions": []
+        }
+      ],
       "checks": [
         {
           "identity": "hank",
@@ -513,7 +799,8 @@
           "allowed": false,
           "reason": "IDENTITY_INACTIVE",
           "effective_node": "office",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "permission_not_held"
         },
         {
           "identity": "ivy",
@@ -523,7 +810,8 @@
           "allowed": false,
           "reason": "IDENTITY_NOT_ENV_MEMBER",
           "effective_node": "office",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "identity_unknown"
         }
       ]
     },
@@ -569,6 +857,41 @@
           }
         ]
       },
+      "grant_windows": {
+        "jack": [
+          {
+            "permission": "reports.view",
+            "node": "root"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "jack",
+          "permission": "identity.manage",
+          "env_wide": false,
+          "roots": [],
+          "nodes": []
+        },
+        {
+          "identity": "jack",
+          "permission": "reports.view",
+          "env_wide": true,
+          "roots": [
+            "root"
+          ],
+          "nodes": null
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "jack",
+          "node": "root",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
       "checks": [
         {
           "identity": "jack",
@@ -578,7 +901,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": "root",
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "permission_not_held"
         },
         {
           "identity": "jack",
@@ -587,7 +911,8 @@
           "allowed": false,
           "reason": "PERMISSION_NOT_GRANTED",
           "effective_node": null,
-          "granting_roles": []
+          "granting_roles": [],
+          "sdk_reason": "permission_not_held"
         },
         {
           "identity": "jack",
@@ -599,7 +924,8 @@
           "effective_node": "root",
           "granting_roles": [
             "lookalike"
-          ]
+          ],
+          "sdk_reason": null
         }
       ]
     }

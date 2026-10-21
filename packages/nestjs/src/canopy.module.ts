@@ -68,6 +68,10 @@ function buildAuthorizer<TRequest>(
       : { ttlMs: options.authorizationTtlMs }),
     timeoutMs: options.evaluateTimeoutMs ?? DEFAULT_EVALUATE_TIMEOUT_MS,
     maxRetries: options.evaluateMaxRetries ?? DEFAULT_EVALUATE_MAX_RETRIES,
+    ...(options.onDecision === undefined
+      ? {}
+      : { onDecision: options.onDecision }),
+    ...(options.onDenied === undefined ? {} : { onDenied: options.onDenied }),
   });
 }
 

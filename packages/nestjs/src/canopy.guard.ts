@@ -13,6 +13,7 @@ import { Reflector } from "@nestjs/core";
 import {
   authorizationErrorStatus,
   type LocalAuthorizer,
+  type LocalDecision,
   type RequestBody,
 } from "@canopy-io/node";
 
@@ -28,14 +29,12 @@ import {
 type EvaluateQuery = RequestBody<"ApiPermissionsController_evaluate">;
 
 /**
- * Only the verdict, not the API's full explain payload.
- *
- * A decision reached in-process cannot report `granting_roles` or an effective
- * node — that reasoning lives on the server. The guard has never needed it, and
- * typing the narrow thing keeps that honest rather than implying a richer
- * answer than exists.
+ * The verdict and, on a denial, the reason the grant roots and the tree can
+ * give; not the API's full explain payload. A decision reached in-process
+ * cannot report `granting_roles` or an effective node — that reasoning lives
+ * on the server — and typing the narrow thing keeps that honest.
  */
-type Verdict = { allowed: boolean };
+type Verdict = LocalDecision;
 
 interface Cancellation {
   signal: AbortSignal;

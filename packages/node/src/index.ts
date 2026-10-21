@@ -21,11 +21,19 @@ export type {
   RequestOptions,
 } from "./client.js";
 
-export { LocalAuthorizer, MAX_TTL_MS } from "./authorizer.js";
+export {
+  DEFAULT_MAX_NODES,
+  LocalAuthorizer,
+  MAX_TTL_MS,
+} from "./authorizer.js";
 export type {
+  AccessibleNodes,
   LocalAuthorizationQuery,
   LocalAuthorizerOptions,
   LocalAuthorizerStats,
+  LocalDecision,
+  LocalDecisionEvent,
+  LocalDenialReason,
 } from "./authorizer.js";
 
 export { paginate, Paginator } from "./pagination.js";

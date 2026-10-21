@@ -270,6 +270,53 @@ up to five minutes (`300_000`); a longer value throws when the authorizer is
 created. Shortening it below the gap between a user's requests saves nothing:
 every request then finds the cache expired and refetches.
 
+Each answer carries a reason when it is no, from what the grant roots and the
+tree can say: `permission_not_held`, `outside_grants`, `expired`,
+`not_yet_effective`, or `node_missing` for a `node` check with no node. The
+grant roots are read with their windows, so a grant that ends sooner than the
+TTL is dropped at its boundary, not at the next expiry. `onDecision` and
+`onDenied` hooks hear every verdict after it is reached, never awaited and
+never able to change it, for audit trails and alerting without a fork of the
+guard.
+
+```ts
+const authorizer = new LocalAuthorizer(canopy.client, {
+  onDenied: ({ query, decision }) =>
+    audit.record("denied", { ...query, reason: decision.reason }),
+});
+```
+
+A list needs the other direction: which nodes may this identity see. The same
+cache answers it, in the shape your query wants. `grantRoots` names the nodes
+the permission is granted at, in effect now, minus the ones another root
+already covers, and says whether one is the Environment's root (`envWide`:
+every node qualifies, so no filter). `accessibleNodes` expands those roots
+through their descendants into a `Set` for an `IN (...)` filter, capped at
+`maxNodes` (10,000 by default, per authorizer or per call); past the cap it
+hands back the roots with `nodes: null` and `complete: false`, so an
+application with a closure table or a materialised path filters by "beneath a
+root" instead. `permissionsAt` lists what the identity holds at one node, for
+rendering a screen's controls, and `permissionsAtMany` answers several nodes
+from one read, for the rows of a list.
+
+```ts
+const access = await authorizer.accessibleNodes(identityId, "reports.view");
+
+if (access.envWide) {
+  return db.reports.findMany();
+}
+
+if (!access.complete) {
+  // Too large for an IN (...) list: filter beneath access.roots instead.
+}
+
+return db.reports.findMany({ where: { nodeId: { in: [...access.nodes] } } });
+```
+
+A list filtered this way is what to show; the write that follows still checks
+its node. Canopy answers the same question fresh, for a process without the
+authorizer, as `canopy.identities.accessibleNodes(id, { permission })`.
+
 `canopy.permissions.evaluate` remains for a decision with no staleness at all.
 
 `authorizer.invalidate(identityId)` drops one identity's cached grants, so

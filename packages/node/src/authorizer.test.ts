@@ -117,6 +117,7 @@ describe("LocalAuthorizer — deciding", () => {
 
     expect(await authorizer.evaluate(check("engineering"))).toEqual({
       allowed: true,
+      reason: null,
     });
   });
 
@@ -125,6 +126,7 @@ describe("LocalAuthorizer — deciding", () => {
 
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
   });
 
@@ -133,6 +135,7 @@ describe("LocalAuthorizer — deciding", () => {
 
     expect(await authorizer.evaluate(check("sales"))).toEqual({
       allowed: false,
+      reason: "outside_grants",
     });
   });
 
@@ -141,6 +144,7 @@ describe("LocalAuthorizer — deciding", () => {
 
     expect(await authorizer.evaluate(check("root"))).toEqual({
       allowed: false,
+      reason: "outside_grants",
     });
   });
 
@@ -153,7 +157,10 @@ describe("LocalAuthorizer — deciding", () => {
       node_id: "frontend",
     });
 
-    expect(decision).toEqual({ allowed: false });
+    expect(decision).toEqual({
+      allowed: false,
+      reason: "permission_not_held",
+    });
     expect(requestConditional).not.toHaveBeenCalled();
   });
 
@@ -165,7 +172,10 @@ describe("LocalAuthorizer — deciding", () => {
       permission: "reports.view",
     });
 
-    expect(decision).toEqual({ allowed: false });
+    expect(decision).toEqual({
+      allowed: false,
+      reason: "node_missing",
+    });
   });
 
   it("answers app_wide from the grants alone, with no tree", async () => {
@@ -177,7 +187,10 @@ describe("LocalAuthorizer — deciding", () => {
       scope: "app_wide",
     });
 
-    expect(decision).toEqual({ allowed: true });
+    expect(decision).toEqual({
+      allowed: true,
+      reason: null,
+    });
     expect(requestConditional).not.toHaveBeenCalled();
   });
 });
@@ -273,6 +286,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
 
     expect(requestConditional).toHaveBeenLastCalledWith(
@@ -292,6 +306,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
 
     // Frontend leaves Engineering. The grant is untouched and still correct —
@@ -313,7 +328,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
 
     advance(61_000);
 
-    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+    expect(await authorizer.evaluate(check("frontend"))).toMatchObject({
       allowed: false,
     });
   });
@@ -362,7 +377,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
       timeoutMs: 750,
       maxRetries: 0,
       maxBackoffMs: 750,
-      query: { page: 1, take: 100 },
+      query: { page: 1, take: 100, include: "windows" },
     });
 
     expect(requestConditional.mock.calls[0]?.[3]).toEqual({
@@ -405,7 +420,10 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
     // request must not cancel a fetch another is waiting on.
     release(GRANTS);
 
-    expect(await theirs).toEqual({ allowed: true });
+    expect(await theirs).toEqual({
+      allowed: true,
+      reason: null,
+    });
     expect(request).toHaveBeenCalledTimes(1);
   });
 
@@ -487,6 +505,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
     // turn it into an error either.
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
   });
 
@@ -666,11 +685,13 @@ describe("LocalAuthorizer — paged reads", () => {
 
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
     expect(await authorizer.evaluate(check("sales"))).toEqual({
       allowed: true,
+      reason: null,
     });
-    expect(await authorizer.evaluate(check("root"))).toEqual({
+    expect(await authorizer.evaluate(check("root"))).toMatchObject({
       allowed: false,
     });
 
@@ -679,8 +700,8 @@ describe("LocalAuthorizer — paged reads", () => {
     );
 
     expect(grantPages.map(([, , opts]) => opts.query)).toEqual([
-      { page: 1, take: 100 },
-      { page: 2, take: 100 },
+      { page: 1, take: 100, include: "windows" },
+      { page: 2, take: 100, include: "windows" },
     ]);
     expect(authorizer.snapshot()).toMatchObject({
       grantFetches: 1,
@@ -711,6 +732,7 @@ describe("LocalAuthorizer — paged reads", () => {
 
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
 
     const treePages = request.mock.calls.filter(
@@ -754,6 +776,7 @@ describe("LocalAuthorizer — paged reads", () => {
 
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
 
     // The revalidation is one conditional request for page 1, answered 304:
@@ -800,7 +823,7 @@ describe("LocalAuthorizer — paged reads", () => {
 
     const authorizer = new LocalAuthorizer(canopy.client);
 
-    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+    expect(await authorizer.evaluate(check("frontend"))).toMatchObject({
       allowed: false,
     });
     expect(
@@ -838,6 +861,7 @@ describe("LocalAuthorizer — paged reads", () => {
 
     expect(await authorizer.evaluate(check("frontend"))).toEqual({
       allowed: true,
+      reason: null,
     });
 
     // Three walks, each confirmed against the next version.
