@@ -186,6 +186,15 @@ await canopy.organizations.addMember(acme.id, {
   role_id: ownerRoleId,
 });
 
+// Invite by email straight to an office, for a fixed window. Someone already
+// in the Environment receives a request to join, and accepting is their consent.
+await canopy.organizations.createInvite(acme.id, {
+  email: "lee@acme.example",
+  role_id: agentRoleId,
+  node_id: euOfficeId,
+  effective_to: "2026-12-31T23:59:59.999Z",
+});
+
 // An organization only tightens the Environment: a second factor where the
 // Environment leaves it optional, and only some of the Environment's ways in.
 await canopy.organizations.updatePolicy(acme.id, {
