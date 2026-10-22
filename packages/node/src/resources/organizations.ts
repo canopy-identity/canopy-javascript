@@ -9,8 +9,8 @@ import type {
 } from "../schema.js";
 
 /**
- * Tenant organizations: one per business customer, a role per membership,
- * each with its own authentication policy and identity provider. Every
+ * Tenant organizations: one per business customer, membership apart from
+ * the roles held inside it, each with its own authentication policy and identity provider. Every
  * call here needs the Environment's organizations container switched on.
  */
 export class Organizations {
@@ -76,7 +76,7 @@ export class Organizations {
     return this.client.request("DELETE", "/api/v1/organizations");
   }
 
-  // ── Members: one role per member, held inside the organization only ──
+  // ── Members: admission to the organization, apart from the roles held in it ──
 
   listMembers(
     id: string,
@@ -102,19 +102,12 @@ export class Organizations {
     );
   }
 
-  changeMemberRole(
-    id: string,
-    identityId: string,
-    input: RequestBody<"ApiOrganizationsController_changeMemberRole">,
-  ): Promise<ResponseBody<"ApiOrganizationsController_changeMemberRole">> {
-    return this.client.request(
-      "PATCH",
-      `/api/v1/organizations/${enc(id)}/members/${enc(identityId)}`,
-      { body: input },
-    );
-  }
-
-  /** Revokes that organization's one role; the identity and its other memberships are untouched. */
+  /**
+   * Deactivates the membership and revokes every role the member holds at
+   * the organization's nodes; the identity and its other memberships are
+   * untouched. A role in the organization is changed through the
+   * organization's assignment routes, not here.
+   */
   removeMember(id: string, identityId: string): Promise<void> {
     return this.client.request(
       "DELETE",

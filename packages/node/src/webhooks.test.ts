@@ -42,9 +42,10 @@ describe("webhook event types", () => {
   it("marks a change directory sync made", () => {
     type Added = WebhookEventData<"organization.member.added">["metadata"];
 
-    // Set for a member a directory pushed, beside the invite and SSO sources.
+    // Set for a member a directory pushed, beside the invite, SSO and
+    // self-signup sources.
     expectTypeOf<Added["source"]>().toEqualTypeOf<
-      "sso_jit" | "invite" | "scim" | undefined
+      "sso_jit" | "invite" | "scim" | "self_signup" | undefined
     >();
     expectTypeOf<Added["directory_id"]>().toEqualTypeOf<
       string | null | undefined
@@ -60,9 +61,19 @@ describe("webhook event types", () => {
     type Added = WebhookEventData<"organization.member.added">["metadata"];
 
     expectTypeOf<Added["identity_id"]>().toEqualTypeOf<string>();
-    expectTypeOf<Added["role_id"]>().toEqualTypeOf<string>();
+    // Membership is admission; a role from the start is optional, as is
+    // the assignment that carries it.
+    expectTypeOf<Added["membership_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Added["role_id"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Added["assignment_id"]>().toEqualTypeOf<string | undefined>();
     // Present only for a just-in-time or invited member, so optional.
     expectTypeOf<Added["invite_id"]>().toEqualTypeOf<string | undefined>();
+
+    // Removing a member says how many assignments went with the membership.
+    type Removed = WebhookEventData<"organization.member.removed">["metadata"];
+
+    expectTypeOf<Removed["identity_id"]>().toEqualTypeOf<string>();
+    expectTypeOf<Removed["assignments_removed"]>().toEqualTypeOf<number>();
 
     // `assignment.updated` carries the node it is held at.
     type Updated = WebhookEventData<"assignment.updated">["metadata"];
