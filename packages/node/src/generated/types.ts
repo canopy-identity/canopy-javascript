@@ -1261,7 +1261,7 @@ export interface paths {
         put?: never;
         /**
          * Add a member to an organization
-         * @description Adds a member. Membership is admission, not authority: with `role_id` the member also holds that role at the organization node from the start; without it they belong and hold nothing until a role is assigned. The identity must already hold an active membership in this Environment (invite by email instead for someone who does not). An identity that is already a member returns `409`; roles are added through the assignment routes. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.added`. An organization's own administrator, signed in with an identity token and admitted by `canopy:organization.manage` alone, is refused with `403` (`organization.member_add_requires_invite`): the person never agreed to join, so the administrator invites them instead.
+         * @description Adds a member. Membership is admission, not authority: with `role_id` the member also holds that role from the start, at the organization node or at the office or team `node_id` names, for the `effective_from` to `effective_to` window when given; without it they belong and hold nothing until a role is assigned (a place or dates need a role, `400 invite.window_requires_role`). The identity must already hold an active membership in this Environment (invite by email instead for someone who does not). An identity that is already a member returns `409`; roles are added through the assignment routes. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.added`. An organization's own administrator, signed in with an identity token and admitted by `canopy:organization.manage` alone, is refused with `403` (`organization.member_add_requires_invite`): the person never agreed to join, so the administrator invites them instead.
          */
         post: operations["ApiOrganizationsController_addMember"];
         delete?: never;
@@ -1325,7 +1325,7 @@ export interface paths {
         put?: never;
         /**
          * Invite a member into an organization
-         * @description Invites an email into the organization with the role bound to the invitation; acceptance creates the Environment membership and the organization membership in one step. Works for emails with no identity in the Environment — one is created on acceptance. Requires the `identity.manage` permission and emits `invite.created`.
+         * @description Invites an email into the organization. `role_id` is held on acceptance at `node_id`, the organization node (the default) or an office or team beneath it, for the `effective_from` to `effective_to` window when given; with no `role_id` the invitation admits a member holding nothing, which only the organization node allows (`400 invite.malformed_assignment` beneath it). Acceptance creates what is missing in one transaction: the identity, its Environment membership, the organization membership and the role. For someone who already holds an active membership in this Environment the invitation is a request to join (`intent: grant`): accepting is their consent, proven by their password or their own sign-in. Requires the `identity.manage` permission, or `canopy:organization.manage` at the organization or `canopy:access.manage` at the place for the organization's own administrators, and emits `invite.created`.
          */
         post: operations["ApiOrganizationsController_createInvite"];
         delete?: never;
@@ -2708,12 +2708,28 @@ export interface components {
             name: string;
             role_id?: string | null;
             node_id?: string | null;
+            /** @description The name of the node at `node_id`, when it has one. */
+            node_name?: string | null;
+            /** @description The organization the invitation joins, when `node_id` is an organization node or sits beneath one. */
+            organization_node_id?: string | null;
+            /**
+             * Format: date-time
+             * @description When the role it grants starts to count.
+             */
+            effective_from?: string | null;
+            /**
+             * Format: date-time
+             * @description When the role it grants stops counting.
+             */
+            effective_to?: string | null;
             has_initial_assignment: boolean;
             /** @enum {string} */
             status: "pending" | "accepted" | "revoked" | "expired";
             /** Format: date-time */
             expires_at: string;
             invited_by: string;
+            /** @description The customer's own administrator who sent it with their identity token; `invited_by` names a platform user instead. */
+            invited_by_identity_id?: string | null;
             /** Format: date-time */
             created_at: string;
         };
@@ -2739,12 +2755,28 @@ export interface components {
             name: string;
             role_id?: string | null;
             node_id?: string | null;
+            /** @description The name of the node at `node_id`, when it has one. */
+            node_name?: string | null;
+            /** @description The organization the invitation joins, when `node_id` is an organization node or sits beneath one. */
+            organization_node_id?: string | null;
+            /**
+             * Format: date-time
+             * @description When the role it grants starts to count.
+             */
+            effective_from?: string | null;
+            /**
+             * Format: date-time
+             * @description When the role it grants stops counting.
+             */
+            effective_to?: string | null;
             has_initial_assignment: boolean;
             /** @enum {string} */
             status: "pending" | "accepted" | "revoked" | "expired";
             /** Format: date-time */
             expires_at: string;
             invited_by: string;
+            /** @description The customer's own administrator who sent it with their identity token; `invited_by` names a platform user instead. */
+            invited_by_identity_id?: string | null;
             /** Format: date-time */
             created_at: string;
             /** @description Tokenized URL the invitee would land on. Returned so callers that pass send_email=false can deliver it themselves. */
@@ -2763,7 +2795,7 @@ export interface components {
             first_name?: string;
             /** @description Required for `activate`. Ignored for `add_to_app` and `password_reset`. */
             last_name?: string;
-            /** @description Role ID — required if node_id is provided */
+            /** @description The role the invitation grants at `node_id`. Required with a `node_id`, except an organization node, where an invitation may admit a member with no role. */
             role_id?: string;
             /** @description Node ID — required if role_id is provided */
             node_id?: string;
@@ -2772,6 +2804,16 @@ export interface components {
              * @default true
              */
             send_email: boolean;
+            /**
+             * Format: date-time
+             * @description When the role starts to count (ISO 8601). Copied onto the assignment the invitation grants; needs a role.
+             */
+            effective_from?: string;
+            /**
+             * Format: date-time
+             * @description When the role stops counting (ISO 8601), after `effective_from`. Copied onto the assignment; an invitation whose window has ended by acceptance is refused with `400 invite.window_ended`.
+             */
+            effective_to?: string;
         };
         BulkCreateIdentityInvitesDto: {
             invites: components["schemas"]["CreateIdentityInviteDto"][];
@@ -3235,12 +3277,36 @@ export interface components {
             identity_id: string;
             /** @description A role to hold at the organization node from the start, from the Environment's roles. Left out, the member belongs and holds nothing until a role is assigned. */
             role_id?: string;
+            /** @description Where the role is held: the organization node (the default) or an office or team beneath it. Needs a role. */
+            node_id?: string;
+            /**
+             * Format: date-time
+             * @description When the role starts to count (ISO 8601). Needs a role.
+             */
+            effective_from?: string;
+            /**
+             * Format: date-time
+             * @description When the role stops counting (ISO 8601), after `effective_from`. Needs a role.
+             */
+            effective_to?: string;
         };
         CreateOrganizationInviteDto: {
             /** @description Email to invite. Works for people with no identity in this Environment — one is created when they accept. */
             email: string;
-            /** @description The role the member will hold in this organization on acceptance. */
-            role_id: string;
+            /** @description The role the person holds on acceptance, at `node_id`. Optional at the organization node, where accepting admits a member with no role; required for a place beneath it. */
+            role_id?: string;
+            /** @description Where the role is held: the organization node (the default) or an office or team beneath it. Accepting admits the person to the organization either way. */
+            node_id?: string;
+            /**
+             * Format: date-time
+             * @description When the role starts to count (ISO 8601). Copied onto the assignment the invitation grants; needs a role.
+             */
+            effective_from?: string;
+            /**
+             * Format: date-time
+             * @description When the role stops counting (ISO 8601), after `effective_from`. Copied onto the assignment; an invitation whose window has ended by acceptance is refused with `400 invite.window_ended`.
+             */
+            effective_to?: string;
             first_name?: string;
             last_name?: string;
             /**
@@ -8844,7 +8910,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation; `role_id` and `node_id` were not given together; a `password_reset` invite carries a role assignment or names an email with no identity; or `client_id` names no active OAuth client in this Environment, or one with no invite redirect URL; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation; `role_id` came with no `node_id`, or a `node_id` with no `role_id` outside an organization node (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); a `password_reset` invite carries a role assignment or names an email with no identity; or `client_id` names no active OAuth client in this Environment, or one with no invite redirect URL; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8855,7 +8921,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation; `role_id` and `node_id` were not given together; a `password_reset` invite carries a role assignment or names an email with no identity; or `client_id` names no active OAuth client in this Environment, or one with no invite redirect URL; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation; `role_id` came with no `node_id`, or a `node_id` with no `role_id` outside an organization node (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); a `password_reset` invite carries a role assignment or names an email with no identity; or `client_id` names no active OAuth client in this Environment, or one with no invite redirect URL; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "POST"
@@ -8907,7 +8973,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description A pending invite already exists for this email at this scope, the identity already has access to this Environment, or the node sits inside an organization the identity is not a member of */
+            /** @description A pending invite already exists for this email at this scope, the identity already has access to this Environment and the invitation joins no organization (`invite.identity_already_in_app`), or the identity is already an active member of the organization it joins (`organization.member_exists`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8918,7 +8984,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "A pending invite already exists for this email at this scope, the identity already has access to this Environment, or the node sits inside an organization the identity is not a member of",
+                     *         "message": "A pending invite already exists for this email at this scope, the identity already has access to this Environment and the invitation joins no organization (`invite.identity_already_in_app`), or the identity is already an active member of the organization it joins (`organization.member_exists`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "POST"
@@ -14058,7 +14124,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, or the role is a system role, which cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14069,7 +14135,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, or the role is a system role, which cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
                      *         "method": "POST"
@@ -14121,7 +14187,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization, the identity or the role does not exist in this Environment */
+            /** @description The organization, the identity or the role does not exist in this Environment, or `node_id` is not the organization or a place beneath it */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14132,7 +14198,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "The organization, the identity or the role does not exist in this Environment",
+                     *         "message": "The organization, the identity or the role does not exist in this Environment, or `node_id` is not the organization or a place beneath it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
                      *         "method": "POST"
@@ -14565,7 +14631,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14576,7 +14642,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
                      *         "method": "POST"
@@ -14628,7 +14694,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Organization not found */
+            /** @description The organization does not exist, or `node_id` is not the organization or a place beneath it */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -14639,7 +14705,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": null,
-                     *         "message": "Organization not found",
+                     *         "message": "The organization does not exist, or `node_id` is not the organization or a place beneath it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
                      *         "method": "POST"
@@ -14649,7 +14715,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description A pending invitation already exists for this email, or the identity already has active access to this Environment */
+            /** @description A pending invitation already exists for this email at this place, or the identity is already an active member of the organization (`organization.member_exists`); give a member a role through the assignment routes */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14660,7 +14726,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "A pending invitation already exists for this email, or the identity already has active access to this Environment",
+                     *         "message": "A pending invitation already exists for this email at this place, or the identity is already an active member of the organization (`organization.member_exists`); give a member a role through the assignment routes",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
                      *         "method": "POST"
