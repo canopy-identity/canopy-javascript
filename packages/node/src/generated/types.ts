@@ -11326,8 +11326,8 @@ export interface operations {
                 take?: number;
                 /** @description Search member names and emails */
                 q?: string;
-                /** @description Sort column. Defaults to `created`, oldest membership first. */
-                sort_by?: "name" | "email" | "created";
+                /** @description Sort column. Defaults to `joined`, longest-standing member first. */
+                sort_by?: "name" | "email" | "joined";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
             };
