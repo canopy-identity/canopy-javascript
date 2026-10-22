@@ -143,8 +143,10 @@ throws with neither. Getting it wrong fails closed: tokens are rejected, never
 mistakenly accepted.
 
 With an Environment's **organizations** container on, an identity token also
-names the organization the session is acting in and the one role held there. Read the pair through `orgContext` rather than off the raw claims —
-Canopy mints the two together, and the helper refuses a half-present pair:
+names the organization the session is acting in and the roles held at that
+organization's node. Read the pair through `orgContext` rather than off the raw
+claims — Canopy mints the two together, and the helper refuses a half-present
+pair:
 
 ```ts
 import { orgContext } from "@canopy-io/node";
@@ -153,12 +155,20 @@ const org = orgContext(claims);
 
 if (org) {
   org.orgId; // the organization — also a hierarchy node id
-  org.orgRole; // the single role held there, by name
+  org.orgRoles; // the roles held at its node, by name; [] for a member holding none there
 }
 ```
 
 `null` is an ordinary answer: every token from an Environment without the
-container on, and every identity that belongs to no organization yet.
+container on, and every identity that belongs to no organization yet. An empty
+`orgRoles` is not: membership is admission, and a member may hold roles only
+beneath the organization. Authorize by evaluating, never by the list.
+
+A grant inside an organization counts only while the membership is active.
+The grants `LocalAuthorizer` caches already apply that: a deactivated
+membership drops every grant inside the organization from the next read, so
+the authorizer sees it within the cache TTL, and sooner on
+`invalidate(identityId)` when an `organization.member.removed` webhook arrives.
 
 Tokens also carry `amr`, how the session was proven (`pwd`, `otp` or `sso`,
 plus `mfa` once a second factor was verified), so a backend can insist on

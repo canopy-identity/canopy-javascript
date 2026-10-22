@@ -112,12 +112,13 @@ The default is `node`, which is the strict question: does this identity hold the
 ```
 
 `org` is for Environments with the **organizations** container on, where a
-token carries the organization the session is acting in (`org_id`) and the one
-role held there (`org_role`). The guard reads `org_id` off the verified claims
-`CanopyTokenGuard` attached and evaluates at that node — an organization _is_ a
-hierarchy node, and a membership is a role assignment at it, so no `resolveNode`
-and no node in the route's path are needed. A caller acting in no organization
-is denied: an org-scoped route has no meaning outside one.
+token carries the organization the session is acting in (`org_id`) and the
+roles held at its node (`org_roles`, possibly none). The guard reads `org_id`
+off the verified claims `CanopyTokenGuard` attached and evaluates at that node —
+an organization _is_ a hierarchy node, and a member's roles are assignments at
+it or beneath it, so no `resolveNode` and no node in the route's path are
+needed. A caller acting in no organization is denied: an org-scoped route has
+no meaning outside one.
 
 If your own auth layer verifies tokens and parks the claims somewhere other
 than `attachTokenAs`, configure `resolveOrg` — and feed it only a value read

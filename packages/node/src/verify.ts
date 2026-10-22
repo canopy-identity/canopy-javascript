@@ -213,24 +213,29 @@ export interface CanopyTokenClaims {
    * The organization this session is acting in — present only on identity
    * tokens from an Environment with the organizations container on, for an
    * identity that belongs to at least one organization. Always minted
-   * together with `org_role`; read the pair through {@link orgContext}
+   * together with `org_roles`; read the pair through {@link orgContext}
    * rather than separately.
    */
   org_id?: string;
-  /** The name of the single role the identity holds in `org_id`. */
-  org_role?: string;
+  /**
+   * The names of the roles the identity holds at the organization's own node,
+   * sorted; empty for a member who holds none there. Membership is admission,
+   * not a role: a member may hold roles only beneath the organization, or
+   * none at all.
+   */
+  org_roles?: string[];
   [claim: string]: unknown;
 }
 
 /**
  * The organization context a verified token carries: which organization the
- * session is acting in, and the one role it holds there.
+ * session is acting in, and the roles it holds at that organization's node.
  */
 export interface CanopyOrgContext {
   /** The organization's id — also a hierarchy node id, usable as `node_id`. */
   orgId: string;
-  /** The role's name (not its id): what `org_role` carries. */
-  orgRole: string;
+  /** The roles' names (not ids) held at the organization node: what `org_roles` carries. Empty for a member holding none there. */
+  orgRoles: string[];
 }
 
 /**
@@ -239,32 +244,34 @@ export interface CanopyOrgContext {
  * `null` is an ordinary answer, not a failure: it is every token from an
  * Environment without the organizations container on, and every identity
  * that belongs to no organization yet. Branch on it rather than on the raw claims —
- * Canopy mints `org_id` and `org_role` together, and this helper refuses a
+ * Canopy mints `org_id` and `org_roles` together, and this helper refuses a
  * half-present pair instead of letting one claim be read as though the other
- * were there.
+ * were there. An empty `orgRoles` is a member of the organization holding no
+ * role at its node; authorize such a session by evaluating, never by the
+ * list's length.
  *
  * ```ts
  * const claims = await verifier.verify(token);
  * const org = orgContext(claims);
  *
  * if (org) {
- *   // acting inside org.orgId as org.orgRole
+ *   // acting inside org.orgId, holding org.orgRoles at its node
  * }
  * ```
  */
 export function orgContext(claims: CanopyTokenClaims): CanopyOrgContext | null {
-  const { org_id, org_role } = claims;
+  const { org_id, org_roles } = claims;
 
   if (
     typeof org_id !== "string" ||
     org_id === "" ||
-    typeof org_role !== "string" ||
-    org_role === ""
+    !Array.isArray(org_roles) ||
+    org_roles.some((role) => typeof role !== "string" || role === "")
   ) {
     return null;
   }
 
-  return { orgId: org_id, orgRole: org_role };
+  return { orgId: org_id, orgRoles: [...org_roles] };
 }
 
 interface JwksKey {

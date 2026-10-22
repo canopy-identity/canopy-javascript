@@ -928,6 +928,202 @@
           "sdk_reason": null
         }
       ]
+    },
+    {
+      "name": "organization-membership",
+      "description": "Inside the organizations container an assignment at the organization node or beneath it counts only while the holder's membership there is active. A deactivated membership leaves its assignments in place and they grant nothing: the grants read lists none of them, and a check answers ORGANIZATION_MEMBERSHIP_INACTIVE. A membership in another organization is untouched.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "acme",
+          "parent": "root",
+          "organization": true
+        },
+        {
+          "id": "office",
+          "parent": "acme"
+        },
+        {
+          "id": "globex",
+          "parent": "root",
+          "organization": true
+        }
+      ],
+      "permissions": [
+        "reports.view"
+      ],
+      "roles": [
+        {
+          "id": "viewer",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "jo",
+          "memberships": [
+            {
+              "organization": "acme"
+            }
+          ]
+        },
+        {
+          "id": "kim",
+          "memberships": [
+            {
+              "organization": "acme",
+              "active": false
+            },
+            {
+              "organization": "globex"
+            }
+          ]
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "jo",
+          "role": "viewer",
+          "node": "office"
+        },
+        {
+          "identity": "kim",
+          "role": "viewer",
+          "node": "office"
+        },
+        {
+          "identity": "kim",
+          "role": "viewer",
+          "node": "globex"
+        }
+      ],
+      "grants": {
+        "jo": [
+          {
+            "permission": "reports.view",
+            "node": "office"
+          }
+        ],
+        "kim": [
+          {
+            "permission": "reports.view",
+            "node": "globex"
+          }
+        ]
+      },
+      "grant_windows": {
+        "jo": [
+          {
+            "permission": "reports.view",
+            "node": "office"
+          }
+        ],
+        "kim": [
+          {
+            "permission": "reports.view",
+            "node": "globex"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "jo",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [
+            "office"
+          ],
+          "nodes": [
+            "office"
+          ]
+        },
+        {
+          "identity": "kim",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [
+            "globex"
+          ],
+          "nodes": [
+            "globex"
+          ]
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "jo",
+          "node": "office",
+          "permissions": [
+            "reports.view"
+          ]
+        },
+        {
+          "identity": "kim",
+          "node": "office",
+          "permissions": []
+        },
+        {
+          "identity": "kim",
+          "node": "globex",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "identity": "jo",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "office",
+          "granting_roles": [
+            "viewer"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "kim",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "office",
+          "allowed": false,
+          "reason": "ORGANIZATION_MEMBERSHIP_INACTIVE",
+          "effective_node": null,
+          "granting_roles": [],
+          "sdk_reason": "outside_grants"
+        },
+        {
+          "identity": "kim",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "globex",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "globex",
+          "granting_roles": [
+            "viewer"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "kim",
+          "permission": "reports.view",
+          "scope": "app_wide",
+          "allowed": true,
+          "reason": null,
+          "effective_node": null,
+          "granting_roles": [],
+          "sdk_reason": null
+        }
+      ]
     }
   ]
 }
