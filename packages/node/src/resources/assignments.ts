@@ -1,6 +1,12 @@
 import type { CanopyClient } from "../client.js";
 import { paginate, type Paginator } from "../pagination.js";
-import type { QueryParams, RequestBody, ResponseBody } from "../schema.js";
+import { withConcurrency } from "../schema.js";
+import type {
+  ConcurrencyOptions,
+  QueryParams,
+  RequestBody,
+  ResponseBody,
+} from "../schema.js";
 
 /**
  * Role grants: which identity holds which role, at which node.
@@ -37,14 +43,20 @@ export class Assignments {
     return this.client.request("POST", "/api/v1/assignments", { body: input });
   }
 
+  /**
+   * Change the role or the window of a grant. Pass the `version` the
+   * assignment was read with as `ifMatch`; a stale one answers 409
+   * `assignment.version_mismatch` rather than overwriting a newer change.
+   */
   update(
     id: string,
     input: RequestBody<"ApiAssignmentsController_updateAssignment">,
+    options: ConcurrencyOptions = {},
   ): Promise<ResponseBody<"ApiAssignmentsController_updateAssignment">> {
     return this.client.request(
       "PATCH",
       `/api/v1/assignments/${encodeURIComponent(id)}`,
-      { body: input },
+      { body: input, ...withConcurrency(options) },
     );
   }
 

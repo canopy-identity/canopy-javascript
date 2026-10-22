@@ -659,8 +659,19 @@ describe("orgContext", () => {
 
   it("returns the pair when both claims are present", () => {
     expect(
-      orgContext({ ...base, org_id: "org_acme", org_role: "billing-admin" }),
-    ).toEqual({ orgId: "org_acme", orgRole: "billing-admin" });
+      orgContext({
+        ...base,
+        org_id: "org_acme",
+        org_roles: ["billing-admin", "viewer"],
+      }),
+    ).toEqual({ orgId: "org_acme", orgRoles: ["billing-admin", "viewer"] });
+  });
+
+  it("answers a member holding no role at the organization node with an empty list", () => {
+    expect(orgContext({ ...base, org_id: "org_acme", org_roles: [] })).toEqual({
+      orgId: "org_acme",
+      orgRoles: [],
+    });
   });
 
   it("returns null for a token with no org claims", () => {
@@ -669,26 +680,41 @@ describe("orgContext", () => {
 
   it("refuses a half-present pair rather than reading one claim alone", () => {
     expect(orgContext({ ...base, org_id: "org_acme" })).toBeNull();
-    expect(orgContext({ ...base, org_role: "billing-admin" })).toBeNull();
+    expect(orgContext({ ...base, org_roles: ["billing-admin"] })).toBeNull();
   });
 
-  it("treats empty strings as absent", () => {
+  it("treats an empty organization id, and an empty role name, as absent", () => {
     expect(
-      orgContext({ ...base, org_id: "", org_role: "billing-admin" }),
+      orgContext({ ...base, org_id: "", org_roles: ["billing-admin"] }),
     ).toBeNull();
     expect(
-      orgContext({ ...base, org_id: "org_acme", org_role: "" }),
+      orgContext({ ...base, org_id: "org_acme", org_roles: [""] }),
     ).toBeNull();
   });
 
-  it("refuses non-string values a forged or future token might carry", () => {
-    const forged = {
+  it("refuses values a forged or future token might carry", () => {
+    const forgedId = {
       ...base,
       org_id: 42,
-      org_role: "billing-admin",
+      org_roles: ["billing-admin"],
+    } as unknown as CanopyTokenClaims;
+    const forgedRoles = {
+      ...base,
+      org_id: "org_acme",
+      org_roles: "billing-admin",
     } as unknown as CanopyTokenClaims;
 
-    expect(orgContext(forged)).toBeNull();
+    expect(orgContext(forgedId)).toBeNull();
+    expect(orgContext(forgedRoles)).toBeNull();
+  });
+
+  it("hands back a copy, so a caller cannot edit the claims through it", () => {
+    const claims = { ...base, org_id: "org_acme", org_roles: ["viewer"] };
+    const org = orgContext(claims);
+
+    org?.orgRoles.push("admin");
+
+    expect(claims.org_roles).toEqual(["viewer"]);
   });
 });
 

@@ -834,6 +834,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/organizations/{id}/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the caller administers in an organization
+         * @description The authority read a customer's admin screen renders from: whether the caller holds `canopy:organization.manage` at the organization node (`administers_organization`), the topmost nodes where they hold `canopy:access.manage` inside it (`access_roots`, each with its name, type and the path of names from the organization down to it; the organization node itself when they administer the organization), the same for the structure and roles keys (empty until those ship), and whether the Environment's schema allows nodes beneath an organization (`has_hierarchy`). Computed from assignments at or beneath the organization node only, so a role held above every organization does not count. The developer's key answers as administering the whole organization. Refused with `403` for a caller holding nothing inside the organization.
+         */
+        get: operations["ApiOrganizationAccessController_me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the organization's tree as the caller sees it
+         * @description The organization's subtree pruned to the caller: every node beneath a node they administer is `accessible`, the ancestors between the organization node and such a node are `context_only`, and nothing else is returned. A paged flat list, each row carrying its parent, in the shape of the developer's node listing. Admitted to whoever the authority read admits.
+         */
+        get: operations["ApiOrganizationAccessController_tree"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List who holds a role at a node in the organization
+         * @description Who holds a role at the node, directly or inherited from a node above it inside the organization: one row per assignment with the identity, the role, where it was granted and its window. Paginated; filtered and sorted as the developer's node identities listing is. Requires `hierarchy.view` at the node, or `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it.
+         */
+        get: operations["ApiOrganizationAccessController_listAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/access/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Summarize who holds a role at a node in the organization
+         * @description The counts over the node's assignments: direct and inherited people, by status, roles in use and the most recent arrivals, with `can_manage_assignments` saying whether the caller may change them. Requires the same as the node access listing.
+         */
+        get: operations["ApiOrganizationAccessController_accessSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/grantable-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the roles the caller may grant at a node
+         * @description The active, assignable roles of the Environment kept to the ones the caller may grant at the node under the grant ceiling: for an identity, those whose every permission it holds at the node or above; every assignable role for the developer's key and Console users. The list a picker offers, so nothing it shows is refused on write. Requires `canopy:access.manage` at the node or above it, `canopy:organization.manage` at the organization, or `hierarchy.manage` at the node. The response is an unpaginated `{ items }` array.
+         */
+        get: operations["ApiOrganizationAccessController_grantableRoles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the organization's members, for granting a role at a node
+         * @description The organization's members as candidates for a role at the node: each row names the identity only. Paginated; `q` searches name and email. Requires the same as the grantable-roles read at the node, so an administrator of one office may choose from the whole organization's roster without reading what anyone else holds.
+         */
+        get: operations["ApiOrganizationAccessController_listMembersAt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grant a role at a node beneath the organization
+         * @description Grants `role_id` to `identity_id` at `node_id`, the organization node or one beneath it. The identity must be a member of the organization (`409 organization.membership_required` otherwise). Requires `rbac.manage_assignments` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, within the grant ceiling. Emits `assignment.created`.
+         */
+        post: operations["ApiOrganizationAccessController_createAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/assignments/{assignmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take a grant in the organization away
+         * @description Removes an assignment at the organization node or beneath it; the membership stays. Never bounded by the grant ceiling, but the last administrator's role at the organization node cannot be removed (`409 organization.last_admin`). Requires the same as creating one.
+         */
+        delete: operations["ApiOrganizationAccessController_removeAssignment"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a grant in the organization
+         * @description Changes the role or the window of an assignment at the organization node or beneath it. A new role meets the grant ceiling; dates alone do not. The last administrator's role at the organization node cannot be changed away (`409 organization.last_admin`). Requires the same as creating one.
+         */
+        patch: operations["ApiOrganizationAccessController_updateAssignment"];
+        trace?: never;
+    };
     "/api/v1/organizations": {
         parameters: {
             query?: never;
@@ -1091,13 +1255,13 @@ export interface paths {
         };
         /**
          * List an organization's members
-         * @description Lists the organization's members: each row is the member's identity, their single role in this organization, effective dates, when they joined, and `node_assignments`, the grants the member also holds at nodes beneath the organization (empty in a flat Environment). Paginated; `q` searches name and email. Requires the `rbac.view_assignments` permission at the organization.
+         * @description Lists the organization's members: each row is the membership (its `status`, `source` and `joined_at`), the member's identity, and `roles`, every role assignment the member holds in the organization, at its node and beneath, with the node and the effective window. Active members by default; `status=deactivated` lists those who left and `status=all` both. Paginated; `q` searches name and email, `role_id` keeps members holding that role anywhere in the organization. Requires the `rbac.view_assignments` permission at the organization.
          */
         get: operations["ApiOrganizationsController_listMembers"];
         put?: never;
         /**
          * Add a member to an organization
-         * @description Adds a member: assigns `role_id` to `identity_id` at the organization. The identity must already hold an active membership in this Environment (invite by email instead for someone who does not). A member holds exactly one role per organization, so an identity that is already a member returns `409` — use the change-role operation. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.added`. An organization's own administrator, signed in with an identity token and admitted by `canopy:organization.manage` alone, is refused with `403` (`organization.member_add_requires_invite`): the person never agreed to join, so the administrator invites them instead.
+         * @description Adds a member. Membership is admission, not authority: with `role_id` the member also holds that role at the organization node from the start; without it they belong and hold nothing until a role is assigned. The identity must already hold an active membership in this Environment (invite by email instead for someone who does not). An identity that is already a member returns `409`; roles are added through the assignment routes. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.added`. An organization's own administrator, signed in with an identity token and admitted by `canopy:organization.manage` alone, is refused with `403` (`organization.member_add_requires_invite`): the person never agreed to join, so the administrator invites them instead.
          */
         post: operations["ApiOrganizationsController_addMember"];
         delete?: never;
@@ -1118,16 +1282,12 @@ export interface paths {
         post?: never;
         /**
          * Remove a member from an organization
-         * @description Removes the member from this organization, revoking their role here and nothing else — the identity and its memberships in other organizations are untouched. Returns `404` when the identity is not a member. Responds `204 No Content`, requires the `rbac.manage_assignments` permission at the organization, and emits `organization.member.removed`.
+         * @description Removes the member from this organization: the membership is deactivated and every role assignment they hold at the organization's nodes goes with it, and nothing else; the identity and its memberships in other organizations are untouched. Returns `404` when the identity is not an active member and `409` when they are the last administrator. Responds `204 No Content`, requires the `rbac.manage_assignments` permission at the organization, and emits `organization.member.removed`.
          */
         delete: operations["ApiOrganizationsController_removeMember"];
         options?: never;
         head?: never;
-        /**
-         * Change a member's role
-         * @description Replaces the member's role in this organization with `role_id`. A member holds exactly one role per organization, so this updates the existing membership in place; changing to the role already held is a no-op. Returns `404` when the identity is not a member. Requires the `rbac.manage_assignments` permission at the organization and emits `organization.member.role_changed`.
-         */
-        patch: operations["ApiOrganizationsController_changeMemberRole"];
+        patch?: never;
         trace?: never;
     };
     "/api/v1/organizations/{id}/members/{identityId}/mfa/reset": {
@@ -1183,7 +1343,7 @@ export interface paths {
         };
         /**
          * List the roles an organization may assign
-         * @description The active, assignable roles of the organization's Environment, for choosing a member's role or an invitation's. System roles are left out, since they cannot be assigned. Requires `hierarchy.view` or `canopy:organization.manage` at the organization. The response is an unpaginated `{ items }` array.
+         * @description The active, assignable roles of the organization's Environment, for choosing a member's role or an invitation's, each with `grantable`: whether the caller may grant it at the organization node under the grant ceiling (always true for the developer's key). System roles are left out, since they cannot be assigned. Requires `hierarchy.view`, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the organization node. The response is an unpaginated `{ items }` array.
          */
         get: operations["ApiOrganizationsController_listRoles"];
         put?: never;
@@ -2244,6 +2404,7 @@ export interface components {
             effective_node_id?: string | null;
             /** @description Ids of the roles whose assignments produced a node-scoped allow. Always empty for `scope_evaluated: "app_wide"`, whose answer is not tied to a node, and for a deny. */
             granting_roles: string[];
+            /** @description Why the check was refused: `NO_ROLE_ASSIGNMENT`, `PERMISSION_NOT_GRANTED`, `NODE_SCOPE_VIOLATION`, `ROLE_EXPIRED`, `IDENTITY_INACTIVE`, `IDENTITY_NOT_ENV_MEMBER`, or `ORGANIZATION_MEMBERSHIP_INACTIVE` (assignments sit on the lineage inside an organization the identity's membership in is deactivated, so none count). Null on an allow. */
             denial_reason?: string | null;
         };
         EvaluatePermissionDto: {
@@ -2278,7 +2439,7 @@ export interface components {
             assignment_id: string;
             role_id: string;
             role_name: string;
-            /** @description Whether the assignment counts right now: within its effective_from/effective_to window, and its role is active. An inactive role's assignments are kept but grant nothing. */
+            /** @description Whether the assignment counts right now: within its effective_from/effective_to window, its role active, and, inside an organization, the holder's membership there active. An assignment that fails any of these is listed but grants nothing. */
             active: boolean;
             effective_from?: string | null;
             effective_to?: string | null;
@@ -2352,6 +2513,8 @@ export interface components {
             effective_from: string | null;
             /** @description When this assignment expires; null means it never does */
             effective_to: string | null;
+            /** @description Optimistic-lock version; send it back as `If-Match` */
+            version: number;
         };
         IdentityRowDto: {
             id: string;
@@ -2498,6 +2661,8 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description Optimistic-lock version; send it back as `If-Match` */
+            version: number;
         };
         IdentityAccessibleNodesResponseDto: {
             /** @example reports.view */
@@ -2739,6 +2904,8 @@ export interface components {
             status: "active" | "scheduled" | "expired";
             /** Format: date-time */
             created_at: string;
+            /** @description Optimistic-lock version; send it back as `If-Match` */
+            version: number;
         };
         IdentityAssignmentRowDto: {
             identity: components["schemas"]["AssignmentIdentityDto"];
@@ -2763,6 +2930,65 @@ export interface components {
             distinct_role_count: number;
             recent_identities: components["schemas"]["RecentIdentityDto"][];
         };
+        OrganizationAuthorityRootDto: {
+            node_id: string;
+            name: string;
+            /** @description The node's type, as the schema names it */
+            node_type: string;
+            /** @description The names from the organization node down to this node's parent, so the node can be named in context; empty for the organization node itself */
+            path: string[];
+        };
+        OrganizationMeResponseDto: {
+            /** @description Holds `canopy:organization.manage` at the organization node, or is the developer's key */
+            administers_organization: boolean;
+            /** @description The topmost nodes where `canopy:access.manage` is held inside the organization; the organization node when `administers_organization` */
+            access_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
+            /** @description The same for `canopy:structure.manage`, a key no role carries yet; always empty */
+            structure_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
+            /** @description The same for `canopy:roles.manage`, a key no role carries yet; always empty */
+            roles_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
+            /** @description Whether the Environment's schema allows nodes beneath an organization; false in a flat Environment, where the organization is its only node */
+            has_hierarchy: boolean;
+        };
+        RoleResponseDto: {
+            id: string;
+            application_id: string;
+            name: string;
+            description?: string | null;
+            is_system_role: boolean;
+            system_key?: string | null;
+            is_active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Optimistic-lock version. Send back as the `If-Match` header when updating to detect concurrent edits. */
+            version: number;
+            /** @description Number of permissions currently assigned to this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
+            permission_count?: number;
+            /** @description Number of distinct identities assigned this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
+            member_count?: number;
+        };
+        OrganizationMemberCandidateResponseDto: {
+            identity: components["schemas"]["AssignmentIdentityDto"];
+        };
+        CreateOrganizationAssignmentDto: {
+            /** @description A member of the organization */
+            identity_id: string;
+            /** @description The organization node, or a node beneath it; the identity must be an active member of the organization */
+            node_id: string;
+            /** @description An active, assignable role of the Environment */
+            role_id: string;
+            /** @description When the grant starts (ISO 8601); now when omitted */
+            effective_from?: Record<string, unknown>;
+            /** @description When the grant ends (ISO 8601); never when omitted */
+            effective_to?: Record<string, unknown>;
+        };
+        UpdateAssignmentDto: {
+            role_id: string;
+            effective_from?: string | null;
+            effective_to?: string | null;
+        };
         OrganizationResponseDto: {
             id: string;
             name: string;
@@ -2772,7 +2998,7 @@ export interface components {
             metadata: Record<string, unknown>;
             /** @description Your own id for this organization, unique per Environment. */
             external_id?: string | null;
-            /** @description Members (one role each) in this organization. */
+            /** @description Active members of this organization, whatever roles they hold. */
             member_count: number;
             /** @description Unexpired, unaccepted, unrevoked invitations. */
             pending_invite_count: number;
@@ -2963,38 +3189,52 @@ export interface components {
             name: string;
             node_type: string;
         };
-        OrganizationMemberNodeAssignmentDto: {
+        OrganizationMemberAssignmentDto: {
             /** @description The assignment id. */
             id: string;
-            application_node: components["schemas"]["OrganizationMemberNodeDto"];
             role: components["schemas"]["OrganizationMemberRoleDto"];
-        };
-        OrganizationMemberResponseDto: {
-            /** @description The membership (role assignment) id. */
-            id: string;
-            identity: components["schemas"]["OrganizationMemberIdentityDto"];
-            role: components["schemas"]["OrganizationMemberRoleDto"];
+            node: components["schemas"]["OrganizationMemberNodeDto"];
             /** Format: date-time */
             effective_from?: string | null;
             /** Format: date-time */
             effective_to?: string | null;
+            /** @description The assignment's version, for `If-Match` on a change. */
+            version: number;
+        };
+        OrganizationMemberResponseDto: {
+            /** @description The membership id. */
+            id: string;
+            identity: components["schemas"]["OrganizationMemberIdentityDto"];
+            /**
+             * @description `active` while the identity belongs; `deactivated` once removed, kept for the organization's history.
+             * @enum {string}
+             */
+            status: "active" | "deactivated";
+            /**
+             * @description How the membership began: added by an administrator, an accepted invitation, single sign-on, directory sync, or the organization's own creation on sign-up.
+             * @enum {string}
+             */
+            source: "added" | "invitation" | "sso" | "directory_sync" | "signup";
             /**
              * Format: date-time
-             * @description When the membership was created.
+             * @description When the current membership began.
              */
-            created_at: string;
-            /** @description Assignments the member also holds at nodes beneath the organization. Empty in a flat Environment. */
-            node_assignments: components["schemas"]["OrganizationMemberNodeAssignmentDto"][];
+            joined_at: string;
+            /**
+             * Format: date-time
+             * @description When the member was removed; null while active.
+             */
+            deactivated_at?: string | null;
+            /** @description Every role assignment the member holds in the organization, the organization node first, then beneath it. Empty for a member who holds none. */
+            roles: components["schemas"]["OrganizationMemberAssignmentDto"][];
+            /** @description The membership's version. */
+            version: number;
         };
         AddOrganizationMemberDto: {
             /** @description Identity to add. Must already hold an active membership in this Environment; invite by email instead for someone who does not. */
             identity_id: string;
-            /** @description The single role the member holds in this organization, from the Environment's roles. */
-            role_id: string;
-        };
-        ChangeOrganizationMemberRoleDto: {
-            /** @description The replacement role. A member holds exactly one role per organization, so this updates the existing membership in place. */
-            role_id: string;
+            /** @description A role to hold at the organization node from the start, from the Environment's roles. Left out, the member belongs and holds nothing until a role is assigned. */
+            role_id?: string;
         };
         CreateOrganizationInviteDto: {
             /** @description Email to invite. Works for people with no identity in this Environment — one is created when they accept. */
@@ -3009,7 +3249,7 @@ export interface components {
              */
             send_email: boolean;
         };
-        RoleResponseDto: {
+        OrganizationRoleResponseDto: {
             id: string;
             application_id: string;
             name: string;
@@ -3027,6 +3267,8 @@ export interface components {
             permission_count?: number;
             /** @description Number of distinct identities assigned this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
             member_count?: number;
+            /** @description Whether the caller may grant this role at the organization node under the grant ceiling: for an identity, it holds every permission the role carries there; always true for the developer's key and Console users */
+            grantable: boolean;
         };
         SsoConnectionTestSummaryDto: {
             test_id: string;
@@ -3335,11 +3577,6 @@ export interface components {
             role_id: string;
             effective_from?: string;
             effective_to?: string;
-        };
-        UpdateAssignmentDto: {
-            role_id: string;
-            effective_from?: string | null;
-            effective_to?: string | null;
         };
         BulkRemoveAssignmentsDto: {
             assignment_ids: string[];
@@ -4781,16 +5018,21 @@ export interface components {
                      * @description The identity that joined.
                      */
                     identity_id: string;
-                    /**
-                     * Format: uuid
-                     * @description The role it holds in the organization.
-                     */
-                    role_id: string;
                     /** @description Your own identifier for the organization, when you set one. */
                     external_id?: string | null;
                     /**
                      * Format: uuid
-                     * @description The role assignment that is the membership.
+                     * @description The membership record.
+                     */
+                    membership_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description The role given at the organization node on joining, when one was.
+                     */
+                    role_id?: string;
+                    /**
+                     * Format: uuid
+                     * @description That role's assignment, when a role was given.
                      */
                     assignment_id?: string;
                     /**
@@ -4812,7 +5054,7 @@ export interface components {
                      * @description How the member joined, when it was not added directly.
                      * @enum {string}
                      */
-                    source?: "sso_jit" | "invite" | "scim";
+                    source?: "sso_jit" | "invite" | "scim" | "self_signup";
                 };
             };
         };
@@ -4869,13 +5111,13 @@ export interface components {
                      * @description The identity removed.
                      */
                     identity_id: string;
+                    /** @description Role assignments it held at the organization's nodes, removed with the membership. */
+                    assignments_removed: number;
                     /**
                      * Format: uuid
-                     * @description The role it held.
+                     * @description The membership record, now deactivated.
                      */
-                    role_id: string;
-                    /** @description Grants it held beneath the organization, removed with the membership. */
-                    scoped_assignments_removed: number;
+                    membership_id?: string;
                     /**
                      * @description Set when directory sync made the change rather than somebody directly.
                      * @enum {string}
@@ -5324,8 +5566,7 @@ export interface operations {
     ApiPermissionsController_deletePermission: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -5453,8 +5694,7 @@ export interface operations {
     ApiPermissionsController_updatePermission: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -9584,8 +9824,7 @@ export interface operations {
     ApiNodesController_deleteNode: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -9713,8 +9952,7 @@ export interface operations {
     ApiNodesController_updateNode: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -10135,8 +10373,7 @@ export interface operations {
     ApiNodesController_moveNode: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -10497,6 +10734,1098 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities/summary",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's authority in the organization */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationMeResponseDto"];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_tree: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search node names and slugs */
+                q?: string;
+                /** @description Sort column. Defaults to `created`, oldest first. */
+                sort_by?: "name" | "created";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Nodes returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ScopedNodeResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/tree",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/tree",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/tree",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_listAccess: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search term */
+                q?: string;
+                /** @description Sort field */
+                sort_by?: "name" | "role" | "access_type" | "created_at";
+                /** @description Sort order */
+                order?: "asc" | "desc";
+                /** @description Filter by role ID */
+                role_id?: string;
+                /** @description Filter by access type */
+                access_type?: "direct" | "inherited";
+                /** @description Filter by assignment status */
+                status?: "active" | "scheduled" | "expired";
+                /** @description Filter by source node ID */
+                source_node_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assignments returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["IdentityAssignmentRowDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_accessSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Summary returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeIdentitiesSummaryDto"];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access/summary",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_grantableRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Roles returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["RoleResponseDto"][];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/grantable-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_listMembersAt: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search member names and emails */
+                q?: string;
+                /** @description Sort column. Defaults to `joined`, longest-standing member first. */
+                sort_by?: "name" | "email" | "joined";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Members returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrganizationMemberCandidateResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/members",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/members",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_createAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrganizationAssignmentDto"];
+            };
+        };
+        responses: {
+            /** @description Assignment created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node, or is an identity outside the grant ceiling for the role (`assignment.grant_ceiling`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node, or is an identity outside the grant ceiling for the role (`assignment.grant_ceiling`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity already holds this role at this node, or is not a member of the organization (`organization.membership_required`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The identity already holds this role at this node, or is not a member of the organization (`organization.membership_required`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_removeAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assignment removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the assignment is not at one of its nodes */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the assignment is not at one of its nodes",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The member is the organization's last administrator (`organization.last_admin`); make someone else one first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_updateAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAssignmentDto"];
+            };
+        };
+        responses: {
+            /** @description Assignment updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node, or is an identity outside the grant ceiling for the role (`assignment.grant_ceiling`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node, or is an identity outside the grant ceiling for the role (`assignment.grant_ceiling`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the assignment is not at one of its nodes */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the assignment is not at one of its nodes",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or it is the last administrator's role at the organization node (`organization.last_admin`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or it is the last administrator's role at the organization node (`organization.last_admin`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -10906,8 +12235,7 @@ export interface operations {
     ApiOrganizationsController_deleteOrganization: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -11035,8 +12363,7 @@ export interface operations {
     ApiOrganizationsController_updateOrganization: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -11280,8 +12607,7 @@ export interface operations {
     ApiOrganizationsController_updatePolicy: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -12591,14 +13917,14 @@ export interface operations {
                 take?: number;
                 /** @description Search member names and emails */
                 q?: string;
-                /** @description Sort column. Defaults to `created`, oldest membership first. */
-                sort_by?: "name" | "email" | "role" | "created";
+                /** @description Sort column. Defaults to `joined`, longest-standing member first. */
+                sort_by?: "name" | "email" | "joined";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
-                /** @description Only members holding this role */
+                /** @description Only members holding this role anywhere in the organization, at its node or beneath */
                 role_id?: string;
-                /** @description Filter by the membership's effective window: active now, scheduled to start, or already expired */
-                status?: "active" | "scheduled" | "expired";
+                /** @description Which memberships to list: `active` (the default), `deactivated` for members who left, or `all` */
+                status?: "active" | "deactivated" | "all";
             };
             header?: never;
             path: {
@@ -12816,7 +14142,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The identity is already a member of this organization */
+            /** @description The identity is already a member of this organization (`organization.member_exists`); give them a role through the assignment routes */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12827,7 +14153,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The identity is already a member of this organization",
+                     *         "message": "The identity is already a member of this organization (`organization.member_exists`); give them a role through the assignment routes",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
                      *         "method": "POST"
@@ -12957,140 +14283,6 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}",
                      *         "method": "DELETE"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-        };
-    };
-    ApiOrganizationsController_changeMemberRole: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                identityId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ChangeOrganizationMemberRoleDto"];
-            };
-        };
-        responses: {
-            /** @description Member role changed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        data: components["schemas"]["OrganizationMemberResponseDto"];
-                    };
-                };
-            };
-            /** @description The request failed validation, or the role is inactive or a system role; or the request sent both an `X-API-Key` and an `Authorization` header */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 400,
-                     *         "code": null,
-                     *         "message": "The request failed validation, or the role is inactive or a system role; or the request sent both an `X-API-Key` and an `Authorization` header",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations/{id}/members/{identityId}",
-                     *         "method": "PATCH"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description Invalid or expired token */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 401,
-                     *         "code": null,
-                     *         "message": "Invalid or expired token",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 403,
-                     *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description The organization or the role does not exist, or the identity is not a member of this organization */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 404,
-                     *         "code": null,
-                     *         "message": "The organization or the role does not exist, or the identity is not a member of this organization",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations/{id}/members/{identityId}",
-                     *         "method": "PATCH"
-                     *       }
-                     *     }
-                     */
-                    "application/json": components["schemas"]["ErrorResponseDto"];
-                };
-            };
-            /** @description The member is the organization's last administrator (`organization.last_admin`); make someone else one first */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": {
-                     *         "statusCode": 409,
-                     *         "code": null,
-                     *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
-                     *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations/{id}/members/{identityId}",
-                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -13415,7 +14607,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The token is not an admin, API key or identity token, or the caller is an identity that does not hold, at the organization node or above, every permission the role carries (`assignment.grant_ceiling`); Console users and API keys are not bounded */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -13426,10 +14618,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The token is not an admin, API key or identity token, or the caller is an identity that does not hold, at the organization node or above, every permission the role carries (`assignment.grant_ceiling`); Console users and API keys are not bounded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -13498,7 +14690,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        items: components["schemas"]["RoleResponseDto"][];
+                        items: components["schemas"]["OrganizationRoleResponseDto"][];
                     };
                 };
             };
@@ -16772,8 +17964,7 @@ export interface operations {
     ApiRolesController_deleteRole: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -16901,8 +18092,7 @@ export interface operations {
     ApiRolesController_updateRole: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
                 "If-Match"?: string;
             };
@@ -17551,7 +18741,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The identity already has this role at this node, already holds its one role at this organization, or the node sits beneath an organization the identity has no membership in effect at */
+            /** @description The identity already has this role at this node, or the node sits beneath an organization the identity is not an active member of (`organization.membership_required`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17562,7 +18752,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The identity already has this role at this node, already holds its one role at this organization, or the node sits beneath an organization the identity has no membership in effect at",
+                     *         "message": "The identity already has this role at this node, or the node sits beneath an organization the identity is not an active member of (`organization.membership_required`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
                      *         "method": "POST"
@@ -17676,12 +18866,36 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The member is the organization's last administrator (`organization.last_admin`); make someone else one first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiAssignmentsController_updateAssignment: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
             path: {
                 id: string;
             };
@@ -17788,7 +19002,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Identity already has this role at this node */
+            /** @description The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or the role is the last administrator's at an organization node (`organization.last_admin`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17799,7 +19013,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Identity already has this role at this node",
+                     *         "message": "The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or the role is the last administrator's at an organization node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
                      *         "method": "PATCH"
@@ -17906,6 +19120,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/assignments/bulk-remove",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The member is the organization's last administrator (`organization.last_admin`); make someone else one first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-remove",
                      *         "method": "POST"
@@ -18025,7 +19260,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Identity already has this role at this node */
+            /** @description The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or the role is the last administrator's at an organization node (`organization.last_admin`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18036,7 +19271,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Identity already has this role at this node",
+                     *         "message": "The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or the role is the last administrator's at an organization node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-change-role",
                      *         "method": "POST"
@@ -18982,8 +20217,7 @@ export interface operations {
     ApiHierarchySchemaController_updateSchema: {
         parameters: {
             query?: never;
-            header: {
-                "if-match": string;
+            header?: {
                 /** @description Optimistic-lock token. Pass the `version` you read from the Environment — request fails 409 when the row has moved on. */
                 "If-Match"?: string;
             };
