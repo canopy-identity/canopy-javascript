@@ -623,7 +623,7 @@ describe("TokenVerifier — claims the type promises", () => {
     const verifier = new TokenVerifier({ issuer: ISSUER, fetch });
 
     // Narrows to the union at compile time and would flow through a `switch`
-    // on `claims.type` as though it were one of the four.
+    // on `claims.type` as though it were one of the principal kinds.
     const token = await signer.sign(validClaims({ type: "superuser" }));
 
     const error = await verifier.verify(token).catch((e: unknown) => e);
@@ -632,17 +632,25 @@ describe("TokenVerifier — claims the type promises", () => {
     expect((error as { code: string }).code).toBe("token.malformed");
   });
 
-  it("still accepts each of the four principal kinds when they are allowed", async () => {
+  it("still accepts each principal kind when it is allowed", async () => {
     const signer = await makeSigner("key-1");
     const { fetch } = jwksFetch([signer]);
     const verifier = new TokenVerifier({
       issuer: ISSUER,
-      allowedTypes: ["user", "identity", "api_key", "platform"],
+      allowedTypes: ["user", "identity", "api_key", "platform", "service"],
+      serviceAudience: "https://api.example.com",
       fetch,
     });
 
-    for (const type of ["user", "identity", "api_key", "platform"]) {
-      const token = await signer.sign(validClaims({ type }));
+    for (const type of ["user", "identity", "api_key", "platform", "service"]) {
+      // A service token always names the API it was minted for.
+      const token = await signer.sign(
+        validClaims(
+          type === "service"
+            ? { type, aud: "https://api.example.com" }
+            : { type },
+        ),
+      );
 
       expect((await verifier.verify(token)).type).toBe(type);
     }
@@ -663,14 +671,27 @@ describe("orgContext", () => {
         ...base,
         org_id: "org_acme",
         org_roles: ["billing-admin", "viewer"],
+        org_role_ids: ["rol_1", "rol_2"],
       }),
-    ).toEqual({ orgId: "org_acme", orgRoles: ["billing-admin", "viewer"] });
+    ).toEqual({
+      orgId: "org_acme",
+      orgRoles: ["billing-admin", "viewer"],
+      orgRoleIds: ["rol_1", "rol_2"],
+    });
   });
 
   it("answers a member holding no role at the organization node with an empty list", () => {
-    expect(orgContext({ ...base, org_id: "org_acme", org_roles: [] })).toEqual({
+    expect(
+      orgContext({
+        ...base,
+        org_id: "org_acme",
+        org_roles: [],
+        org_role_ids: [],
+      }),
+    ).toEqual({
       orgId: "org_acme",
       orgRoles: [],
+      orgRoleIds: [],
     });
   });
 
@@ -678,17 +699,53 @@ describe("orgContext", () => {
     expect(orgContext(base)).toBeNull();
   });
 
-  it("refuses a half-present pair rather than reading one claim alone", () => {
+  it("refuses a partial set rather than reading one claim alone", () => {
     expect(orgContext({ ...base, org_id: "org_acme" })).toBeNull();
     expect(orgContext({ ...base, org_roles: ["billing-admin"] })).toBeNull();
+    expect(
+      orgContext({ ...base, org_id: "org_acme", org_roles: ["billing-admin"] }),
+    ).toBeNull();
+  });
+
+  /**
+   * The ids answer the names position for position, so lists of different
+   * lengths cannot say which id is which role.
+   */
+  it("refuses role names and ids that do not pair up", () => {
+    expect(
+      orgContext({
+        ...base,
+        org_id: "org_acme",
+        org_roles: ["billing-admin", "viewer"],
+        org_role_ids: ["rol_1"],
+      }),
+    ).toBeNull();
   });
 
   it("treats an empty organization id, and an empty role name, as absent", () => {
     expect(
-      orgContext({ ...base, org_id: "", org_roles: ["billing-admin"] }),
+      orgContext({
+        ...base,
+        org_id: "",
+        org_roles: ["billing-admin"],
+        org_role_ids: ["rol_1"],
+      }),
     ).toBeNull();
     expect(
-      orgContext({ ...base, org_id: "org_acme", org_roles: [""] }),
+      orgContext({
+        ...base,
+        org_id: "org_acme",
+        org_roles: [""],
+        org_role_ids: ["rol_1"],
+      }),
+    ).toBeNull();
+    expect(
+      orgContext({
+        ...base,
+        org_id: "org_acme",
+        org_roles: ["viewer"],
+        org_role_ids: [""],
+      }),
     ).toBeNull();
   });
 
@@ -697,11 +754,13 @@ describe("orgContext", () => {
       ...base,
       org_id: 42,
       org_roles: ["billing-admin"],
+      org_role_ids: ["rol_1"],
     } as unknown as CanopyTokenClaims;
     const forgedRoles = {
       ...base,
       org_id: "org_acme",
       org_roles: "billing-admin",
+      org_role_ids: ["rol_1"],
     } as unknown as CanopyTokenClaims;
 
     expect(orgContext(forgedId)).toBeNull();
@@ -709,12 +768,19 @@ describe("orgContext", () => {
   });
 
   it("hands back a copy, so a caller cannot edit the claims through it", () => {
-    const claims = { ...base, org_id: "org_acme", org_roles: ["viewer"] };
+    const claims = {
+      ...base,
+      org_id: "org_acme",
+      org_roles: ["viewer"],
+      org_role_ids: ["rol_1"],
+    };
     const org = orgContext(claims);
 
     org?.orgRoles.push("admin");
+    org?.orgRoleIds.push("rol_2");
 
     expect(claims.org_roles).toEqual(["viewer"]);
+    expect(claims.org_role_ids).toEqual(["rol_1"]);
   });
 });
 
@@ -773,7 +839,7 @@ describe("TokenVerifier — principal types", () => {
     const { fetch } = jwksFetch([signer]);
     const verifier = new TokenVerifier({ issuer: ISSUER, fetch });
 
-    for (const type of ["user", "platform", "api_key"]) {
+    for (const type of ["user", "platform", "api_key", "service"]) {
       const error = await verifier
         .verify(await signer.sign(validClaims({ type })))
         .catch((e: unknown) => e);
@@ -798,5 +864,116 @@ describe("TokenVerifier — principal types", () => {
     await expect(
       verifier.verify(await signer.sign(validClaims({ type: "user" }))),
     ).resolves.toMatchObject({ type: "user" });
+  });
+
+  /**
+   * A machine client's token, admitted by one call: the route that serves
+   * machines widens what it accepts, and every other call on the same
+   * verifier still refuses it.
+   */
+  const API_AUDIENCE = "https://api.example.com";
+
+  const serviceClaims = (overrides: Record<string, unknown> = {}) =>
+    validClaims({
+      sub: "client_abc",
+      type: "service",
+      gty: "client_credentials",
+      client_id: "client_abc",
+      aud: API_AUDIENCE,
+      ...overrides,
+    });
+
+  it("accepts a service token only on the call that also allows it", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      serviceAudience: API_AUDIENCE,
+      fetch,
+    });
+    const token = await signer.sign(serviceClaims());
+
+    await expect(
+      verifier.verify(token, { alsoAllow: ["service"] }),
+    ).resolves.toMatchObject({
+      sub: "client_abc",
+      type: "service",
+      gty: "client_credentials",
+      client_id: "client_abc",
+    });
+    await expect(verifier.verify(token)).rejects.toMatchObject({
+      code: "token.type_not_allowed",
+    });
+  });
+
+  /**
+   * A service token names the API it was minted for. Without
+   * `serviceAudience` there is nothing to hold that to, and a token minted for
+   * another of the customer's APIs would pass.
+   */
+  it("refuses a service token when no serviceAudience is configured", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({ issuer: ISSUER, fetch });
+
+    await expect(
+      verifier.verify(await signer.sign(serviceClaims()), {
+        alsoAllow: ["service"],
+      }),
+    ).rejects.toMatchObject({ code: "token.audience_unverified" });
+  });
+
+  it("refuses a service token minted for another API", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      serviceAudience: API_AUDIENCE,
+      fetch,
+    });
+
+    await expect(
+      verifier.verify(
+        await signer.sign(
+          serviceClaims({ aud: "https://reports.example.com" }),
+        ),
+        { alsoAllow: ["service"] },
+      ),
+    ).rejects.toMatchObject({ code: "token.audience_mismatch" });
+  });
+
+  /**
+   * The two audiences answer different questions: `audience` is the OAuth
+   * client a person's token was minted for, `serviceAudience` the API a
+   * machine's was. One verifier serves both.
+   */
+  it("holds a service token to serviceAudience and a person's to audience", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      audience: "client_web",
+      serviceAudience: API_AUDIENCE,
+      fetch,
+    });
+
+    await expect(
+      verifier.verify(await signer.sign(serviceClaims()), {
+        alsoAllow: ["service"],
+      }),
+    ).resolves.toMatchObject({ type: "service" });
+    await expect(
+      verifier.verify(await signer.sign(validClaims({ aud: "client_web" }))),
+    ).resolves.toMatchObject({ type: "identity" });
+    await expect(
+      verifier.verify(await signer.sign(validClaims({ aud: API_AUDIENCE }))),
+    ).rejects.toMatchObject({ code: "token.audience_mismatch" });
+  });
+
+  it("keeps the configured types when a call also allows another", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({ issuer: ISSUER, fetch });
+
+    await expect(
+      verifier.verify(await signer.sign(validClaims()), {
+        alsoAllow: ["service"],
+      }),
+    ).resolves.toMatchObject({ type: "identity" });
   });
 });

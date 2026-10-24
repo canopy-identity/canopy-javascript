@@ -136,7 +136,7 @@ export class CanopyGuard implements CanActivate {
 
     if (!decision.allowed) {
       throw new ForbiddenException(
-        `Identity does not hold ${requirement.permission}.`,
+        `Caller does not hold ${requirement.permission}.`,
       );
     }
 
@@ -156,7 +156,12 @@ export class CanopyGuard implements CanActivate {
     request: unknown,
     cancellation: Cancellation | undefined,
   ): Promise<Verdict> {
-    const query = this.buildQuery(requirement, identityId, request);
+    const query = {
+      ...this.buildQuery(requirement, identityId, request),
+      ...(this.isServiceToken(request)
+        ? { principal_type: "service" as const }
+        : {}),
+    };
 
     try {
       // Answered in-process. The authorizer holds the identity's grant roots
@@ -262,6 +267,21 @@ export class CanopyGuard implements CanActivate {
       scope: "node",
       node_id: nodeId,
     };
+  }
+
+  /**
+   * Whose grants answer the check: a machine client's when the verified token
+   * `CanopyTokenGuard` attached is a `service` token, an identity's
+   * otherwise. Read off the verified claims only, so a caller cannot choose
+   * whose grants are consulted.
+   */
+  private isServiceToken(request: unknown): boolean {
+    const attachedAs = this.options.attachTokenAs ?? "canopyToken";
+    const claims = (request as Record<string, unknown> | null | undefined)?.[
+      attachedAs
+    ];
+
+    return (claims as { type?: unknown } | undefined)?.type === "service";
   }
 
   /**

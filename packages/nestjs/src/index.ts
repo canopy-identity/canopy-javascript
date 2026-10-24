@@ -10,6 +10,7 @@
  */
 
 export { CanopyModule } from "./canopy.module.js";
+export { AllowServiceTokens } from "./allow-service-tokens.decorator.js";
 export { CanopyGuard } from "./canopy.guard.js";
 export { CanopyTokenGuard } from "./canopy-token.guard.js";
 export { InjectCanopy } from "./inject-canopy.decorator.js";
@@ -25,6 +26,7 @@ export type {
   RequestResolver,
 } from "./options.js";
 export {
+  CANOPY_ALLOW_SERVICE_TOKENS,
   CANOPY_AUTHORIZER,
   CANOPY_CLIENT,
   CANOPY_OPTIONS,
@@ -39,4 +41,5 @@ export type {
   Canopy,
   CanopyTokenClaims,
   LocalAuthorizer,
+  PrincipalType,
 } from "@canopy-io/node";

@@ -29,6 +29,8 @@ export {
 export type {
   AccessibleNodes,
   LocalAuthorizationQuery,
+  PrincipalType,
+  SubjectOptions,
   LocalAuthorizerOptions,
   LocalAuthorizerStats,
   LocalDecision,
@@ -58,6 +60,7 @@ export { orgContext, TokenVerifier } from "./verify.js";
 export type {
   CanopyOrgContext,
   CanopyTokenClaims,
+  VerifyCallOptions,
   TokenVerifierOptions,
 } from "./verify.js";
 

@@ -26,3 +26,10 @@ export const CANOPY_TOKEN_VERIFIER = "CANOPY_TOKEN_VERIFIER";
 
 /** Metadata key holding what `@RequirePermission` recorded on a handler. */
 export const CANOPY_PERMISSION = "CANOPY_PERMISSION";
+
+/**
+ * Metadata key `@AllowServiceTokens()` writes: a route or controller that
+ * admits a machine client's `service` token beside the types the verifier
+ * already accepts.
+ */
+export const CANOPY_ALLOW_SERVICE_TOKENS = "CANOPY_ALLOW_SERVICE_TOKENS";

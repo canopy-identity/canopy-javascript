@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import type { ExecutionContext } from "@nestjs/common";
+import type { Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -37,6 +38,8 @@ interface FakeRequest {
 
 function contextFor(request: FakeRequest): ExecutionContext {
   return {
+    getHandler: () => () => undefined,
+    getClass: () => class {},
     switchToHttp: () => ({ getRequest: () => request }),
   } as unknown as ExecutionContext;
 }
@@ -44,11 +47,15 @@ function contextFor(request: FakeRequest): ExecutionContext {
 function setup(
   verify: () => Promise<CanopyTokenClaims>,
   options: Partial<CanopyModuleOptions<unknown>> = {},
+  allowServiceTokens?: boolean,
 ) {
   const verifyMock = vi.fn(verify);
   const verifier = { verify: verifyMock } as unknown as TokenVerifier;
+  const reflector = {
+    getAllAndOverride: () => allowServiceTokens,
+  } as unknown as Reflector;
 
-  const guard = new CanopyTokenGuard(verifier, {
+  const guard = new CanopyTokenGuard(reflector, verifier, {
     resolveIdentity: () => undefined,
     verify: { environmentId: "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47" },
     ...options,
@@ -73,7 +80,7 @@ describe("CanopyTokenGuard — a verified token", () => {
       contextFor({ headers: { authorization: "Bearer abc.def.ghi" } }),
     );
 
-    expect(verifyMock).toHaveBeenCalledWith("abc.def.ghi");
+    expect(verifyMock).toHaveBeenCalledWith("abc.def.ghi", {});
   });
 
   it("accepts a lowercase scheme, which clients do send", async () => {
@@ -100,6 +107,37 @@ describe("CanopyTokenGuard — a verified token", () => {
     expect(request["identityClaims"]).toEqual(CLAIMS);
     expect(request["canopyToken"]).toBeUndefined();
     expect(request["user"]).toBeUndefined();
+  });
+});
+
+/**
+ * A machine client's token reaches only the routes built to admit one. The
+ * verifier refuses a `service` token unless the call widens what it accepts,
+ * and only `@AllowServiceTokens()` makes the guard widen it.
+ */
+describe("CanopyTokenGuard — service tokens", () => {
+  it("widens the verifier to service tokens where the route admits them", async () => {
+    const { guard, verifyMock } = setup(
+      () => Promise.resolve(CLAIMS),
+      {},
+      true,
+    );
+
+    await guard.canActivate(
+      contextFor({ headers: { authorization: "Bearer t" } }),
+    );
+
+    expect(verifyMock).toHaveBeenCalledWith("t", { alsoAllow: ["service"] });
+  });
+
+  it("leaves the verifier's accepted types alone everywhere else", async () => {
+    const { guard, verifyMock } = setup(() => Promise.resolve(CLAIMS));
+
+    await guard.canActivate(
+      contextFor({ headers: { authorization: "Bearer t" } }),
+    );
+
+    expect(verifyMock).toHaveBeenCalledWith("t", {});
   });
 });
 
