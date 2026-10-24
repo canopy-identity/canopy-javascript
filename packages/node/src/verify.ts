@@ -55,7 +55,13 @@ const DEFAULT_JWKS_MIN_REFETCH_INTERVAL_MS = 30 * 1000;
 const DEFAULT_JWKS_TIMEOUT_MS = 5_000;
 
 /** The principal kinds a Canopy token may claim to be. */
-const PRINCIPAL_TYPES = new Set(["user", "identity", "api_key", "platform"]);
+const PRINCIPAL_TYPES = new Set([
+  "user",
+  "identity",
+  "service",
+  "api_key",
+  "platform",
+]);
 
 /**
  * Leeway applied to time-based claims, for ordinary clock drift between the
@@ -124,6 +130,18 @@ export interface TokenVerifierOptions {
    */
   audience?: string;
 
+  /**
+   * The audience a machine client's `service` token must name: the
+   * identifier your API answers to (`https://api.example.com`), the one the
+   * client asked for with `audience` or the Environment's default audience.
+   *
+   * A service token always carries `aud`, and it names the API rather than a
+   * client, so `audience` never applies to it. Admitting a service token
+   * without this throws `token.audience_unverified`, so a token minted for
+   * another of your APIs is never accepted by accident.
+   */
+  serviceAudience?: string;
+
   /** Where the signing keys live. Defaults to `${issuer}/.well-known/jwks.json`. */
   jwksUri?: string;
 
@@ -162,10 +180,12 @@ export interface TokenVerifierOptions {
    * The principal types accepted, matched against the `type` claim. Defaults to
    * `["identity"]`: the people who sign in to your application.
    *
-   * Canopy also signs tokens for its own administrators (`user`), its staff
-   * (`platform`) and, for some flows, API keys (`api_key`), all with the same
-   * keys and issuer. A backend that serves your end users should accept none
-   * of them, so they are refused unless you name them here.
+   * Canopy also signs tokens for machine clients (`service`, obtained with
+   * the `client_credentials` grant), its own administrators (`user`), its
+   * staff (`platform`) and, for some flows, API keys (`api_key`), all with the
+   * same keys and issuer. A backend that serves your end users should accept
+   * none of them, so they are refused unless you name them here, or admit
+   * them for one call with {@link VerifyCallOptions.alsoAllow}.
    */
   allowedTypes?: ReadonlyArray<CanopyTokenClaims["type"]>;
 
@@ -180,10 +200,20 @@ export interface TokenVerifierOptions {
  * anything added later reachable without a version bump.
  */
 export interface CanopyTokenClaims {
-  /** The identity or user this token acts as. */
+  /**
+   * The principal this token acts as: an identity's id, or, on a `service`
+   * token, the machine client's `client_id`.
+   */
   sub: string;
   /** Which kind of principal `sub` is. */
-  type: "user" | "identity" | "api_key" | "platform";
+  type: "user" | "identity" | "service" | "api_key" | "platform";
+  /**
+   * How a `service` token was obtained: always `client_credentials`. Absent
+   * on every other type.
+   */
+  gty?: "client_credentials";
+  /** The OAuth client the token was issued to; on a `service` token, `sub`. */
+  client_id?: string;
   iss: string;
   exp: number;
   iat?: number;
@@ -224,7 +254,25 @@ export interface CanopyTokenClaims {
    * none at all.
    */
   org_roles?: string[];
+  /**
+   * The ids of the roles in `org_roles`, in the same order. A role's name is
+   * unique only within its tier (the Environment's roles, or one
+   * organization's own), so the id is what identifies a role across
+   * organizations. Minted with `org_id` and `org_roles`.
+   */
+  org_role_ids?: string[];
   [claim: string]: unknown;
+}
+
+/** What one call to {@link TokenVerifier.verify} may widen. */
+export interface VerifyCallOptions {
+  /**
+   * Principal types to accept for this call on top of `allowedTypes`, for a
+   * route that admits them: typically `["service"]`, a machine client's
+   * token, on a route built for machines. The verifier's own setting is
+   * unchanged, so every other route keeps refusing them.
+   */
+  alsoAllow?: ReadonlyArray<CanopyTokenClaims["type"]>;
 }
 
 /**
@@ -236,6 +284,8 @@ export interface CanopyOrgContext {
   orgId: string;
   /** The roles' names (not ids) held at the organization node: what `org_roles` carries. Empty for a member holding none there. */
   orgRoles: string[];
+  /** The same roles' ids, in the same order: what `org_role_ids` carries. Compare by id, since a name is unique only within its tier. */
+  orgRoleIds: string[];
 }
 
 /**
@@ -260,18 +310,26 @@ export interface CanopyOrgContext {
  * ```
  */
 export function orgContext(claims: CanopyTokenClaims): CanopyOrgContext | null {
-  const { org_id, org_roles } = claims;
+  const { org_id, org_roles, org_role_ids } = claims;
+  const isNameList = (value: unknown): value is string[] =>
+    Array.isArray(value) &&
+    value.every((entry) => typeof entry === "string" && entry !== "");
 
   if (
     typeof org_id !== "string" ||
     org_id === "" ||
-    !Array.isArray(org_roles) ||
-    org_roles.some((role) => typeof role !== "string" || role === "")
+    !isNameList(org_roles) ||
+    !isNameList(org_role_ids) ||
+    org_role_ids.length !== org_roles.length
   ) {
     return null;
   }
 
-  return { orgId: org_id, orgRoles: [...org_roles] };
+  return {
+    orgId: org_id,
+    orgRoles: [...org_roles],
+    orgRoleIds: [...org_role_ids],
+  };
 }
 
 interface JwksKey {
@@ -317,6 +375,7 @@ function decodeJsonSegment(segment: string, what: string): unknown {
 export class TokenVerifier {
   private readonly issuer: string;
   private readonly audience: string | undefined;
+  private readonly serviceAudience: string | undefined;
   private readonly jwksUri: string;
   private readonly jwksCacheMaxAgeMs: number;
   private readonly jwksMinRefetchIntervalMs: number;
@@ -338,6 +397,7 @@ export class TokenVerifier {
   constructor(options: TokenVerifierOptions = {}) {
     this.issuer = resolveIssuer(options);
     this.audience = options.audience;
+    this.serviceAudience = options.serviceAudience;
     this.jwksUri = options.jwksUri ?? `${this.issuer}/.well-known/jwks.json`;
     this.jwksCacheMaxAgeMs =
       options.jwksCacheMaxAgeMs ?? DEFAULT_JWKS_CACHE_MAX_AGE_MS;
@@ -367,7 +427,10 @@ export class TokenVerifier {
    * Order matters: the signature is checked before any claim is believed, so
    * nothing downstream ever reads an unverified payload.
    */
-  async verify(token: string): Promise<CanopyTokenClaims> {
+  async verify(
+    token: string,
+    options: VerifyCallOptions = {},
+  ): Promise<CanopyTokenClaims> {
     const parts = token.split(".");
 
     if (parts.length !== 3) {
@@ -428,13 +491,16 @@ export class TokenVerifier {
       "payload",
     ) as CanopyTokenClaims;
 
-    this.assertClaims(claims);
+    this.assertClaims(claims, options);
 
     return claims;
   }
 
   /** Everything checked after the signature is known good. */
-  private assertClaims(claims: CanopyTokenClaims): void {
+  private assertClaims(
+    claims: CanopyTokenClaims,
+    options: VerifyCallOptions,
+  ): void {
     // Checked, not assumed. The claims arrive as parsed JSON and are cast to
     // this interface, so anything the interface declares but nobody verifies is
     // a promise the type makes and the runtime does not keep. `sub` is the
@@ -448,8 +514,8 @@ export class TokenVerifier {
       );
     }
 
-    // Same reasoning. `type` narrows to four values, and code branches on it;
-    // a fifth would flow through a `switch` as though it were one of them.
+    // Same reasoning. `type` narrows to five values, and code branches on it;
+    // a sixth would flow through a `switch` as though it were one of them.
     if (!PRINCIPAL_TYPES.has(claims.type)) {
       throw new CanopyTokenError(
         "token.malformed",
@@ -457,11 +523,16 @@ export class TokenVerifier {
       );
     }
 
-    if (!this.allowedTypes.has(claims.type)) {
+    const accepted = new Set([
+      ...this.allowedTypes,
+      ...(options.alsoAllow ?? []),
+    ]);
+
+    if (!accepted.has(claims.type)) {
       throw new CanopyTokenError(
         "token.type_not_allowed",
         `Token is for a "${claims.type}" principal; this verifier accepts ${[
-          ...this.allowedTypes,
+          ...accepted,
         ]
           .map((type) => `"${type}"`)
           .join(", ")}. Set \`allowedTypes\` to accept another.`,
@@ -517,6 +588,9 @@ export class TokenVerifier {
    * token being verified by something that never said which client it is, and
    * ignoring it would accept a token minted for a different client. So it
    * throws and names the option.
+   *
+   * A service token names the API it was minted for, never a client, so it
+   * is held to `serviceAudience` alone, which it must name.
    */
   private assertAudience(claims: CanopyTokenClaims): void {
     const audiences =
@@ -525,6 +599,25 @@ export class TokenVerifier {
         : Array.isArray(claims.aud)
           ? claims.aud
           : [claims.aud];
+
+    if (claims.type === "service") {
+      if (this.serviceAudience === undefined) {
+        throw new CanopyTokenError(
+          "token.audience_unverified",
+          "This is a machine client's service token, and the verifier has no `serviceAudience` configured. " +
+            "Set `serviceAudience` to the audience your API answers to.",
+        );
+      }
+
+      if (!audiences.includes(this.serviceAudience)) {
+        throw new CanopyTokenError(
+          "token.audience_mismatch",
+          `Token audience does not include "${this.serviceAudience}".`,
+        );
+      }
+
+      return;
+    }
 
     if (this.audience === undefined) {
       if (audiences.length > 0) {

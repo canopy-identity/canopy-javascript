@@ -17,13 +17,15 @@ import { CanopyError, isCanopyAuthorizerError } from "./errors.js";
  * file from the other side. The authorizer is handed exactly what the vector
  * says the API serves (the windowed grant roots, the parent edges) and must
  * reach the same `allowed`, the local reason, the same sets and the same
- * per-node permissions. `npm run generate` refreshes the file;
+ * per-node permissions. A machine client's checks are replayed as a service
+ * token's, so its grants must be read from the client's own endpoint. `npm run generate` refreshes the file;
  * `generate:check` fails when Canopy has published new rules.
  */
 
 interface Vector {
   name: string;
   tree: Array<{ id: string; parent: string | null }>;
+  machine_clients?: Array<{ id: string; organization?: string }>;
   grants: Record<string, Array<{ permission: string; node: string }> | null>;
   grant_windows: Record<
     string,
@@ -48,6 +50,14 @@ interface Vector {
   }>;
   checks: Array<{
     identity: string;
+    permission: string;
+    scope: "node" | "app_wide";
+    node?: string;
+    allowed: boolean;
+    sdk_reason: string | null;
+  }>;
+  machine_client_checks?: Array<{
+    machine_client: string;
     permission: string;
     scope: "node" | "app_wide";
     node?: string;
@@ -83,13 +93,22 @@ const page = <T>(items: T[]) => ({
   },
 });
 
-/** An authorizer whose Canopy serves what the vector says the API serves. */
+/**
+ * An authorizer whose Canopy serves what the vector says the API serves. Each
+ * endpoint knows only its own kind of holder: an identity read for a machine
+ * client's name, or the reverse, answers `404` as the API would.
+ */
 function authorizerFor(vector: Vector): LocalAuthorizer {
+  const clients = new Set((vector.machine_clients ?? []).map((c) => c.id));
+
   const request = vi.fn((_method: string, path: string) => {
-    const identity = decodeURIComponent(
-      /\/identities\/([^/]+)\/grants$/.exec(path)?.[1] ?? "",
-    );
-    const roots = vector.grant_windows[identity];
+    const [, kind, encoded] =
+      /\/(identities|oauth-clients)\/([^/]+)\/grants$/.exec(path) ?? [];
+    const holder = decodeURIComponent(encoded ?? "");
+    const roots =
+      (kind === "oauth-clients") === clients.has(holder)
+        ? vector.grant_windows[holder]
+        : undefined;
 
     if (roots === null || roots === undefined) {
       return Promise.reject(
@@ -174,6 +193,26 @@ describe("LocalAuthorizer — Canopy's conformance vectors", () => {
         ]),
       )("decides %s", async (_label, check) => {
         expect(await decide(authorizerFor(vector), check)).toEqual({
+          allowed: check.allowed,
+          reason: check.sdk_reason,
+        });
+      });
+
+      it.each(
+        (vector.machine_client_checks ?? []).map((check) => [
+          `${check.machine_client} ${check.permission} ${check.scope}${check.node ? ` at ${check.node}` : ""}`,
+          check,
+        ]),
+      )("decides machine client %s", async (_label, check) => {
+        expect(
+          await authorizerFor(vector).evaluate({
+            identity_id: check.machine_client,
+            principal_type: "service",
+            permission: check.permission,
+            scope: check.scope,
+            ...(check.node ? { node_id: check.node } : {}),
+          }),
+        ).toEqual({
           allowed: check.allowed,
           reason: check.sdk_reason,
         });

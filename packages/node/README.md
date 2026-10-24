@@ -117,6 +117,32 @@ staff (`platform`) and some API key flows (`api_key`) with the same keys and
 issuer, so they are refused with `token.type_not_allowed` unless you name them:
 `new TokenVerifier({ ..., allowedTypes: ["identity", "user"] })`.
 
+A **machine client** (an OAuth client registered with `client_kind: machine`)
+obtains tokens for itself with the `client_credentials` grant. Its token's
+`type` is `service`, its `sub` and `client_id` are the client's `client_id`,
+and `gty` is `client_credentials`. Its `aud` names the API it was minted for
+(the `audience` the client asked for, or the Environment's default audience),
+so name yours as `serviceAudience`; `audience` stays the OAuth client a
+person's token is for. Admit service tokens on the one call that serves
+machines rather than on the whole verifier, so routes built for people keep
+refusing them:
+
+```ts
+const verifier = new TokenVerifier({
+  environmentId: process.env.CANOPY_ENVIRONMENT_ID,
+  serviceAudience: "https://api.example.com",
+});
+
+const claims = await verifier.verify(bearerToken, { alsoAllow: ["service"] });
+
+if (claims.type === "service") {
+  claims.sub; // the machine client's client_id
+}
+```
+
+A machine client pinned to an organization carries that organization's claims,
+read through `orgContext` like a person's.
+
 If Canopy cannot be reached when the cached keys are due for a refresh, the
 verifier keeps verifying with the keys it holds; only a verifier that has never
 loaded a key set, or a token signed by a key it has never seen, answers
@@ -144,9 +170,10 @@ mistakenly accepted.
 
 With an Environment's **organizations** container on, an identity token also
 names the organization the session is acting in and the roles held at that
-organization's node. Read the pair through `orgContext` rather than off the raw
-claims — Canopy mints the two together, and the helper refuses a half-present
-pair:
+organization's node, by name and by id. Read them through `orgContext` rather
+than off the raw claims: Canopy mints `org_id`, `org_roles` and `org_role_ids`
+together, and the helper refuses a partial set or names and ids that do not
+pair up:
 
 ```ts
 import { orgContext } from "@canopy-io/node";
@@ -156,6 +183,7 @@ const org = orgContext(claims);
 if (org) {
   org.orgId; // the organization — also a hierarchy node id
   org.orgRoles; // the roles held at its node, by name; [] for a member holding none there
+  org.orgRoleIds; // the same roles' ids, in the same order
 }
 ```
 
@@ -297,6 +325,25 @@ TTL is dropped at its boundary, not at the next expiry. `onDecision` and
 `onDenied` hooks hear every verdict after it is reached, never awaited and
 never able to change it, for audit trails and alerting without a fork of the
 guard.
+
+A machine client's grants are its own, read from
+`GET /api/v1/oauth-clients/:id/grants`. Pass `principal_type: "service"` with
+the client's `client_id` as `identity_id`; the list reads and `invalidate` take
+`{ principalType: "service" }`. The two kinds are cached apart, so a client
+never answers from a person's grants. An assignment webhook naming a machine
+client carries its `client_id` in `data.metadata.client_id`, the id to
+invalidate:
+
+```ts
+await authorizer.evaluate({
+  identity_id: claims.sub,
+  principal_type: claims.type === "service" ? "service" : "identity",
+  permission: "orders.import",
+  node_id: nodeId,
+});
+
+authorizer.invalidate(clientId, { principalType: "service" });
+```
 
 ```ts
 const authorizer = new LocalAuthorizer(canopy.client, {

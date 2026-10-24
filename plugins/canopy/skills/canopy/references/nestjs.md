@@ -112,6 +112,34 @@ export class ReportsController {
 - Registering `CanopyGuard` globally: register the authentication guard globally too, **before** it, or every route answers `403`. Global guards run in registration order.
 - `scope: "org"`: for Environments with organizations on. The guard evaluates at the `org_id` on the verified token; no `resolveNode` needed. See [access-models.md](access-models.md).
 
+### Routes that machines call
+
+A machine client's `client_credentials` token (`type: "service"`) answers `401` from `CanopyTokenGuard` unless the route or controller carries `@AllowServiceTokens()`, and the module's `verify.serviceAudience` names the audience the API answers to (the token's `aud`). There `CanopyGuard` evaluates the client's own grants, chosen from the verified claims; `resolveIdentity: (request) => request.canopyToken?.sub` serves both kinds, because a service token's `sub` is the client's `client_id`.
+
+```ts
+import { Controller, Post, UseGuards } from "@nestjs/common";
+import {
+  AllowServiceTokens,
+  CanopyGuard,
+  CanopyTokenGuard,
+  RequirePermission,
+} from "@canopy-io/nestjs";
+
+@Controller("imports")
+@UseGuards(CanopyTokenGuard, CanopyGuard)
+@AllowServiceTokens()
+export class ImportsController {
+  // A machine client pinned to an organization acts in its org_id.
+  @Post("orders")
+  @RequirePermission("orders.import", { scope: "org" })
+  importOrders() {
+    return { accepted: true };
+  }
+}
+```
+
+- Put `@AllowServiceTokens()` only on routes built for machines. Read `request.canopyToken.type` in the handler when people and machines should be treated differently.
+
 ## What each status means
 
 `CanopyGuard` never lets an undecided request through:

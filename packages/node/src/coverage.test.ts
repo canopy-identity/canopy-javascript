@@ -23,7 +23,12 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 152 as of organization membership standing apart from roles: the member
+// 157 as of machine clients holding roles of their own: an OAuth client's
+// assignments (list, create, update, remove) and its grants
+// (`/api/v1/oauth-clients/:id/grants`, which `LocalAuthorizer` reads for a
+// service token). Unwrapped like the rest of the OAuth client routes, so the
+// floor does not move.
+// Before that, 152 as of organization membership standing apart from roles: the member
 // role-change route is gone (a role at the organization is an assignment at
 // its node, through `assignments.update`), and an organization's delegated
 // administration joined the public API (`/api/v1/organizations/:id/access`,
@@ -49,7 +54,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 152;
+const EXPECTED_OPERATION_COUNT = 157;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;

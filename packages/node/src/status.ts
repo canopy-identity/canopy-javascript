@@ -53,7 +53,7 @@ export function tokenErrorStatus(error: unknown): FailureStatus {
  *   when the endpoint is not served (an SDK newer than the API), or on a 4xx
  *   nobody anticipated. No retry fixes these.
  * - `503` when Canopy did not answer, or answered 429 or 5xx.
- * - `403` when Canopy answered that the identity is not in this Environment.
+ * - `403` when Canopy answered that the identity or machine client is not in this Environment.
  */
 export function authorizationErrorStatus(error: unknown): FailureStatus {
   if (isCanopyAuthorizerError(error)) {
@@ -89,7 +89,7 @@ export function authorizationErrorStatus(error: unknown): FailureStatus {
     };
   }
 
-  // A 404 with a code is a real answer: the identity is not in this
+  // A 404 with a code is a real answer: the identity or machine client is not in this
   // Environment. Deny, and say nothing about what was missing.
   if (error.statusCode === 404) {
     return { status: 403, message: "Could not evaluate the permission." };

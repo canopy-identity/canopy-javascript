@@ -1124,6 +1124,197 @@
           "sdk_reason": null
         }
       ]
+    },
+    {
+      "name": "machine-clients",
+      "description": "A machine OAuth client is a principal of its own: it holds roles at nodes beside identities, and its grant roots are read from the client's own grants endpoint, never an identity's. A client pinned to an organization holds roles only inside it, and they reach the nodes beneath it and nothing outside; an unpinned client holding a role at the root reaches the whole Environment. A person's grants are untouched by a client's.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "acme",
+          "parent": "root",
+          "organization": true
+        },
+        {
+          "id": "office",
+          "parent": "acme"
+        },
+        {
+          "id": "globex",
+          "parent": "root",
+          "organization": true
+        }
+      ],
+      "permissions": [
+        "orders.import"
+      ],
+      "roles": [
+        {
+          "id": "importer",
+          "permissions": [
+            "orders.import"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "jo",
+          "memberships": [
+            {
+              "organization": "globex"
+            }
+          ]
+        }
+      ],
+      "machine_clients": [
+        {
+          "id": "acme-sync",
+          "organization": "acme"
+        },
+        {
+          "id": "hq-sync"
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "jo",
+          "role": "importer",
+          "node": "globex"
+        },
+        {
+          "machine_client": "acme-sync",
+          "role": "importer",
+          "node": "acme"
+        },
+        {
+          "machine_client": "hq-sync",
+          "role": "importer",
+          "node": "root"
+        }
+      ],
+      "grants": {
+        "jo": [
+          {
+            "permission": "orders.import",
+            "node": "globex"
+          }
+        ],
+        "acme-sync": [
+          {
+            "permission": "orders.import",
+            "node": "acme"
+          }
+        ],
+        "hq-sync": [
+          {
+            "permission": "orders.import",
+            "node": "root"
+          }
+        ]
+      },
+      "grant_windows": {
+        "jo": [
+          {
+            "permission": "orders.import",
+            "node": "globex"
+          }
+        ],
+        "acme-sync": [
+          {
+            "permission": "orders.import",
+            "node": "acme"
+          }
+        ],
+        "hq-sync": [
+          {
+            "permission": "orders.import",
+            "node": "root"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "jo",
+          "permission": "orders.import",
+          "env_wide": false,
+          "roots": [
+            "globex"
+          ],
+          "nodes": [
+            "globex"
+          ]
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "jo",
+          "node": "globex",
+          "permissions": [
+            "orders.import"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "identity": "jo",
+          "permission": "orders.import",
+          "scope": "node",
+          "node": "globex",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "globex",
+          "granting_roles": [
+            "importer"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "jo",
+          "permission": "orders.import",
+          "scope": "app_wide",
+          "allowed": true,
+          "reason": null,
+          "effective_node": null,
+          "granting_roles": [],
+          "sdk_reason": null
+        }
+      ],
+      "machine_client_checks": [
+        {
+          "machine_client": "acme-sync",
+          "permission": "orders.import",
+          "scope": "node",
+          "node": "office",
+          "allowed": true,
+          "sdk_reason": null
+        },
+        {
+          "machine_client": "acme-sync",
+          "permission": "orders.import",
+          "scope": "node",
+          "node": "globex",
+          "allowed": false,
+          "sdk_reason": "outside_grants"
+        },
+        {
+          "machine_client": "acme-sync",
+          "permission": "orders.import",
+          "scope": "app_wide",
+          "allowed": true,
+          "sdk_reason": null
+        },
+        {
+          "machine_client": "hq-sync",
+          "permission": "orders.import",
+          "scope": "node",
+          "node": "globex",
+          "allowed": true,
+          "sdk_reason": null
+        }
+      ]
     }
   ]
 }

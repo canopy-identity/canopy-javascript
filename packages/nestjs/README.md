@@ -20,6 +20,7 @@ Requires NestJS 10 or 11 and Node 18 or later. `@canopy-io/node` comes with it.
 - **No network call per request.** The guard holds the identity's grant roots and one shared copy of your hierarchy, refreshed at most once a minute, so a guarded route normally reaches no network at all.
 - **Three scopes.** `node` is the default and the strict question; `app_wide` asks only whether the identity holds the permission anywhere in the Environment; `org` asks the node question at the organization the caller's token is acting in.
 - **`CanopyTokenGuard`** verifies a Canopy-issued bearer token locally against the published signing keys and attaches the claims, for applications with no auth layer in front. Additive — skip it if you already run Passport or your own JWT middleware.
+- **`@AllowServiceTokens()`** admits a machine client's `client_credentials` token on the routes built for machines, authorized from the client's own grants; every other route keeps refusing it.
 - **`@InjectCanopy()`** hands you the full `@canopy-io/node` client for everything the guard does not cover.
 - **Fails closed, with the status telling you which failure it was.** `403` for a denial, `503` for an undecidable one, `500` for a broken integration.
 - **A bounded check.** Its own evaluation timeout and retry count, separate from the client-wide ones, with the wait between attempts capped.
@@ -160,6 +161,36 @@ due for a refresh, the guard keeps verifying with the keys it holds.
 Only identity tokens are accepted, the people who sign in to your application.
 A token Canopy signed for one of its own administrators or staff answers `401`
 unless you add its type to `verify.allowedTypes`.
+
+A machine client's token (`type: "service"`, from the `client_credentials`
+grant) answers `401` too, except on a route or controller that admits it. Its
+`aud` names your API, so set `verify.serviceAudience` to the audience your API
+answers to:
+
+```ts
+CanopyModule.forRoot<AuthedRequest>({
+  apiKey: process.env.CANOPY_API_KEY,
+  verify: {
+    environmentId: process.env.CANOPY_ENVIRONMENT_ID,
+    serviceAudience: "https://api.example.com",
+  },
+  resolveIdentity: (request) => request.canopyToken?.sub,
+});
+```
+
+```ts
+@UseGuards(CanopyTokenGuard, CanopyGuard)
+@AllowServiceTokens()
+@RequirePermission("orders.import", { scope: "org" })
+@Post("import")
+import() {}
+```
+
+There `CanopyGuard` authorizes the machine client from its own grants, read
+from the verified claims, never from anything the caller sends. The token's
+`sub` is the client's `client_id`, so `resolveIdentity: (request) =>
+request.canopyToken?.sub` serves both kinds. A machine client pinned to an
+organization carries its `org_id`, so `scope: "org"` works the same way.
 
 A rejected token is a 401 whatever the detail, with the specific code left on
 `error.cause` for your logs rather than handed to the caller — who has no use

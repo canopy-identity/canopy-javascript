@@ -878,3 +878,74 @@ describe("LocalAuthorizer — paged reads", () => {
     expect(requestConditional.mock.calls[4]?.[2]).toBeUndefined();
   });
 });
+
+/**
+ * A machine client holds roles of its own, read from its own grants. The two
+ * kinds never share a cache entry, so a client whose `client_id` happened to
+ * equal an identity's id could not borrow that person's answer.
+ */
+describe("LocalAuthorizer — machine clients", () => {
+  const serviceCheck = (nodeId: string) => ({
+    ...check(nodeId),
+    principal_type: "service" as const,
+  });
+
+  it("reads a machine client's grants from the client's own path", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    await authorizer.evaluate(serviceCheck("frontend"));
+
+    expect(request.mock.calls[0]?.[1]).toBe(
+      "/api/v1/oauth-clients/id-1/grants",
+    );
+  });
+
+  it("reads an identity's grants from the identity path by default", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+
+    expect(request.mock.calls[0]?.[1]).toBe("/api/v1/identities/id-1/grants");
+  });
+
+  it("caches a client and an identity with the same id apart", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate(serviceCheck("frontend"));
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate(serviceCheck("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("forgets only the kind named on invalidate", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate(serviceCheck("frontend"));
+
+    authorizer.invalidate("id-1", { principalType: "service" });
+
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate(serviceCheck("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls[2]?.[1]).toBe(
+      "/api/v1/oauth-clients/id-1/grants",
+    );
+  });
+
+  it("answers the list reads for a machine client from its grants", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    expect(
+      await authorizer.permissionsAt("id-1", "frontend", {
+        principalType: "service",
+      }),
+    ).toEqual(["reports.view"]);
+    expect(request.mock.calls[0]?.[1]).toBe(
+      "/api/v1/oauth-clients/id-1/grants",
+    );
+  });
+});

@@ -164,8 +164,29 @@ export interface LocalAuthorizerOptions {
   now?: () => number;
 }
 
+/**
+ * Which kind of principal a subject id names. An identity is a person; a
+ * `service` is a machine OAuth client acting for itself, whose id is its
+ * `client_id` (the `sub` of its token). Both ids are UUIDs, so the kind is
+ * stated rather than guessed: it decides where the grants are read from.
+ */
+export type PrincipalType = "identity" | "service";
+
+/** Names the subject's kind on the calls that take a bare id. */
+export interface SubjectOptions {
+  /** Defaults to `identity`. */
+  principalType?: PrincipalType;
+}
+
 export interface LocalAuthorizationQuery {
+  /** The subject: an identity's id, or a machine client's `client_id`. */
   identity_id: string;
+  /**
+   * What `identity_id` names. Defaults to `identity`; set `service` for a
+   * machine client, whose grants are read from its own endpoint. Read it off
+   * the verified token's `type` claim, never off the request.
+   */
+  principal_type?: PrincipalType;
   permission: string;
   /** Defaults to `node`, which is the strict question. */
   scope?: "node" | "app_wide";
@@ -286,8 +307,14 @@ function understood<T extends { model_version: number }>(
   return page;
 }
 
-const GRANTS_PATH = (identityId: string): string =>
-  `/api/v1/identities/${encodeURIComponent(identityId)}/grants`;
+/** Where a subject's grant roots are read: one endpoint per principal kind, the same page shape. */
+const GRANTS_PATH = (type: PrincipalType, id: string): string =>
+  type === "service"
+    ? `/api/v1/oauth-clients/${encodeURIComponent(id)}/grants`
+    : `/api/v1/identities/${encodeURIComponent(id)}/grants`;
+
+/** The cache key: the kind and the id, so two kinds sharing an id never collide. */
+const subjectKey = (type: PrincipalType, id: string): string => `${type}:${id}`;
 
 const PARENTS_PATH = "/api/v1/nodes/parents";
 
@@ -462,9 +489,16 @@ export class LocalAuthorizer {
   async grantRoots(
     identityId: string,
     permission: string,
+    subject: SubjectOptions = {},
   ): Promise<{ roots: string[]; envWide: boolean }> {
     const now = this.now();
-    const held = (await this.grantRootsFor(identityId)).get(permission) ?? [];
+    const held =
+      (
+        await this.grantRootsFor(
+          identityId,
+          subject.principalType ?? "identity",
+        )
+      ).get(permission) ?? [];
     const granted = new Set(
       held.filter((window) => inEffect(window, now)).map((w) => w.node),
     );
@@ -526,10 +560,14 @@ export class LocalAuthorizer {
   async accessibleNodes(
     identityId: string,
     permission: string,
-    options: { maxNodes?: number } = {},
+    options: { maxNodes?: number } & SubjectOptions = {},
   ): Promise<AccessibleNodes> {
     const cap = options.maxNodes ?? this.maxNodes;
-    const { roots, envWide } = await this.grantRoots(identityId, permission);
+    const { roots, envWide } = await this.grantRoots(identityId, permission, {
+      ...(options.principalType
+        ? { principalType: options.principalType }
+        : {}),
+    });
 
     if (envWide) {
       return { roots, envWide: true, nodes: null, complete: true };
@@ -569,8 +607,12 @@ export class LocalAuthorizer {
    * inheritance: the list a screen renders its controls from, answered from
    * the same cached grant roots and tree a check uses.
    */
-  async permissionsAt(identityId: string, nodeId: string): Promise<string[]> {
-    const answers = await this.permissionsAtMany(identityId, [nodeId]);
+  async permissionsAt(
+    identityId: string,
+    nodeId: string,
+    subject: SubjectOptions = {},
+  ): Promise<string[]> {
+    const answers = await this.permissionsAtMany(identityId, [nodeId], subject);
 
     return answers.get(nodeId) ?? [];
   }
@@ -583,9 +625,13 @@ export class LocalAuthorizer {
   async permissionsAtMany(
     identityId: string,
     nodeIds: readonly string[],
+    subject: SubjectOptions = {},
   ): Promise<Map<string, string[]>> {
     const now = this.now();
-    const roots = await this.grantRootsFor(identityId);
+    const roots = await this.grantRootsFor(
+      identityId,
+      subject.principalType ?? "identity",
+    );
     const answers = new Map<string, string[]>();
 
     for (const nodeId of new Set(nodeIds)) {
@@ -610,9 +656,12 @@ export class LocalAuthorizer {
 
   private async decide(query: LocalAuthorizationQuery): Promise<LocalDecision> {
     const now = this.now();
-    const held = (await this.grantRootsFor(query.identity_id)).get(
-      query.permission,
-    );
+    const held = (
+      await this.grantRootsFor(
+        query.identity_id,
+        query.principal_type ?? "identity",
+      )
+    ).get(query.permission);
 
     if (!held || held.length === 0) {
       return { allowed: false, reason: "permission_not_held" };
@@ -664,6 +713,8 @@ export class LocalAuthorizer {
    * cached hierarchy and every other identity's entries stay warm. This is
    * the shape an assignment webhook wants: the event names the identity
    * whose authority moved, and nothing else needs to pay a refetch for it.
+   * An event naming a machine client (`oauth_client_id`, with `identity_id`
+   * null) passes that client's `client_id` with `principalType: "service"`.
    *
    * With no argument, everything goes: grants and the hierarchy tree. Not
    * needed in normal operation, where entries expire on their own; useful in
@@ -679,9 +730,11 @@ export class LocalAuthorizer {
    * the TTL, and webhook-driven invalidation is a latency optimization on
    * top of it — size the TTL to the revocation latency you can promise.
    */
-  invalidate(identityId?: string): void {
+  invalidate(identityId?: string, subject: SubjectOptions = {}): void {
     if (identityId !== undefined) {
-      this.grants.delete(identityId);
+      this.grants.delete(
+        subjectKey(subject.principalType ?? "identity", identityId),
+      );
 
       return;
     }
@@ -748,24 +801,28 @@ export class LocalAuthorizer {
     );
   }
 
-  private async grantRootsFor(identityId: string): Promise<GrantRoots> {
-    const cached = this.grants.get(identityId);
+  private async grantRootsFor(
+    identityId: string,
+    type: PrincipalType,
+  ): Promise<GrantRoots> {
+    const key = subjectKey(type, identityId);
+    const cached = this.grants.get(key);
 
     if (cached && cached.expiresAt > this.now()) {
       return cached.roots;
     }
 
-    const pending = this.pendingGrants.get(identityId);
+    const pending = this.pendingGrants.get(key);
 
     if (pending) {
       return pending;
     }
 
-    const read = this.fetchGrantRoots(identityId).finally(() => {
-      this.pendingGrants.delete(identityId);
+    const read = this.fetchGrantRoots(identityId, type).finally(() => {
+      this.pendingGrants.delete(key);
     });
 
-    this.pendingGrants.set(identityId, read);
+    this.pendingGrants.set(key, read);
 
     return read;
   }
@@ -785,10 +842,13 @@ export class LocalAuthorizer {
    * window boundary when that comes before the TTL, so a grant takes effect
    * or ends on time rather than up to `ttlMs` late.
    */
-  private async fetchGrantRoots(identityId: string): Promise<GrantRoots> {
+  private async fetchGrantRoots(
+    identityId: string,
+    type: PrincipalType,
+  ): Promise<GrantRoots> {
     this.stats.grantFetches += 1;
 
-    const path = GRANTS_PATH(identityId);
+    const path = GRANTS_PATH(type, identityId);
     const rows = paginate<GrantRow>(
       (query) => {
         this.stats.grantPages += 1;
@@ -830,7 +890,7 @@ export class LocalAuthorizer {
       }
     }
 
-    this.grants.set(identityId, {
+    this.grants.set(subjectKey(type, identityId), {
       roots,
       expiresAt: Math.min(now + this.ttlMs, boundary),
     });

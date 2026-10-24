@@ -24,7 +24,7 @@ interface FakeRequest {
   user?: { sub?: string };
   params?: { nodeId?: string };
   /** What `CanopyTokenGuard` attaches, under its default property. */
-  canopyToken?: { org_id?: unknown; permissions?: unknown };
+  canopyToken?: { org_id?: unknown; permissions?: unknown; type?: unknown };
   [attached: string]: unknown;
 }
 
@@ -197,6 +197,68 @@ describe("resolving the request", () => {
       permission: "reports.view",
       scope: "app_wide",
     });
+  });
+});
+
+/**
+ * Whose grants answer is read off the verified claims, never off anything the
+ * caller supplies, so a person's token cannot be checked against a machine
+ * client's grants or the reverse.
+ */
+describe("the subject's kind", () => {
+  it("asks about a machine client's grants for a service token", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: NODE_REQUIREMENT,
+      request: {
+        user: { sub: "client_abc" },
+        params: { nodeId: "nod_1" },
+        canopyToken: { type: "service" },
+      },
+    });
+
+    await guard.canActivate(context);
+
+    expect(evaluate.mock.calls[0]?.[0]).toEqual({
+      identity_id: "client_abc",
+      permission: "orders.refund",
+      scope: "node",
+      node_id: "nod_1",
+      principal_type: "service",
+    });
+  });
+
+  it("asks about an identity's grants for any other token", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: NODE_REQUIREMENT,
+      request: {
+        user: { sub: "idn_1" },
+        params: { nodeId: "nod_1" },
+        canopyToken: { type: "identity" },
+      },
+    });
+
+    await guard.canActivate(context);
+
+    expect(evaluate.mock.calls[0]?.[0]).not.toHaveProperty("principal_type");
+  });
+
+  it("reads the claims where the token guard was told to attach them", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: NODE_REQUIREMENT,
+      attachTokenAs: "machineClaims",
+      request: {
+        user: { sub: "client_abc" },
+        params: { nodeId: "nod_1" },
+        machineClaims: { type: "service" },
+      },
+    });
+
+    await guard.canActivate(context);
+
+    expect(evaluate.mock.calls[0]?.[0]).toHaveProperty(
+      "principal_type",
+      "service",
+    );
   });
 });
 

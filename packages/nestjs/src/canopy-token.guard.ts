@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 
 import {
   type CanopyTokenClaims,
@@ -15,7 +16,11 @@ import {
 } from "@canopy-io/node";
 
 import type { CanopyModuleOptions } from "./options.js";
-import { CANOPY_OPTIONS, CANOPY_TOKEN_VERIFIER } from "./tokens.js";
+import {
+  CANOPY_ALLOW_SERVICE_TOKENS,
+  CANOPY_OPTIONS,
+  CANOPY_TOKEN_VERIFIER,
+} from "./tokens.js";
 
 /**
  * Verifies the bearer token and attaches its claims to the request.
@@ -43,10 +48,15 @@ import { CANOPY_OPTIONS, CANOPY_TOKEN_VERIFIER } from "./tokens.js";
  * `resolveIdentity` is usually `(req) => req.canopyToken?.sub`. The property
  * is configurable so it cannot collide with a `request.user` an existing
  * middleware already owns.
+ *
+ * A machine client's `service` token is refused unless the route or its
+ * controller carries `@AllowServiceTokens()`: a route built for people must
+ * not admit a machine by accident.
  */
 @Injectable()
 export class CanopyTokenGuard implements CanActivate {
   constructor(
+    @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(CANOPY_TOKEN_VERIFIER) private readonly verifier: TokenVerifier,
     @Inject(CANOPY_OPTIONS)
     private readonly options: CanopyModuleOptions<unknown>,
@@ -66,10 +76,19 @@ export class CanopyTokenGuard implements CanActivate {
       );
     }
 
+    const admitsServiceTokens =
+      this.reflector.getAllAndOverride<boolean | undefined>(
+        CANOPY_ALLOW_SERVICE_TOKENS,
+        [context.getHandler(), context.getClass()],
+      ) === true;
+
     let claims: CanopyTokenClaims;
 
     try {
-      claims = await this.verifier.verify(token);
+      claims = await this.verifier.verify(
+        token,
+        admitsServiceTokens ? { alsoAllow: ["service"] } : {},
+      );
     } catch (error) {
       // Not being able to verify is not the same as failing to verify. When
       // the key set cannot be read the caller's token may be perfectly good —
