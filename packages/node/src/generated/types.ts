@@ -1715,13 +1715,13 @@ export interface paths {
         };
         /**
          * List roles
-         * @description Returns the roles defined for the active Application within the current Environment as an unpaginated `{ items }` collection, each enriched with a `permission_count`. By default only active roles are returned; pass `include_inactive=true` to include deactivated roles, and filter by `type=system` or `type=custom`. Requires the `rbac.view_roles` permission.
+         * @description Returns the roles defined for the active Application within the current Environment as an unpaginated `{ items }` collection, each enriched with a `permission_count`, its `scope` and `organization_node_id`. By default only the Environment's own roles are returned, the ones assignable in every organization; `organization_id` lists one organization's own roles, `scope=available` with it what can be held inside that organization (its own and the Environment's), and `scope=all` every role. By default only active roles are returned; pass `include_inactive=true` to include deactivated roles, and filter by `type=system` or `type=custom`. An `organization_id` that is not a live organization returns `404`. Requires the `rbac.view_roles` permission.
          */
         get: operations["ApiRolesController_listRoles"];
         put?: never;
         /**
          * Create a custom role
-         * @description Creates a custom role in the active Application for the current Environment from a `name` and optional `description`. The new role is always non-system and starts with no permissions — attach permission keys via the role-permissions endpoint. A name that already exists in the Environment returns `409`. Requires the `rbac.manage_roles` permission and emits a `role.created` audit event.
+         * @description Creates a custom role in the active Application for the current Environment from a `name` and optional `description`. Without `organization_id` it is an Environment role, assignable in every organization; with it, the role belongs to that organization and can be held only at its node or beneath it (`400 rbac.role_outside_organization` elsewhere). The new role is always non-system and starts with no permissions, or with a copy of `copy_from_role_id`'s (an Environment role, or one of the same organization) — otherwise attach permission keys via the role-permissions endpoint. A name already used in the same tier (the Environment's roles, or that organization's own) returns `409`. Requires the `rbac.manage_roles` permission and emits a `role.created` audit event.
          */
         post: operations["ApiRolesController_createRole"];
         delete?: never;
@@ -2189,7 +2189,7 @@ export interface paths {
         put?: never;
         /**
          * Register a new OAuth client
-         * @description Registers a new confidential OAuth client in the current Environment with the given `name`, `redirect_uris`, and optional `scopes` (defaulting to `openid profile email`), each one of `openid`, `profile`, `email`, `org` and `permissions`; any other value is refused with `400` (`oauth.client_scope_unknown`). Generates the `client_id` and a `client_secret` that is bcrypt-hashed at rest; the raw secret is returned in this response only and is never retrievable again. Responds `201 Created`.
+         * @description Registers a new confidential OAuth client in the current Environment with the given `name`, `redirect_uris`, and optional `scopes` (defaulting to `openid profile email`), each one of `openid`, `profile`, `email`, `org` and `permissions`; any other value is refused with `400` (`oauth.client_scope_unknown`). With `client_kind: machine` it registers a machine client instead: a principal of its own that holds roles (see the assignments routes) and obtains tokens for itself, with an optional `organization_node_id` (the one organization it acts in), optional `allowed_audiences` and the `permissions` scope, the `client_credentials` grant only and no redirect URIs; it counts toward the plan's machine-credential allowance (`409 plan_limit_exceeded`). Generates the `client_id` and a `client_secret` that is bcrypt-hashed at rest; the raw secret is returned in this response only and is never retrievable again. Responds `201 Created`.
          */
         post: operations["ApiOAuthClientsController_create"];
         delete?: never;
@@ -2260,6 +2260,74 @@ export interface paths {
          * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret and invalidating the old one. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment.
          */
         post: operations["ApiOAuthClientsController_rotateSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-clients/{id}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a machine client's role assignments
+         * @description Returns one page of the machine client's role assignments in the current Environment, each with its role and node, searched by role or node name with `q` and sorted with the standard options. `id` is the client's `client_id`. A web client answers `400` (`oauth.client_not_machine`): only a machine client holds roles.
+         */
+        get: operations["ApiOAuthClientsController_listAssignments"];
+        put?: never;
+        /**
+         * Assign a role to a machine client at a node
+         * @description Gives the machine client `role_id` at `node_id`, optionally for a window (`effective_from`, `effective_to`), through the same grant writer and grant ceiling every assignment passes: the caller must hold `rbac.manage_assignments` at the node and may only grant roles they are allowed to. A client pinned to an organization holds roles only at or beneath that organization's node (`409 oauth.client_outside_organization`). Responds `201 Created` with the assignment.
+         */
+        post: operations["ApiOAuthClientsController_assignRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oauth-clients/{id}/assignments/{assignmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a machine client's assignment
+         * @description Takes one of the machine client's assignments away; an assignment held by anyone else reads as `404`. Responds `204 No Content`.
+         */
+        delete: operations["ApiOAuthClientsController_removeAssignment"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a machine client's assignment
+         * @description Changes the role or the window of one of the machine client's assignments; an assignment held by anyone else reads as `404`. Send `If-Match` with the assignment's `version` to refuse a stale write (`409 assignment.version_mismatch`).
+         */
+        patch: operations["ApiOAuthClientsController_updateAssignment"];
+        trace?: never;
+    };
+    "/api/v1/oauth-clients/{id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get where a machine client holds each permission
+         * @description Returns one page of where the machine client holds each permission: `(permission, node_id)` pairs at the nodes its active roles were granted at, not expanded through descendants, with `model_version` beside the page so an SDK can cache and evaluate locally. `id` is the client's `client_id`, the `sub` of its tokens. A deactivated client answers an empty page. `include=windows` returns every assignment with its window instead of only those in effect now.
+         */
+        get: operations["ApiOAuthClientsController_getGrants"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2650,9 +2718,16 @@ export interface components {
         };
         AssignmentResponseDto: {
             id: string;
-            identity_id: string;
+            /** @description The identity holding the role; null when a machine client holds it. */
+            identity_id: string | null;
+            /** @description The machine OAuth client holding the role; null when a person holds it. */
+            oauth_client_id: string | null;
             application_node_id: string;
             role_id: string;
+            /** @description The role's name, when the read loaded it. */
+            role_name: string | null;
+            /** @description The node's name, when the read loaded it. */
+            node_name: string | null;
             /** Format: date-time */
             effective_from?: string | null;
             /** Format: date-time */
@@ -2994,8 +3069,16 @@ export interface components {
         };
         RoleResponseDto: {
             id: string;
-            application_id: string;
             name: string;
+            /**
+             * @description `environment`: assignable in every organization. `organization`: belongs to the organization `organization_node_id` names and is held only inside it.
+             * @enum {string}
+             */
+            scope: "environment" | "organization";
+            /** @description The organization this role belongs to; null for an Environment role. */
+            organization_node_id?: string | null;
+            /** @description The name of the organization this role belongs to. Populated on list responses; null for an Environment role. */
+            organization_name?: string | null;
             description?: string | null;
             is_system_role: boolean;
             system_key?: string | null;
@@ -3317,8 +3400,16 @@ export interface components {
         };
         OrganizationRoleResponseDto: {
             id: string;
-            application_id: string;
             name: string;
+            /**
+             * @description `environment`: assignable in every organization. `organization`: belongs to the organization `organization_node_id` names and is held only inside it.
+             * @enum {string}
+             */
+            scope: "environment" | "organization";
+            /** @description The organization this role belongs to; null for an Environment role. */
+            organization_node_id?: string | null;
+            /** @description The name of the organization this role belongs to. Populated on list responses; null for an Environment role. */
+            organization_name?: string | null;
             description?: string | null;
             is_system_role: boolean;
             system_key?: string | null;
@@ -3611,10 +3702,14 @@ export interface components {
             role_id: string;
         };
         CreateRoleDto: {
-            /** @description Role name */
+            /** @description Role name, unique among the Environment's roles, or among the organization's own when `organization_id` is set */
             name: string;
             /** @description Role description */
             description?: string;
+            /** @description The organization the role belongs to. Omitted, the role is an Environment role, assignable in every organization; set, it can be held only at the organization's node or beneath it. */
+            organization_id?: string;
+            /** @description Start from a copy of this role's permissions (and its description, when none is given). An Environment role, or a role of the same organization. The only way an organization gets its own version of a shared role. */
+            copy_from_role_id?: string;
         };
         UpdateRoleDto: {
             /** @description Updated role name */
@@ -4028,6 +4123,17 @@ export interface components {
             id: string;
             client_id: string;
             name: string;
+            /**
+             * @description `web`: a person signs in through it. `machine`: it holds roles of its own and obtains tokens for itself with `client_credentials`.
+             * @enum {string}
+             */
+            client_kind: "web" | "machine";
+            /** @description The organization a machine client acts in: its tokens name it and its roles sit inside it. Null for a client that acts across the Environment, and for a web client. */
+            organization_node_id?: string | null;
+            /** @description That organization's name; null when the client has none. */
+            organization_name?: string | null;
+            /** @description The audiences a machine client may request a token for, beside the Environment's default. Empty for a web client. */
+            allowed_audiences: string[];
             redirect_uris: string[];
             /** @description Where this client may send someone after RP-initiated logout, matched exactly. */
             post_logout_redirect_uris: string[];
@@ -4051,9 +4157,25 @@ export interface components {
         };
         CreateOAuthClientDto: {
             name: string;
-            redirect_uris: string[];
+            /**
+             * @description `web` (when omitted): a person signs in through this client with the authorization code grant. `machine`: the client is a principal of its own that holds roles and obtains tokens for itself with the `client_credentials` grant, for the audiences it lists, inside at most one organization; it takes no redirect URIs or sign-in fields.
+             * @enum {string}
+             */
+            client_kind?: "web" | "machine";
+            /** @description Machine clients only: the organization the client acts in. Its tokens name it and it may hold roles only inside it. Omitted, the client acts across the Environment. */
+            organization_node_id?: string;
+            /**
+             * @description For a machine client: the audiences (your APIs' identifiers) it may request a token for with `audience`, beside the Environment's `m2m_default_audience`. The token's `aud` names the one asked for.
+             * @example [
+             *       "https://api.example.com"
+             *     ]
+             */
+            allowed_audiences?: string[];
+            /** @description Required for a web client; a machine client has none. */
+            redirect_uris?: string[];
             /** @description Where this client may send someone after RP-initiated logout. Matched exactly, and separate from `redirect_uris`: receiving an authorization code and being a landing page after sign-out are different kinds of trust. */
             post_logout_redirect_uris?: string[];
+            /** @description What the client's tokens may carry. Omitted, a web client gets `openid`, `profile` and `email`; a machine client gets `permissions`, the only scope it may hold. */
             scopes?: string[];
             /** @description Where Canopy delivers a signed logout token, server to server, when a session this client issued tokens for ends. Omit it and the client is told nothing. */
             backchannel_logout_uri?: string;
@@ -4065,6 +4187,17 @@ export interface components {
             id: string;
             client_id: string;
             name: string;
+            /**
+             * @description `web`: a person signs in through it. `machine`: it holds roles of its own and obtains tokens for itself with `client_credentials`.
+             * @enum {string}
+             */
+            client_kind: "web" | "machine";
+            /** @description The organization a machine client acts in: its tokens name it and its roles sit inside it. Null for a client that acts across the Environment, and for a web client. */
+            organization_node_id?: string | null;
+            /** @description That organization's name; null when the client has none. */
+            organization_name?: string | null;
+            /** @description The audiences a machine client may request a token for, beside the Environment's default. Empty for a web client. */
+            allowed_audiences: string[];
             redirect_uris: string[];
             /** @description Where this client may send someone after RP-initiated logout, matched exactly. */
             post_logout_redirect_uris: string[];
@@ -4098,6 +4231,8 @@ export interface components {
             post_logout_redirect_uris?: string[];
             scopes?: string[];
             is_active?: boolean;
+            /** @description A machine client's audiences, replaced whole. A web client takes none (`400 oauth.web_client_audiences_invalid`). */
+            allowed_audiences?: string[];
             /** @description Where Canopy delivers a signed logout token when a session this client issued tokens for ends. `null` stops the notifications. */
             backchannel_logout_uri?: string | null;
             invite_redirect_url?: string | null;
@@ -4108,6 +4243,16 @@ export interface components {
             client_id: string;
             /** @description New client secret — shown only once */
             client_secret: string;
+        };
+        CreateOAuthClientAssignmentDto: {
+            /** @description The node the role is held at. */
+            node_id: string;
+            /** @description The role the client holds there. */
+            role_id: string;
+            /** @description When the role starts to apply. Omitted, from now. */
+            effective_from?: string;
+            /** @description When the role stops applying. Omitted, never. */
+            effective_to?: string;
         };
         ApiKeyCreatedResponseDto: {
             id: string;
@@ -4372,9 +4517,16 @@ export interface components {
                 metadata: {
                     /**
                      * Format: uuid
-                     * @description The identity holding the assignment.
+                     * @description The identity holding the assignment; null when a machine client holds it.
                      */
-                    identity_id: string;
+                    identity_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The machine OAuth client holding the assignment; null when a person holds it.
+                     */
+                    oauth_client_id: string | null;
+                    /** @description That machine client's `client_id`: its token's `sub`, the id its grants route takes and an SDK cache names it by. Null when a person holds the assignment. */
+                    client_id: string | null;
                     /**
                      * Format: uuid
                      * @description The hierarchy node the role is held at.
@@ -4403,9 +4555,16 @@ export interface components {
                 metadata: {
                     /**
                      * Format: uuid
-                     * @description The identity holding the assignment.
+                     * @description The identity holding the assignment; null when a machine client holds it.
                      */
-                    identity_id: string;
+                    identity_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The machine OAuth client holding the assignment; null when a person holds it.
+                     */
+                    oauth_client_id: string | null;
+                    /** @description That machine client's `client_id`: its token's `sub`, the id its grants route takes and an SDK cache names it by. Null when a person holds the assignment. */
+                    client_id: string | null;
                     /**
                      * Format: uuid
                      * @description The hierarchy node the role is held at.
@@ -4429,9 +4588,16 @@ export interface components {
                 metadata: {
                     /**
                      * Format: uuid
-                     * @description The identity holding the assignment.
+                     * @description The identity holding the assignment; null when a machine client holds it.
                      */
-                    identity_id: string;
+                    identity_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The machine OAuth client holding the assignment; null when a person holds it.
+                     */
+                    oauth_client_id: string | null;
+                    /** @description That machine client's `client_id`: its token's `sub`, the id its grants route takes and an SDK cache names it by. Null when a person holds the assignment. */
+                    client_id: string | null;
                     /**
                      * Format: uuid
                      * @description The hierarchy node the role is held at.
@@ -4486,9 +4652,16 @@ export interface components {
                     affected: {
                         /**
                          * Format: uuid
-                         * @description The identity holding the assignment.
+                         * @description The identity holding the assignment; null when a machine client holds it.
                          */
-                        identity_id: string;
+                        identity_id: string | null;
+                        /**
+                         * Format: uuid
+                         * @description The machine OAuth client holding the assignment; null when a person holds it.
+                         */
+                        oauth_client_id?: string | null;
+                        /** @description That machine client's `client_id`: its token's `sub`, the id its grants route takes and an SDK cache names it by. Null when a person holds the assignment. */
+                        client_id?: string | null;
                         /**
                          * Format: uuid
                          * @description The hierarchy node the role is held at.
@@ -4532,9 +4705,9 @@ export interface components {
                     affected: {
                         /**
                          * Format: uuid
-                         * @description The identity holding the assignment.
+                         * @description The identity holding the assignment; null when a machine client holds it.
                          */
-                        identity_id: string;
+                        identity_id: string | null;
                         /**
                          * Format: uuid
                          * @description The hierarchy node the role is held at.
@@ -4798,6 +4971,11 @@ export interface components {
                 metadata: {
                     /** @description The role's name. */
                     name: string;
+                    /**
+                     * Format: uuid
+                     * @description The role whose permissions it started from, when it was created as a copy.
+                     */
+                    copied_from_role_id?: string;
                 };
             };
         };
@@ -6475,7 +6653,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6486,7 +6664,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "POST"
@@ -11530,7 +11708,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is inactive or a system role, the window does not start before it ends, or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11541,7 +11719,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is inactive or a system role, the window does not start before it ends, or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments",
                      *         "method": "POST"
@@ -11793,7 +11971,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the new role is inactive or a system role, the window does not start before it ends, or an organization's own role would be held outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11804,7 +11982,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the new role is inactive or a system role, the window does not start before it ends, or an organization's own role would be held outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
                      *         "method": "PATCH"
@@ -13741,7 +13919,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation; the connection is not in the account, is not an end-user connection, or is not bound to the organization's Environment; or the role is not an active, assignable arrival role in that Environment; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation; the connection is not in the account, is not an end-user connection, or is not bound to the organization's Environment; or the role is not an active, assignable arrival role in that Environment, or is another organization's own (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13752,7 +13930,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation; the connection is not in the account, is not an end-user connection, or is not bound to the organization's Environment; or the role is not an active, assignable arrival role in that Environment; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation; the connection is not in the account, is not an end-user connection, or is not bound to the organization's Environment; or the role is not an active, assignable arrival role in that Environment, or is another organization's own (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
                      *         "method": "POST"
@@ -14124,7 +14302,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14135,7 +14313,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
                      *         "method": "POST"
@@ -14631,7 +14809,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14642,7 +14820,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
                      *         "method": "POST"
@@ -17726,6 +17904,10 @@ export interface operations {
                 include_inactive?: "true" | "false";
                 /** @description Filter by role origin. */
                 type?: "system" | "custom";
+                /** @description Which roles: `environment` (the default) the Environment's own, assignable in every organization; `organization` one organization's own; `available` what can be held inside one organization, its own and the Environment's; `all` every role in the Environment. `organization` and `available` need `organization_id`. */
+                scope?: "environment" | "organization" | "available" | "all";
+                /** @description The organization whose roles to list. Alone, it lists that organization's own roles (`scope=organization`). */
+                organization_id?: string;
             };
             header?: never;
             path?: never;
@@ -17798,6 +17980,27 @@ export interface operations {
                      *         "statusCode": 403,
                      *         "code": null,
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description `organization_id` is not a live organization in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "`organization_id` is not a live organization in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
@@ -17890,6 +18093,27 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description `organization_id` is not a live organization in this Environment, or `copy_from_role_id` names no role that can be copied here (an Environment role, or one of the same organization) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "`organization_id` is not a live organization in this Environment, or `copy_from_role_id` names no role that can be copied here (an Environment role, or one of the same organization)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -18723,7 +18947,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -18734,7 +18958,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
                      *         "method": "POST"
@@ -18984,7 +19208,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -18995,7 +19219,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
                      *         "method": "PATCH"
@@ -21403,7 +21627,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -21414,7 +21638,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "POST"
@@ -21460,6 +21684,27 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A machine client: the account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`, API keys and machine clients together); `data` carries the limit, the usage and an upgrade URL */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "A machine client: the account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`, API keys and machine clients together); `data` carries the limit, the usage and an upgrade URL",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -21814,7 +22059,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -21825,7 +22070,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), or `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "PATCH"
@@ -22000,6 +22245,661 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
                      *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_listAssignments: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search role and node names */
+                q?: string;
+                /** @description Sort column. Defaults to `created`, oldest first. */
+                sort_by?: "role" | "node" | "created";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AssignmentResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_assignRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOAuthClientAssignmentDto"];
+            };
+        };
+        responses: {
+            /** @description Assignment created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": null,
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_removeAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assignment removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_updateAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAssignmentDto"];
+            };
+        };
+        responses: {
+            /** @description Assignment updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOAuthClientsController_getGrants: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description `windows` adds `effective_from` and `effective_to` to every row and includes assignments outside their window, so the caller applies the window itself. */
+                include?: "windows";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of `(permission, node_id)` pairs: the nodes the client's active roles grant each permission at, in effect now unless `include=windows`, with `model_version` beside the page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description The version of the authorization model these rows describe. A client that evaluates from them refuses a version it does not know rather than guessing. */
+                        model_version: number;
+                        items: components["schemas"]["IdentityGrantResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/grants",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No OAuth client with that id exists in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/grants",
+                     *         "method": "GET"
                      *       }
                      *     }
                      */
@@ -22192,7 +23092,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The account has reached its plan's monthly limit on active API keys (`m2m_tokens`); `data` carries the limit, the usage and an upgrade URL */
+            /** @description The account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`: API keys and machine clients); `data` carries the limit, the usage and an upgrade URL */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22203,7 +23103,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The account has reached its plan's monthly limit on active API keys (`m2m_tokens`); `data` carries the limit, the usage and an upgrade URL",
+                     *         "message": "The account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`: API keys and machine clients); `data` carries the limit, the usage and an upgrade URL",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "POST"

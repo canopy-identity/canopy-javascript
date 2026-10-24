@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { CanopyTokenClaims } from "@canopy-io/node";
 
+import { AllowServiceTokens } from "./allow-service-tokens.decorator.js";
 import { CanopyGuard } from "./canopy.guard.js";
 import { CanopyModule } from "./canopy.module.js";
 import { CanopyTokenGuard } from "./canopy-token.guard.js";
@@ -28,6 +29,7 @@ import { RequirePermission } from "./require-permission.decorator.js";
  */
 
 const ISSUER = "https://auth.test.example";
+const API_AUDIENCE = "https://api.example.com";
 
 interface Signer {
   jwk: Record<string, unknown>;
@@ -82,6 +84,8 @@ let signer: Signer;
 let allowed = true;
 /** Which subject the authorization call was asked about. */
 let evaluatedIdentity: string | undefined;
+/** Which grants endpoint answered it: an identity's or a machine client's. */
+let grantsKind: string | undefined;
 
 /**
  * A whole collection as the single page the API answers it in, describing
@@ -131,7 +135,10 @@ const fakeFetch = ((url: string | URL | Request) => {
   // The subject now rides in the path of the grants read rather than in an
   // evaluate body, but the thing under test is the same: which identity the
   // guard asked about.
-  evaluatedIdentity = /\/identities\/([^/]+)\/grants/.exec(href)?.[1];
+  const read = /\/(identities|oauth-clients)\/([^/]+)\/grants/.exec(href);
+
+  grantsKind = read?.[1];
+  evaluatedIdentity = read?.[2];
 
   return Promise.resolve(
     new Response(
@@ -159,6 +166,13 @@ class TestController {
   reports() {
     return { ok: true };
   }
+
+  @Get("imports")
+  @AllowServiceTokens()
+  @RequirePermission("reports.view", { scope: "app_wide" })
+  imports() {
+    return { ok: true };
+  }
 }
 
 @Module({
@@ -168,7 +182,11 @@ class TestController {
       baseUrl: "https://api.test",
       maxRetries: 0,
       fetch: fakeFetch,
-      verify: { issuer: ISSUER, fetch: fakeFetch },
+      verify: {
+        issuer: ISSUER,
+        serviceAudience: API_AUDIENCE,
+        fetch: fakeFetch,
+      },
       // The handoff: the subject comes from what the token guard verified,
       // never from anything the caller can set directly.
       resolveIdentity: (request) => request.canopyToken?.sub,
@@ -212,8 +230,8 @@ function claims(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function call(token?: string): Promise<Response> {
-  return fetch(`${base}/reports`, {
+function call(token?: string, path = "/reports"): Promise<Response> {
+  return fetch(`${base}${path}`, {
     headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
   });
 }
@@ -289,5 +307,85 @@ describe("CanopyTokenGuard and CanopyGuard on one route", () => {
     expect(evaluatedIdentity).toBe("idn_denied");
 
     allowed = true;
+  });
+});
+
+/**
+ * A machine client's token reaches only the route that admits it, and is
+ * authorized there from the client's own grants: the kind is read off the
+ * verified claims, so the grants read goes to the client's endpoint.
+ */
+describe("a machine client's service token", () => {
+  const service = (overrides: Record<string, unknown> = {}) =>
+    claims({
+      sub: "client_sync",
+      type: "service",
+      gty: "client_credentials",
+      client_id: "client_sync",
+      aud: API_AUDIENCE,
+      ...overrides,
+    });
+
+  it("is authorized from the client's own grants on a route that admits it", async () => {
+    allowed = true;
+    evaluatedIdentity = undefined;
+    grantsKind = undefined;
+
+    const response = await call(await signer.sign(service()), "/imports");
+
+    expect(response.status).toBe(200);
+    expect(grantsKind).toBe("oauth-clients");
+    expect(evaluatedIdentity).toBe("client_sync");
+  });
+
+  it("401s on a route that does not admit it, without asking about permissions", async () => {
+    evaluatedIdentity = undefined;
+
+    const response = await call(await signer.sign(service()), "/reports");
+
+    expect(response.status).toBe(401);
+    expect(evaluatedIdentity).toBeUndefined();
+  });
+
+  it("401s when minted for another API", async () => {
+    evaluatedIdentity = undefined;
+
+    const response = await call(
+      await signer.sign(service({ aud: "https://reports.example.com" })),
+      "/imports",
+    );
+
+    expect(response.status).toBe(401);
+    expect(evaluatedIdentity).toBeUndefined();
+  });
+
+  it("403s when the client does not hold the permission", async () => {
+    allowed = false;
+
+    // A client not yet cached, so the denial is read rather than remembered.
+    const response = await call(
+      await signer.sign(
+        service({ sub: "client_denied", client_id: "client_denied" }),
+      ),
+      "/imports",
+    );
+
+    expect(response.status).toBe(403);
+    expect(grantsKind).toBe("oauth-clients");
+    expect(evaluatedIdentity).toBe("client_denied");
+
+    allowed = true;
+  });
+
+  it("leaves a person's token on the opted-in route reading the identity's grants", async () => {
+    grantsKind = undefined;
+
+    const response = await call(
+      await signer.sign(claims({ sub: "idn_imports" })),
+      "/imports",
+    );
+
+    expect(response.status).toBe(200);
+    expect(grantsKind).toBe("identities");
   });
 });

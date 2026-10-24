@@ -109,7 +109,51 @@ export async function authenticate(
 - On a custom auth domain or self-hosted instance, pass `issuer` (for example `https://auth.acme.com`) instead of `environmentId`.
 - Pre-auth tokens (issued before an administrator picks an Account) are refused by default. Leave it that way.
 - `claims.amr` says how the session was proven (`pwd`, `otp`, `sso`, plus `mfa` after a second factor). Require `claims.amr?.includes("mfa")` before a sensitive action if the product needs it.
-- With organizations on, read the organization through `orgContext(claims)`, which returns `{ orgId, orgRoles }` or `null`, rather than off the raw claims. `orgRoles` is empty for a member holding no role at the organization node; authorize by evaluating, not by the list.
+- With organizations on, read the organization through `orgContext(claims)`, which returns `{ orgId, orgRoles, orgRoleIds }` or `null`, rather than off the raw claims. `orgRoles` is empty for a member holding no role at the organization node; authorize by evaluating, not by the list.
+
+## Machine clients
+
+A machine client (an OAuth client registered with `client_kind: machine`) is a principal of its own: it holds roles and obtains tokens for itself with the `client_credentials` grant. Its token has `type: "service"` and `sub` set to its `client_id`. Admit it only where machines are expected, and authorize it from its own grants with `principal_type: "service"`:
+
+```ts
+import {
+  Canopy,
+  LocalAuthorizer,
+  TokenVerifier,
+  type CanopyTokenClaims,
+} from "@canopy-io/node";
+
+const verifier = new TokenVerifier({
+  environmentId: process.env.CANOPY_ENVIRONMENT_ID,
+  // The audience this API answers to, which a service token's `aud` names.
+  serviceAudience: "https://api.example.com",
+});
+const canopy = new Canopy({ apiKey: process.env.CANOPY_API_KEY });
+const authorizer = new LocalAuthorizer(canopy.client);
+
+export async function mayImportOrders(
+  token: string,
+  nodeId: string,
+): Promise<boolean> {
+  // Only this route widens the verifier; everywhere else a service token is refused.
+  const claims: CanopyTokenClaims = await verifier.verify(token, {
+    alsoAllow: ["service"],
+  });
+
+  const { allowed } = await authorizer.evaluate({
+    identity_id: claims.sub,
+    principal_type: claims.type === "service" ? "service" : "identity",
+    permission: "orders.import",
+    node_id: nodeId,
+  });
+
+  return allowed;
+}
+```
+
+- A client's grants are read from `GET /api/v1/oauth-clients/:id/grants` and cached apart from people's. Invalidate one with `authorizer.invalidate(clientId, { principalType: "service" })`, where `clientId` is the `client_id` an assignment webhook carries in `data.metadata.client_id`.
+- Never take the principal type from the request: read it off the verified claims.
+- Without `serviceAudience` a service token is refused (`token.audience_unverified`); one minted for another API answers `token.audience_mismatch`.
 
 ## Authorizing in-process
 

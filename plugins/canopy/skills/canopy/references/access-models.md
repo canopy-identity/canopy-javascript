@@ -24,7 +24,7 @@ Nodes model the customer's structure (regions, departments, sites). Each resourc
 
 An optional container, on top of either model, for B2B tenancy: each customer is an organization, which is also a node. Membership is admission, a record of its own; a member's roles are assignments at the organization's node or beneath it, and may be none.
 
-- Identity tokens carry `org_id` (the organization the session is acting in) and `org_roles` (the roles held at its node, possibly empty). Read them with `orgContext(claims)`.
+- Identity tokens carry `org_id` (the organization the session is acting in), `org_roles` (the roles held at its node, possibly empty) and `org_role_ids` (the same roles' ids, in the same order). Read them with `orgContext(claims)`. A machine client pinned to an organization carries the same claims.
 - Authorize at the organization's node: `node_id` is the token's `org_id`. In NestJS, `@RequirePermission("invoices.view", { scope: "org" })` does this.
 - Take the organization from the **verified token**, and refuse records that belong to another organization. A caller acting in no organization is denied on an organization-scoped route.
 - A grant at the root (an internal administrator) reaches every organization.
