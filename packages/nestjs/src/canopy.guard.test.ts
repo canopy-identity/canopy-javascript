@@ -22,9 +22,14 @@ import type { PermissionRequirement } from "./require-permission.decorator.js";
 
 interface FakeRequest {
   user?: { sub?: string };
-  params?: { nodeId?: string };
+  params?: { nodeId?: string; orgId?: string };
   /** What `CanopyTokenGuard` attaches, under its default property. */
-  canopyToken?: { org_id?: unknown; permissions?: unknown; type?: unknown };
+  canopyToken?: {
+    org_id?: unknown;
+    org_scope?: unknown;
+    permissions?: unknown;
+    type?: unknown;
+  };
   [attached: string]: unknown;
 }
 
@@ -281,6 +286,43 @@ describe("org scope", () => {
 
     expect(evaluate.mock.calls[0]?.[0]).toEqual({
       identity_id: "idn_1",
+      permission: "invoices.view",
+      scope: "node",
+      node_id: "org_acme",
+    });
+  });
+
+  // Entering an organization is what it records and may refuse, so a staff
+  // token that has not entered one is denied, never placed by the route.
+  it("denies staff who have not entered an organization, and says how to enter", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      request: {
+        user: { sub: "idn_staff" },
+        params: { orgId: "org_acme" },
+        canopyToken: { org_scope: "all" },
+      },
+    });
+
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      /has not entered one, and enters with switch-organization/,
+    );
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("checks staff inside an organization at its node, as for a member", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: ORG_REQUIREMENT,
+      request: {
+        user: { sub: "idn_staff" },
+        canopyToken: { org_id: "org_acme", org_scope: "all" },
+      },
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+
+    expect(evaluate.mock.calls[0]?.[0]).toEqual({
+      identity_id: "idn_staff",
       permission: "invoices.view",
       scope: "node",
       node_id: "org_acme",

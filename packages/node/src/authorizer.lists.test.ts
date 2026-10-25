@@ -441,3 +441,53 @@ describe("LocalAuthorizer — a grant that ends before the TTL", () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("LocalAuthorizer — whether a permission is held under a node", () => {
+  it("names the subtree root alone when a grant above it reaches all of it", async () => {
+    const { authorizer } = makeAuthorizer([
+      { permission: "reports.view", node_id: "root" },
+    ]);
+
+    expect(
+      await authorizer.holdsAnywhereUnder("id-1", "reports.view", "sales"),
+    ).toEqual({ held: true, roots: ["sales"] });
+  });
+
+  it("names the topmost grants inside the subtree, and nothing outside it", async () => {
+    const { authorizer } = makeAuthorizer([
+      VIEW_AT_ENGINEERING,
+      { permission: "reports.view", node_id: "frontend" },
+      { permission: "reports.view", node_id: "field" },
+    ]);
+
+    expect(
+      await authorizer.holdsAnywhereUnder("id-1", "reports.view", "root"),
+    ).toEqual({ held: true, roots: ["engineering", "field"] });
+    expect(
+      await authorizer.holdsAnywhereUnder("id-1", "reports.edit", "root"),
+    ).toEqual({ held: false, roots: [] });
+  });
+
+  it("counts no grant whose window is not in effect", async () => {
+    const { authorizer } = makeAuthorizer([
+      { permission: "reports.view", node_id: "field", effective_to: at(-1) },
+    ]);
+
+    expect(
+      await authorizer.holdsAnywhereUnder("id-1", "reports.view", "sales"),
+    ).toEqual({ held: false, roots: [] });
+  });
+
+  it("refuses a subtree root the readable hierarchy does not contain", async () => {
+    const { authorizer } = makeAuthorizer([VIEW_AT_ENGINEERING]);
+
+    const error = await authorizer
+      .holdsAnywhereUnder("id-1", "reports.view", "elsewhere")
+      .catch((e: unknown) => e);
+
+    expect(isCanopyAuthorizerError(error)).toBe(true);
+    expect((error as { code: string }).code).toBe(
+      "authorizer.hierarchy_incomplete",
+    );
+  });
+});

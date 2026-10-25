@@ -603,6 +603,93 @@ export class LocalAuthorizer {
   }
 
   /**
+   * Whether the identity holds the permission anywhere at or beneath a node,
+   * and where: the question a menu inside an organization asks ("show
+   * Invoices to someone who approves invoices for any team in Acme"), which
+   * `app_wide` cannot answer because it covers the whole Environment.
+   *
+   * `roots` is `[subtreeRootId]` when a grant at the node or above it reaches
+   * the whole subtree; otherwise the topmost granted nodes inside it, the
+   * ones no other granted node inside it already covers. A list query filters
+   * by "beneath one of these".
+   *
+   * **A read for menus and lists, never a guard.** Holding the permission
+   * somewhere in the subtree says nothing about the record a write touches:
+   * check the node the action writes to, with `evaluate`. No `scope` value
+   * asks this question, on purpose.
+   *
+   * Computed from the same cached grant roots and tree a check uses. A grant
+   * or a subtree root the readable hierarchy does not contain raises
+   * `authorizer.hierarchy_incomplete`, as a check at such a node does.
+   */
+  async holdsAnywhereUnder(
+    identityId: string,
+    permission: string,
+    subtreeRootId: string,
+    subject: SubjectOptions = {},
+  ): Promise<{ held: boolean; roots: string[] }> {
+    const now = this.now();
+    const held =
+      (
+        await this.grantRootsFor(
+          identityId,
+          subject.principalType ?? "identity",
+        )
+      ).get(permission) ?? [];
+    const granted = new Set(
+      held.filter((window) => inEffect(window, now)).map((w) => w.node),
+    );
+    const { parents } = await this.treeEntry();
+
+    if (!parents.has(subtreeRootId)) {
+      throw this.hierarchyIncomplete(subtreeRootId);
+    }
+
+    if (granted.size === 0) {
+      return { held: false, roots: [] };
+    }
+
+    if (this.lineage(parents, subtreeRootId).some((n) => granted.has(n))) {
+      return { held: true, roots: [subtreeRootId] };
+    }
+
+    const roots: string[] = [];
+
+    for (const node of granted) {
+      if (!parents.has(node)) {
+        throw this.hierarchyIncomplete(node);
+      }
+
+      const above = this.lineage(parents, node).slice(1);
+
+      if (above.includes(subtreeRootId) && !above.some((n) => granted.has(n))) {
+        roots.push(node);
+      }
+    }
+
+    return { held: roots.length > 0, roots };
+  }
+
+  /** The node and every ancestor up to the root, nearest first. */
+  private lineage(
+    parents: Map<string, string | null>,
+    nodeId: string,
+  ): string[] {
+    const path: string[] = [];
+    let depth = 0;
+
+    for (
+      let current: string | null | undefined = nodeId;
+      current && depth < MAX_WALK_DEPTH;
+      current = parents.get(current), depth += 1
+    ) {
+      path.push(current);
+    }
+
+    return path;
+  }
+
+  /**
    * Every permission the identity holds at the node, by grant or by
    * inheritance: the list a screen renders its controls from, answered from
    * the same cached grant roots and tree a check uses.

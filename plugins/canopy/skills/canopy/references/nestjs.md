@@ -110,7 +110,7 @@ export class ReportsController {
 - A route without `@RequirePermission` passes through `CanopyGuard`. A requirement on a handler wins over one on its controller.
 - Already running Passport or your own JWT middleware? Skip `CanopyTokenGuard`, and point `resolveIdentity` at where your layer puts the verified subject.
 - Registering `CanopyGuard` globally: register the authentication guard globally too, **before** it, or every route answers `403`. Global guards run in registration order.
-- `scope: "org"`: for Environments with organizations on. The guard evaluates at the `org_id` on the verified token; no `resolveNode` needed. See [access-models.md](access-models.md).
+- `scope: "org"`: for Environments with organizations on. The guard evaluates at the `org_id` on the verified token; no `resolveNode` needed. A token with no `org_id` is denied, staff included: staff (`org_scope: "all"`) enter an organization with `switch-organization` first, and the guard never takes it from the route. See [access-models.md](access-models.md).
 
 ### Routes that machines call
 

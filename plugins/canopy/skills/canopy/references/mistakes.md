@@ -30,6 +30,10 @@ Catching every authorization error and returning `403` hides an outage and a mis
 
 `scope: "app_wide"` asks whether the identity holds the permission **anywhere**. Guarding a document that belongs to one region that way lets someone from another region in. Use the default `node` scope at the resource's node.
 
+## Checking a node other than the one the action writes to
+
+A guard is only as narrow as the node it checks. Checking at the organization, the region or any other ancestor because the person holds the permission "somewhere in there" lets them act on every record beneath it. `authorizer.holdsAnywhereUnder(identityId, permission, nodeId)` and `scope: "app_wide"` answer that "somewhere" question for showing a menu; neither is a guard. Check the node the action writes to: the record's own node, with the default `node` scope.
+
 ## A node or organization taken from the caller
 
 A `node_id` or `org_id` read from a query string, header or request body lets the caller pick where their check runs. Take the organization from the verified token, and the node from the route plus your own records.

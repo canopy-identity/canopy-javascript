@@ -1315,6 +1315,303 @@
           "sdk_reason": null
         }
       ]
+    },
+    {
+      "name": "holds-anywhere-under",
+      "description": "holdsAnywhereUnder answers whether a permission is in effect anywhere in a subtree, for showing a menu or listing what a person may open, and names where: the subtree's root when a grant at it or above it reaches the whole subtree, otherwise the topmost grants inside it. It is not a guard. A grant deep inside an organization makes it true for the organization while a check at the organization node is still refused: the node checked must be the node the action writes to.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "acme",
+          "parent": "root",
+          "organization": true
+        },
+        {
+          "id": "east",
+          "parent": "acme"
+        },
+        {
+          "id": "west",
+          "parent": "acme"
+        },
+        {
+          "id": "team",
+          "parent": "west"
+        },
+        {
+          "id": "globex",
+          "parent": "root",
+          "organization": true
+        }
+      ],
+      "permissions": [
+        "reports.view"
+      ],
+      "roles": [
+        {
+          "id": "viewer",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "dana",
+          "memberships": [
+            {
+              "organization": "acme"
+            }
+          ]
+        },
+        {
+          "id": "sam"
+        },
+        {
+          "id": "lee",
+          "memberships": [
+            {
+              "organization": "acme"
+            }
+          ]
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "dana",
+          "role": "viewer",
+          "node": "team"
+        },
+        {
+          "identity": "sam",
+          "role": "viewer",
+          "node": "root"
+        },
+        {
+          "identity": "lee",
+          "role": "viewer",
+          "node": "east",
+          "from_days": -3,
+          "to_days": -1
+        },
+        {
+          "identity": "lee",
+          "role": "viewer",
+          "node": "west"
+        }
+      ],
+      "grants": {
+        "dana": [
+          {
+            "permission": "reports.view",
+            "node": "team"
+          }
+        ],
+        "sam": [
+          {
+            "permission": "reports.view",
+            "node": "root"
+          }
+        ],
+        "lee": [
+          {
+            "permission": "reports.view",
+            "node": "west"
+          }
+        ]
+      },
+      "grant_windows": {
+        "dana": [
+          {
+            "permission": "reports.view",
+            "node": "team"
+          }
+        ],
+        "sam": [
+          {
+            "permission": "reports.view",
+            "node": "root"
+          }
+        ],
+        "lee": [
+          {
+            "permission": "reports.view",
+            "node": "east",
+            "from_days": -3,
+            "to_days": -1
+          },
+          {
+            "permission": "reports.view",
+            "node": "west"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "dana",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [
+            "team"
+          ],
+          "nodes": [
+            "team"
+          ]
+        },
+        {
+          "identity": "sam",
+          "permission": "reports.view",
+          "env_wide": true,
+          "roots": [
+            "root"
+          ],
+          "nodes": null
+        },
+        {
+          "identity": "lee",
+          "permission": "reports.view",
+          "env_wide": false,
+          "roots": [
+            "west"
+          ],
+          "nodes": [
+            "team",
+            "west"
+          ]
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "dana",
+          "node": "acme",
+          "permissions": []
+        },
+        {
+          "identity": "dana",
+          "node": "team",
+          "permissions": [
+            "reports.view"
+          ]
+        }
+      ],
+      "holds_anywhere_under": [
+        {
+          "identity": "dana",
+          "permission": "reports.view",
+          "subtree_root": "acme",
+          "held": true,
+          "roots": [
+            "team"
+          ]
+        },
+        {
+          "identity": "dana",
+          "permission": "reports.view",
+          "subtree_root": "globex",
+          "held": false,
+          "roots": []
+        },
+        {
+          "identity": "sam",
+          "permission": "reports.view",
+          "subtree_root": "acme",
+          "held": true,
+          "roots": [
+            "acme"
+          ]
+        },
+        {
+          "identity": "sam",
+          "permission": "reports.view",
+          "subtree_root": "globex",
+          "held": true,
+          "roots": [
+            "globex"
+          ]
+        },
+        {
+          "identity": "lee",
+          "permission": "reports.view",
+          "subtree_root": "acme",
+          "held": true,
+          "roots": [
+            "west"
+          ]
+        },
+        {
+          "identity": "lee",
+          "permission": "reports.view",
+          "subtree_root": "globex",
+          "held": false,
+          "roots": []
+        }
+      ],
+      "checks": [
+        {
+          "identity": "dana",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "acme",
+          "allowed": false,
+          "reason": "NO_ROLE_ASSIGNMENT",
+          "effective_node": "acme",
+          "granting_roles": [],
+          "sdk_reason": "outside_grants"
+        },
+        {
+          "identity": "dana",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "team",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "team",
+          "granting_roles": [
+            "viewer"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "sam",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "team",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "root",
+          "granting_roles": [
+            "viewer"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "lee",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "east",
+          "allowed": false,
+          "reason": "ROLE_EXPIRED",
+          "effective_node": "east",
+          "granting_roles": [],
+          "sdk_reason": "expired"
+        },
+        {
+          "identity": "lee",
+          "permission": "reports.view",
+          "scope": "node",
+          "node": "team",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "west",
+          "granting_roles": [
+            "viewer"
+          ],
+          "sdk_reason": null
+        }
+      ]
     }
   ]
 }

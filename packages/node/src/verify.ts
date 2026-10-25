@@ -261,6 +261,14 @@ export interface CanopyTokenClaims {
    * organizations. Minted with `org_id` and `org_roles`.
    */
   org_role_ids?: string[];
+  /**
+   * `"all"` on a staff token: the identity holds a role at the Environment
+   * root, so it reaches every organization and may enter any that allows
+   * staff. Present whether or not the session has entered one (`org_id`),
+   * absent on every member's token. Read it through {@link orgContext} once
+   * the session is inside an organization.
+   */
+  org_scope?: "all";
   [claim: string]: unknown;
 }
 
@@ -286,6 +294,13 @@ export interface CanopyOrgContext {
   orgRoles: string[];
   /** The same roles' ids, in the same order: what `org_role_ids` carries. Compare by id, since a name is unique only within its tier. */
   orgRoleIds: string[];
+  /**
+   * True for your staff inside a customer's organization (`org_scope:
+   * "all"`): the roles are the ones they hold at the Environment root, and
+   * the organization sees the entry in its staff activity. Worth showing in
+   * your interface, so neither side mistakes a staff session for a member's.
+   */
+  staff: boolean;
 }
 
 /**
@@ -329,6 +344,7 @@ export function orgContext(claims: CanopyTokenClaims): CanopyOrgContext | null {
     orgId: org_id,
     orgRoles: [...org_roles],
     orgRoleIds: [...org_role_ids],
+    staff: claims.org_scope === "all",
   };
 }
 
