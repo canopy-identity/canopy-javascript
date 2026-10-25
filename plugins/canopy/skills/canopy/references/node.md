@@ -109,7 +109,7 @@ export async function authenticate(
 - On a custom auth domain or self-hosted instance, pass `issuer` (for example `https://auth.acme.com`) instead of `environmentId`.
 - Pre-auth tokens (issued before an administrator picks an Account) are refused by default. Leave it that way.
 - `claims.amr` says how the session was proven (`pwd`, `otp`, `sso`, plus `mfa` after a second factor). Require `claims.amr?.includes("mfa")` before a sensitive action if the product needs it.
-- With organizations on, read the organization through `orgContext(claims)`, which returns `{ orgId, orgRoles, orgRoleIds }` or `null`, rather than off the raw claims. `orgRoles` is empty for a member holding no role at the organization node; authorize by evaluating, not by the list.
+- With organizations on, read the organization through `orgContext(claims)`, which returns `{ orgId, orgRoles, orgRoleIds, staff }` or `null`, rather than off the raw claims. `orgRoles` is empty for a member holding no role at the organization node; authorize by evaluating, not by the list. `staff` is true for the developer's own staff (a role at the Environment root, `org_scope: "all"` on the token) inside a customer's organization: show it, since the organization sees each entry in its staff activity.
 
 ## Machine clients
 
@@ -183,6 +183,7 @@ export async function mayViewReports(
 - `scope` defaults to `node`; a `node` check without `node_id` is denied. Use `scope: "app_wide"` only for "holds it anywhere", such as showing a menu item.
 - A denial carries `reason` (`permission_not_held`, `outside_grants`, `expired`, `not_yet_effective`, `node_missing`). `onDecision` / `onDenied` options hear every verdict after it is reached; they are never awaited and cannot change it.
 - To filter a list, do not call `evaluate` per row. `authorizer.accessibleNodes(identityId, permission)` gives the node ids the identity may see as a `Set` for an `IN (...)` filter (`nodes: null, complete: false` past `maxNodes`; `envWide: true` means no filter at all), and `authorizer.grantRoots(...)` gives the roots for a closure-table or path filter. `authorizer.permissionsAt(identityId, nodeId)` lists what someone holds at one node, and `permissionsAtMany(identityId, nodeIds)` several nodes from one read. All three answer from the same cache as a check. The write that follows still checks its node.
+- For a menu inside an organization, `authorizer.holdsAnywhereUnder(identityId, permission, orgId)` answers whether the permission is held at the organization or anywhere beneath it (`{ held, roots }`). `app_wide` cannot, since it covers the whole Environment. It is a read for menus, never a guard: the write checks its own node.
 - Answers are cached for at most 60 seconds (`ttlMs`, up to 300 000). That is the revocation delay. Use `canopy.permissions.evaluate` for a decision that must be fresh.
 - A scoped API key needs `identity.view` and `hierarchy.view`. Without `hierarchy.view`, node checks throw `CanopyAuthorizerError` instead of answering `false`: treat that as a broken integration (`500`), not a denial.
 - Mapping failures to HTTP statuses: see [express.md](express.md).

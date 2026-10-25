@@ -659,4 +659,26 @@ describe("organizations", () => {
     expect(second?.searchParams.get("page")).toBe("2");
     expect(second?.searchParams.get("q")).toBe("eng");
   });
+
+  it("walks every page of the staff activity, passing the filter and sort", async () => {
+    const { canopy, calls } = paged([
+      page([{ id: "act_1" }], 1, true),
+      page([{ id: "act_2" }], 2, false),
+    ]);
+
+    const all = await canopy.organizations
+      .listStaffActivity("org 1", { kind: "refused", sort_by: "actor" })
+      .all();
+
+    expect(all).toEqual([{ id: "act_1" }, { id: "act_2" }]);
+
+    const [first, second] = calls.map((url) => new URL(url));
+
+    expect(first?.pathname).toBe(
+      "/api/v1/organizations/org%201/staff-activity",
+    );
+    expect(first?.searchParams.get("kind")).toBe("refused");
+    expect(first?.searchParams.get("sort_by")).toBe("actor");
+    expect(second?.searchParams.get("page")).toBe("2");
+  });
 });

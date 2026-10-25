@@ -677,6 +677,24 @@ describe("orgContext", () => {
       orgId: "org_acme",
       orgRoles: ["billing-admin", "viewer"],
       orgRoleIds: ["rol_1", "rol_2"],
+      staff: false,
+    });
+  });
+
+  it("marks your staff inside an organization", () => {
+    expect(
+      orgContext({
+        ...base,
+        org_id: "org_acme",
+        org_roles: ["Support"],
+        org_role_ids: ["rol_9"],
+        org_scope: "all",
+      }),
+    ).toEqual({
+      orgId: "org_acme",
+      orgRoles: ["Support"],
+      orgRoleIds: ["rol_9"],
+      staff: true,
     });
   });
 
@@ -692,6 +710,7 @@ describe("orgContext", () => {
       orgId: "org_acme",
       orgRoles: [],
       orgRoleIds: [],
+      staff: false,
     });
   });
 

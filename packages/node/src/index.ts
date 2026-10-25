@@ -78,6 +78,7 @@ export type {
   OrganizationInviteItem,
   OrganizationItem,
   OrganizationMemberItem,
+  OrganizationStaffActivityItem,
 } from "./resources/organizations.js";
 export { Permissions } from "./resources/permissions.js";
 export type { PermissionItem } from "./resources/permissions.js";

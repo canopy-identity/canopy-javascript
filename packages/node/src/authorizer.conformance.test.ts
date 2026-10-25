@@ -43,6 +43,14 @@ interface Vector {
     roots: string[];
     nodes: string[] | null;
   }>;
+  /** Where a permission is held at or beneath a node; absent on older vectors. */
+  holds_anywhere_under?: Array<{
+    identity: string;
+    permission: string;
+    subtree_root: string;
+    held: boolean;
+    roots: string[];
+  }>;
   permissions_at: Array<{
     identity: string;
     node: string;
@@ -256,6 +264,24 @@ describe("LocalAuthorizer — Canopy's conformance vectors", () => {
         expect(
           await authorizerFor(vector).permissionsAt(entry.identity, entry.node),
         ).toEqual(sorted(entry.permissions));
+      });
+
+      it.each(
+        (vector.holds_anywhere_under ?? []).map((entry) => [
+          `${entry.identity} ${entry.permission} under ${entry.subtree_root}`,
+          entry,
+        ]),
+      )("answers whether %s", async (_label, entry) => {
+        const answer = await authorizerFor(vector).holdsAnywhereUnder(
+          entry.identity,
+          entry.permission,
+          entry.subtree_root,
+        );
+
+        expect({ held: answer.held, roots: sorted(answer.roots) }).toEqual({
+          held: entry.held,
+          roots: sorted(entry.roots),
+        });
       });
     },
   );

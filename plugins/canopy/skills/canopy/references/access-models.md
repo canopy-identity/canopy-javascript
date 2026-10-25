@@ -27,7 +27,8 @@ An optional container, on top of either model, for B2B tenancy: each customer is
 - Identity tokens carry `org_id` (the organization the session is acting in), `org_roles` (the roles held at its node, possibly empty) and `org_role_ids` (the same roles' ids, in the same order). Read them with `orgContext(claims)`. A machine client pinned to an organization carries the same claims.
 - Authorize at the organization's node: `node_id` is the token's `org_id`. In NestJS, `@RequirePermission("invoices.view", { scope: "org" })` does this.
 - Take the organization from the **verified token**, and refuse records that belong to another organization. A caller acting in no organization is denied on an organization-scoped route.
-- A grant at the root (an internal administrator) reaches every organization.
+- A grant at the root reaches every organization: that is the developer's own staff. Their tokens carry `org_scope: "all"` and no `org_id` until they enter an organization (`switch-organization`, or hosted `organization=`), which the organization records in its staff activity and may refuse. Inside, `orgContext(claims).staff` is true and the roles are the root ones. Never place a staff session in an organization from the route's path: that skips the record and the refusal.
+- For a menu that needs "anywhere in this organization", use `authorizer.holdsAnywhereUnder(identityId, permission, orgId)`. It is a read, never a guard.
 
 ```ts
 import {

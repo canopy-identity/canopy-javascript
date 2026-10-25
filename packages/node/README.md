@@ -184,8 +184,16 @@ if (org) {
   org.orgId; // the organization — also a hierarchy node id
   org.orgRoles; // the roles held at its node, by name; [] for a member holding none there
   org.orgRoleIds; // the same roles' ids, in the same order
+  org.staff; // true for your staff inside a customer's organization
 }
 ```
+
+Your own staff are identities holding a role at the Environment root. Their
+tokens carry `org_scope: "all"`, and once one enters a customer's
+organization `orgContext` answers with `staff: true` and the root roles as
+`orgRoles`. The organization sees every entry in its staff activity
+(`canopy.organizations.listStaffActivity(id)`) and can refuse staff
+altogether, so say in your interface when a session is staff.
 
 `null` is an ordinary answer: every token from an Environment without the
 container on, and every identity that belongs to no organization yet. An empty
@@ -378,6 +386,27 @@ if (!access.complete) {
 
 return db.reports.findMany({ where: { nodeId: { in: [...access.nodes] } } });
 ```
+
+A menu inside an organization asks something narrower: does this person
+hold the permission anywhere in it? `app_wide` cannot say, since it covers the
+whole Environment, so a grant in another organization would show the menu
+here too. `holdsAnywhereUnder` answers for one subtree, with `roots` as the
+subtree root alone when a grant at or above it reaches all of it, and
+otherwise the topmost granted nodes inside it:
+
+```ts
+const { held, roots } = await authorizer.holdsAnywhereUnder(
+  identityId,
+  "invoice.approve",
+  org.orgId,
+);
+
+// held: show the Invoices menu. roots: the teams whose invoices to list.
+```
+
+It is a read for menus and lists, never a guard: holding the permission
+somewhere in Acme approves no particular invoice, so the write checks the
+invoice's own node.
 
 A list filtered this way is what to show; the write that follows still checks
 its node. Canopy answers the same question fresh, for a process without the

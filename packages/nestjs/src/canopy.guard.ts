@@ -238,8 +238,13 @@ export class CanopyGuard implements CanActivate {
       const orgId = this.resolveOrg(request);
 
       if (!orgId) {
+        // Staff reach every organization but act in one only after entering
+        // it, which the organization records and may refuse. The route's own
+        // organization is never a stand-in for that entry.
         throw new ForbiddenException(
-          `No organization on the request. ${requirement.permission} is checked inside the caller's active organization, and this caller is not acting in one.`,
+          this.isStaffToken(request)
+            ? `No organization on the request. ${requirement.permission} is checked inside the caller's active organization; this staff session has not entered one, and enters with switch-organization.`
+            : `No organization on the request. ${requirement.permission} is checked inside the caller's active organization, and this caller is not acting in one.`,
         );
       }
 
@@ -282,6 +287,16 @@ export class CanopyGuard implements CanActivate {
     ];
 
     return (claims as { type?: unknown } | undefined)?.type === "service";
+  }
+
+  /** A staff token (`org_scope: "all"`), read off the verified claims only. */
+  private isStaffToken(request: unknown): boolean {
+    const attachedAs = this.options.attachTokenAs ?? "canopyToken";
+    const claims = (request as Record<string, unknown> | null | undefined)?.[
+      attachedAs
+    ];
+
+    return (claims as { org_scope?: unknown } | undefined)?.org_scope === "all";
   }
 
   /**

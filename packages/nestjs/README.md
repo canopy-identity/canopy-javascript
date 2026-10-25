@@ -121,6 +121,18 @@ it or beneath it, so no `resolveNode` and no node in the route's path are
 needed. A caller acting in no organization is denied: an org-scoped route has
 no meaning outside one.
 
+That includes your own staff. A staff token (a role at the Environment root,
+`org_scope: "all"`) carries no `org_id` until the session enters an
+organization with `switch-organization` or the hosted `organization=`
+parameter, and the guard never takes the organization from the route instead.
+Entering is what the customer's organization sees in its staff activity and
+can refuse, so a route that let staff in by its path would skip both. Once
+inside, `org_id` is set and the check runs as for a member, against the roles
+staff hold at the root; `orgContext(claims).staff` tells your interface it is
+a staff session. For a menu that needs "anywhere in this organization", use
+`holdsAnywhereUnder` from `@canopy-io/node`, which is a read and never a
+guard.
+
 If your own auth layer verifies tokens and parks the claims somewhere other
 than `attachTokenAs`, configure `resolveOrg` — and feed it only a value read
 off a _verified_ token, because it decides which organization's grants answer
