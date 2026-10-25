@@ -23,7 +23,14 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 157 as of machine clients holding roles of their own: an OAuth client's
+// 176 as of an organization's staff activity, wrapped as
+// `organizations.listStaffActivity`, and an organization shaping its own
+// roles (`/api/v1/organizations/:id/roles` create, get, update, remove,
+// permissions, usage, and the permission catalog) and its own integrations
+// (`/api/v1/organizations/:id/oauth-clients`, their roles, secret rotation
+// and assignments). Those two are delegated administration, unwrapped like
+// the organization's `access` routes, so the floor moves by one.
+// Before that, 157 as of machine clients holding roles of their own: an OAuth client's
 // assignments (list, create, update, remove) and its grants
 // (`/api/v1/oauth-clients/:id/grants`, which `LocalAuthorizer` reads for a
 // service token). Unwrapped like the rest of the OAuth client routes, so the
@@ -54,7 +61,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 157;
+const EXPECTED_OPERATION_COUNT = 176;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;

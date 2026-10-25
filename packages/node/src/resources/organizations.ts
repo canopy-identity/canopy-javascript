@@ -362,6 +362,35 @@ export class Organizations {
   }
 
   /**
+   * Every time your staff entered the organization or were refused, newest
+   * first: who, with which roles held at the Environment root, and why a
+   * refusal happened (`staff_entry_refused` while the organization's policy
+   * says `staff_entry: "refused"`).
+   *
+   * Paginated (20 per page by default, `take` up to 100), so this returns a
+   * `Paginator`. `kind` narrows to `entered` or `refused`; `q` searches who
+   * and the role names; `sort_by` is `created` (the default) or `actor`.
+   *
+   * ```ts
+   * for await (const entry of canopy.organizations.listStaffActivity(id)) { … }
+   * ```
+   */
+  listStaffActivity(
+    id: string,
+    query: QueryParams<"ApiOrganizationsController_listStaffActivity"> = {},
+  ): Paginator<OrganizationStaffActivityItem> {
+    return paginate<OrganizationStaffActivityItem>(
+      (params) =>
+        this.client.request(
+          "GET",
+          `/api/v1/organizations/${enc(id)}/staff-activity`,
+          { query: params },
+        ),
+      { ...query },
+    );
+  }
+
+  /**
    * The groups the provider has pushed, each with its role mapping.
    *
    * Paginated (20 per page by default, `take` up to 100), so this returns a
@@ -428,6 +457,11 @@ export type OrganizationInviteItem = ItemOf<
 /** One pushed group from an organization's directory. */
 export type OrganizationDirectoryGroupItem = ItemOf<
   ResponseBody<"ApiOrganizationDirectoryGroupsController_list">
+>;
+
+/** One staff entry into an organization, or one refusal. */
+export type OrganizationStaffActivityItem = ItemOf<
+  ResponseBody<"ApiOrganizationsController_listStaffActivity">
 >;
 
 type ItemOf<T> = T extends { items: (infer Item)[] } ? Item : never;

@@ -843,7 +843,7 @@ export interface paths {
         };
         /**
          * What the caller administers in an organization
-         * @description The authority read a customer's admin screen renders from: whether the caller holds `canopy:organization.manage` at the organization node (`administers_organization`), the topmost nodes where they hold `canopy:access.manage` inside it (`access_roots`, each with its name, type and the path of names from the organization down to it; the organization node itself when they administer the organization), the same for the structure and roles keys (empty until those ship), and whether the Environment's schema allows nodes beneath an organization (`has_hierarchy`). Computed from assignments at or beneath the organization node only, so a role held above every organization does not count. The developer's key answers as administering the whole organization. Refused with `403` for a caller holding nothing inside the organization.
+         * @description The authority read a customer's admin screen renders from: whether the caller holds `canopy:organization.manage` at the organization node (`administers_organization`), the topmost nodes where they hold `canopy:access.manage` inside it (`access_roots`, each with its name, type and the path of names from the organization down to it; the organization node itself when they administer the organization), the same for the structure key (empty until it ships), the organization node in `roles_roots` when they may shape the organization's own roles (`canopy:roles.manage` there, or administering the organization), and whether the Environment's schema allows nodes beneath an organization (`has_hierarchy`). Computed from assignments at or beneath the organization node only, so a role held above every organization does not count. The developer's key answers as administering the whole organization. Refused with `403` for a caller holding nothing inside the organization.
          */
         get: operations["ApiOrganizationAccessController_me"];
         put?: never;
@@ -1013,7 +1013,7 @@ export interface paths {
         put?: never;
         /**
          * Create an organization
-         * @description Creates an organization from a `name` (slug auto-derived, display-only) with optional `description`, `metadata`, and `external_id` (your own id for it, unique per Environment; a repeat answers `409 organization.external_id_conflict`, so create-then-store is idempotent). The Environment must have organizations enabled (`409 organization.not_enabled` otherwise); the container is independent of the access model, so flat and hierarchy Environments both hold organizations. Requires the `hierarchy.manage` permission and emits `organization.created`.
+         * @description Creates an organization from a `name` (slug auto-derived, display-only) with optional `description`, `metadata`, and `external_id` (your own id for it, unique per Environment; a repeat answers `409 organization.external_id_conflict`, so create-then-store is idempotent). The Environment must have organizations enabled (`409 organization.not_enabled` otherwise); the container is independent of the access model, so flat and hierarchy Environments both hold organizations. The organization receives a role of its own for each of the Environment's organization role templates, in the same transaction. `initial_member` names its first administrator, who holds the copy of the default admin template: an identity of the Environment (`identity_id`) becomes a member, or an `email` is invited. Send one of the two (`400 organization.initial_member_invalid`); without a default admin template it answers `400 role_template.default_admin_missing`, and an unknown identity `404 identity.not_found`. In the Console, naming one also requires the `env_identities.manage` capability, and `production_identities.access` in a production Environment. Requires the `hierarchy.manage` permission and emits `organization.created`, a `role.created` per copied role, and the member or invite event.
          */
         post: operations["ApiOrganizationsController_createOrganization"];
         /**
@@ -1073,9 +1073,29 @@ export interface paths {
         head?: never;
         /**
          * Update an organization's authentication policy
-         * @description Sets the organization's own authentication policy. A field set to `null` inherits the Environment again. The policy can only tighten the Environment's settings: `mfa_required` can be true where the Environment leaves MFA optional, `mfa_factor_allowlist` must be a subset of the Environment's, `mfa_after_sso` can be `require` where the Environment exempts, and `require_sso` refuses password and code logins for members. Returns `400` (`organization.policy_loosens`) when a value would loosen the Environment, `409` when `If-Match` does not match the policy version. Requires the `hierarchy.manage` permission at the organization and emits `organization.policy.updated`.
+         * @description Sets the organization's own authentication policy. A field set to `null` inherits the Environment again. The policy can only tighten the Environment's settings: `mfa_required` can be true where the Environment leaves MFA optional, `mfa_factor_allowlist` must be a subset of the Environment's, `mfa_after_sso` can be `require` where the Environment exempts, and `require_sso` refuses password and code logins for members. `staff_entry` is the organization's own decision: `refused` turns away the Environment's staff (a role at the Environment root), records each attempt, and ends the sessions staff have inside at their next refresh. Returns `400` (`organization.policy_loosens`) when a value would loosen the Environment, `409` when `If-Match` does not match the policy version. Requires the `hierarchy.manage` permission at the organization and emits `organization.policy.updated`.
          */
         patch: operations["ApiOrganizationsController_updatePolicy"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/staff-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List staff entries into an organization
+         * @description One page of the Environment's staff (identities holding a role at the Environment root) entering this organization, and of the attempts it refused while its policy's `staff_entry` was `refused`, newest first. Each row names the staff member and the roles they hold at the root, which is what they could do inside. `kind` narrows to `entered` or `refused`; `q` searches the staff member's email and the role names; `sort_by` is `created` (the default, newest first) or `actor`. Requires the `hierarchy.view` permission or `canopy:organization.manage` at the organization.
+         */
+        get: operations["ApiOrganizationsController_listStaffActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/organizations/{id}/policy/sso-recovery-codes": {
@@ -1343,11 +1363,15 @@ export interface paths {
         };
         /**
          * List the roles an organization may assign
-         * @description The active, assignable roles of the organization's Environment, for choosing a member's role or an invitation's, each with `grantable`: whether the caller may grant it at the organization node under the grant ceiling (always true for the developer's key). System roles are left out, since they cannot be assigned. Requires `hierarchy.view`, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the organization node. The response is an unpaginated `{ items }` array.
+         * @description The active, assignable roles the organization can use, the Environment's and its own, for choosing a member's role or an invitation's and for the organization's roles page. Each carries `grantable`, whether the caller may grant it at the organization node under the grant ceiling (always true for the developer's key), and `holder_count`, how many people in the organization hold it at its node or beneath. System roles are left out, since they cannot be assigned. Requires `hierarchy.view`, or `canopy:organization.manage`, `canopy:access.manage` or `canopy:roles.manage` at the organization node. The response is an unpaginated `{ items }` array.
          */
         get: operations["ApiOrganizationsController_listRoles"];
         put?: never;
-        post?: never;
+        /**
+         * Create an organization's own role
+         * @description Creates a role the organization owns, with its permissions, held only at the organization node or beneath it. The name is unique within the organization and may not repeat one of the Environment's roles (`409 role.name_taken`). An identity may give only permissions it holds at the organization node (`403 organization.role_permission_not_held`, with the keys in `data`). An organization owns at most 50 roles (`409 organization.role_limit`). `copy_from_role_id` records the role it was copied from. Requires `rbac.manage_roles` or the organization's roles delegation.
+         */
+        post: operations["ApiOrganizationRolesController_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1662,6 +1686,234 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/organizations/{id}/oauth-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an organization's integrations
+         * @description Lists the integrations an organization owns: machine OAuth clients it created for its own systems, pinned to it. A client the developer pinned to the organization from the Console or `/api/v1/oauth-clients` is not listed. Each row carries the roles it holds. Search with `q`; sort by `name`, `last_active` (when each last obtained a token) or `created`. Needs `canopy:organization.manage` at the organization, or the developer's key, and the Environment's `organization_integrations_enabled` on.
+         */
+        get: operations["ApiOrganizationIntegrationsController_list"];
+        put?: never;
+        /**
+         * Create an integration
+         * @description Creates a machine OAuth client owned by the organization and pinned to it, with the `client_credentials` grant and the `permissions` scope. Its tokens name the organization and the Environment's default audience. The `client_secret` is returned in this response only. Refused while the Environment has no default audience (`409 organization.integration_audience_missing`), once the organization holds as many as it may (`409 organization.integration_limit`), for a name another of its integrations has (`409 organization.integration_name_taken`), and past the plan's machine-credential allowance (`409 plan_limit_exceeded`).
+         */
+        post: operations["ApiOrganizationIntegrationsController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/oauth-client-roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the roles an organization may give its integrations
+         * @description Lists the roles an integration may hold: the Environment's `organization_integration_role_ids`, less any role that has since gained `canopy:organization.manage`, `canopy:access.manage` or `canopy:roles.manage`. The granting administrator's own ceiling still applies at each node.
+         */
+        get: operations["ApiOrganizationIntegrationsController_roles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/oauth-clients/{clientId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one of an organization's integrations
+         * @description Returns one integration by its `client_id`, with `connection`: the token endpoint, the audience its tokens name (the Environment's default) and how long each token lasts. The secret is never returned.
+         */
+        get: operations["ApiOrganizationIntegrationsController_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an integration
+         * @description Deletes an integration and every role it holds. Its next token request is refused; a token already issued lasts until it expires.
+         */
+        delete: operations["ApiOrganizationIntegrationsController_remove"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename, disable or enable an integration
+         * @description Changes an integration's `name` or `is_active`. Send `If-Match` with the integration's `version` to refuse a stale write (`409 version_mismatch`). A disabled integration is refused new tokens straight away; a token already issued lasts until it expires.
+         */
+        patch: operations["ApiOrganizationIntegrationsController_update"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate an integration's secret
+         * @description Mints a new `client_secret`, returned in this response only. The replaced secret keeps working for 24 hours (`previous_secret_expires_at`); `expire_previous: "now"` stops it at once, for a secret that has leaked.
+         */
+        post: operations["ApiOrganizationIntegrationsController_rotateSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an integration's roles
+         * @description One page of the roles an integration holds, each with its role and node.
+         */
+        get: operations["ApiOrganizationIntegrationsController_listAssignments"];
+        put?: never;
+        /**
+         * Give an integration a role
+         * @description Gives an integration a role at a node inside its organization. The role must be one the organization may give integrations (`403 organization.integration_role_not_grantable`) and within the granting administrator's ceiling (`403 assignment.grant_ceiling`); a node outside the organization answers `409 oauth.client_outside_organization`.
+         */
+        post: operations["ApiOrganizationIntegrationsController_assign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take one of an integration's roles away
+         * @description Removes one of an integration's assignments.
+         */
+        delete: operations["ApiOrganizationIntegrationsController_removeAssignment"];
+        options?: never;
+        head?: never;
+        /**
+         * Change one of an integration's roles
+         * @description Changes the role or window of one of an integration's assignments, under the same rules as giving one. Send `If-Match` with the assignment's `version`; a stale one answers `409 assignment.version_mismatch`.
+         */
+        patch: operations["ApiOrganizationIntegrationsController_updateAssignment"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/roles/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Count an organization's own roles
+         * @description How many roles the organization owns, and the most it may own. Read by the developer's key (`rbac.view_roles`) or a tenant administrator holding `canopy:roles.manage` (or `canopy:organization.manage`) at the organization node.
+         */
+        get: operations["ApiOrganizationRolesController_usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the permissions a role editor may attach
+         * @description The Environment's permissions, each with `attachable`: whether the caller may put it into one of the organization's roles. An identity may attach only keys it holds at the organization node (`canopy:organization.manage` counts as holding `canopy:access.manage` and `canopy:roles.manage`); the developer's key may attach any. Requires `rbac.manage_roles` or the organization's roles delegation.
+         */
+        get: operations["ApiOrganizationRolesController_permissions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/roles/{roleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one role an organization can use
+         * @description One role the organization can use, its own or the Environment's, with the permissions it carries. Requires `rbac.view_roles` or the organization's roles delegation.
+         */
+        get: operations["ApiOrganizationRolesController_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an organization's own role
+         * @description Deletes a role the organization owns. Everyone holding it loses it, and the pending invitations that offer it are revoked. Refused while it is a role directory sync or single sign-on gives new people, or the role the organization's last administrator holds (`409 organization.last_admin`). The Environment's roles are refused (`403 organization.role_not_owned`). Send `If-Match` with the role's `version` to refuse a stale delete. Requires `rbac.manage_roles` or the organization's roles delegation.
+         */
+        delete: operations["ApiOrganizationRolesController_remove"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename or describe an organization's own role
+         * @description Changes the name or description of a role the organization owns. The Environment's roles are refused (`403 organization.role_not_owned`). Send `If-Match` with the role's `version` to refuse a stale write (`409 version_mismatch`). Requires `rbac.manage_roles` or the organization's roles delegation.
+         */
+        patch: operations["ApiOrganizationRolesController_update"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/roles/{roleId}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace an organization role's permissions
+         * @description Replaces the permissions of a role the organization owns. A permission the role already carries may stay or go; one being added must be held by the caller at the organization node when the caller is an identity (`403 organization.role_permission_not_held`). Adding `canopy:roles.manage` to a role held beneath the organization node is refused (`400 rbac.roles_manage_below_organization`), and so is taking `canopy:organization.manage` off the role the organization's last administrator holds (`409 organization.last_admin`). The role's `version` moves with the change; send `If-Match` to refuse a stale write. Requires `rbac.manage_roles` or the organization's roles delegation.
+         */
+        put: operations["ApiOrganizationRolesController_setPermissions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/organizations/{id}/directory/groups": {
         parameters: {
             query?: never;
@@ -1721,7 +1973,7 @@ export interface paths {
         put?: never;
         /**
          * Create a custom role
-         * @description Creates a custom role in the active Application for the current Environment from a `name` and optional `description`. Without `organization_id` it is an Environment role, assignable in every organization; with it, the role belongs to that organization and can be held only at its node or beneath it (`400 rbac.role_outside_organization` elsewhere). The new role is always non-system and starts with no permissions, or with a copy of `copy_from_role_id`'s (an Environment role, or one of the same organization) — otherwise attach permission keys via the role-permissions endpoint. A name already used in the same tier (the Environment's roles, or that organization's own) returns `409`. Requires the `rbac.manage_roles` permission and emits a `role.created` audit event.
+         * @description Creates a custom role in the active Application for the current Environment from a `name` and optional `description`. Without `organization_id` it is an Environment role, assignable in every organization; with it, the role belongs to that organization and can be held only at its node or beneath it (`400 rbac.role_outside_organization` elsewhere). The new role is always non-system and starts with no permissions, or with a copy of `copy_from_role_id`'s (an Environment role, or one of the same organization) — otherwise attach permission keys via the role-permissions endpoint. A name already used in the same tier (the Environment's roles, or that organization's own) returns `409 role.name_taken`, and so does an organization's role named like one of the Environment's, or an Environment role named like any organization's own role. An Environment role named like an organization role template returns `409 role.name_used_by_template`, as every organization copies the template into a role of that name. Requires the `rbac.manage_roles` permission and emits a `role.created` audit event.
          */
         post: operations["ApiRolesController_createRole"];
         delete?: never;
@@ -1746,14 +1998,14 @@ export interface paths {
         post?: never;
         /**
          * Delete a role
-         * @description Deletes a custom role by `id`; dependent role-assignment and role-permission rows are removed by database cascade. System roles are protected and return `403`, and a missing role returns `404`. Supports optimistic concurrency via the `If-Match` header (`409` on a version mismatch). Responds `204 No Content` and requires the `rbac.manage_roles` permission.
+         * @description Deletes a custom role by `id`; dependent role-assignment and role-permission rows are removed by database cascade. System roles are protected and return `403`, and a missing role returns `404`. Supports optimistic concurrency via the `If-Match` header (`409` on a version mismatch). An organization's last administrator's role at its node cannot be deleted (`409 organization.last_admin`). Responds `204 No Content` and requires the `rbac.manage_roles` permission.
          */
         delete: operations["ApiRolesController_deleteRole"];
         options?: never;
         head?: never;
         /**
          * Update a role
-         * @description Updates a role's `name`, `description`, and/or `is_active` flag by `id`. Setting `is_active` to `false` hides the role from pickers, refuses new assignments to it, and withholds its permissions from every current holder until it is set back to `true`; the assignments themselves are kept. A name that collides with another role in the Environment returns `409`, and a missing role returns `404`. Supports optimistic concurrency via the `If-Match` header carrying the role's current version (`409` on a version mismatch). Requires the `rbac.manage_roles` permission.
+         * @description Updates a role's `name`, `description`, and/or `is_active` flag by `id`. Setting `is_active` to `false` hides the role from pickers, refuses new assignments to it, and withholds its permissions from every current holder until it is set back to `true`; the assignments themselves are kept. A name that collides with another role in the Environment, or an Environment role renamed like any organization's own role, returns `409 role.name_taken`, as does an Environment role renamed like an organization role template (`role.name_used_by_template`), and a missing role returns `404`. Disabling the role an organization's last administrator holds at its node returns `409 organization.last_admin`. Supports optimistic concurrency via the `If-Match` header carrying the role's current version (`409` on a version mismatch). Requires the `rbac.manage_roles` permission.
          */
         patch: operations["ApiRolesController_updateRole"];
         trace?: never;
@@ -1772,7 +2024,7 @@ export interface paths {
         get: operations["ApiRolesController_getRolePermissions"];
         /**
          * Replace permissions on a role
-         * @description Replaces the role's entire permission set with the supplied `permission_keys` (a full overwrite, not a merge). Every key must exist in the Environment's catalog or the call returns `404`, and `system`-source permissions cannot be attached to a custom role (`400`). Returns `200` with a `{ message }` confirmation, requires the `rbac.manage_roles` permission, and emits a `role.permissions_updated` audit event.
+         * @description Replaces the role's entire permission set with the supplied `permission_keys` (a full overwrite, not a merge). Every key must exist in the Environment's catalog or the call returns `404`, and `system`-source permissions cannot be attached to a custom role (`400`). Taking `canopy:organization.manage` off the role an organization's last administrator holds at its node returns `409 organization.last_admin`. Returns `200` with a `{ message }` confirmation, requires the `rbac.manage_roles` permission, and emits a `role.permissions_updated` audit event.
          */
         put: operations["ApiRolesController_setRolePermissions"];
         post?: never;
@@ -2241,7 +2493,7 @@ export interface paths {
         head?: never;
         /**
          * Update OAuth client
-         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. The secret is not rotated here.
+         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). The secret is not rotated here.
          */
         patch: operations["ApiOAuthClientsController_update"];
         trace?: never;
@@ -2257,7 +2509,7 @@ export interface paths {
         put?: never;
         /**
          * Rotate an OAuth client's secret
-         * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret and invalidating the old one. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment.
+         * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret. The replaced secret keeps working for 24 hours (`previous_secret_expires_at` says until when) so the systems using it can move over; send `expire_previous: "now"` to stop it at once, for a secret that has leaked. Rotating again inside the overlap replaces the secret still in its overlap. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment.
          */
         post: operations["ApiOAuthClientsController_rotateSecret"];
         delete?: never;
@@ -3062,10 +3314,12 @@ export interface components {
             access_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
             /** @description The same for `canopy:structure.manage`, a key no role carries yet; always empty */
             structure_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
-            /** @description The same for `canopy:roles.manage`, a key no role carries yet; always empty */
+            /** @description The organization node when the caller may shape its own roles: they hold `canopy:roles.manage` there, or `administers_organization`. The key is held at the organization node only, so this is never a node beneath it; empty otherwise */
             roles_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
             /** @description Whether the Environment's schema allows nodes beneath an organization; false in a flat Environment, where the organization is its only node */
             has_hierarchy: boolean;
+            /** @description Whether the organization may create its own integrations: the Environment's `organization_integrations_enabled` is on, it has a default audience, which every integration's token names, and `organization_integration_role_ids` names at least one role */
+            integrations_enabled: boolean;
         };
         RoleResponseDto: {
             id: string;
@@ -3079,6 +3333,8 @@ export interface components {
             organization_node_id?: string | null;
             /** @description The name of the organization this role belongs to. Populated on list responses; null for an Environment role. */
             organization_name?: string | null;
+            /** @description The organization role template this role was copied from; null for a role made by hand, or once its template is deleted. */
+            template_id?: string | null;
             description?: string | null;
             is_system_role: boolean;
             system_key?: string | null;
@@ -3093,6 +3349,8 @@ export interface components {
             permission_count?: number;
             /** @description Number of distinct identities assigned this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
             member_count?: number;
+            /** @description Whether the role carries `canopy:organization.manage`, `canopy:access.manage` or `canopy:roles.manage`, which an organization's integration may never hold. Populated on list responses. */
+            administers?: boolean;
         };
         OrganizationMemberCandidateResponseDto: {
             identity: components["schemas"]["AssignmentIdentityDto"];
@@ -3134,6 +3392,12 @@ export interface components {
             /** @description Optimistic-lock version. Send back as the `If-Match` header when updating or deleting to detect concurrent edits. */
             version: number;
         };
+        OrganizationInitialMemberDto: {
+            /** @description An identity of this Environment, who becomes a member holding the organization's copy of the default admin role template. */
+            identity_id?: string;
+            /** @description An email invited to the organization with its copy of the default admin role template. Send this or `identity_id`, not both. */
+            email?: string;
+        };
         CreateOrganizationDto: {
             /** @description Organization name. The slug is auto-derived from it at create and never changes afterwards. */
             name: string;
@@ -3143,6 +3407,8 @@ export interface components {
             metadata?: Record<string, unknown>;
             /** @description Your own id for this organization (the account id in your database), unique per Environment. Look the organization up with `GET /api/v1/organizations?external_id=...`; a second create with the same value answers 409, so create-then-store is idempotent. */
             external_id?: string;
+            /** @description The organization's first administrator. Needs a default admin role template; refused with `400 role_template.default_admin_missing` while there is none. */
+            initial_member?: components["schemas"]["OrganizationInitialMemberDto"];
         };
         UpdateOrganizationDto: {
             /** @description New organization name. The slug does not change. */
@@ -3173,6 +3439,11 @@ export interface components {
             /** @description The methods the organization keeps of the Environment's, or null to inherit them all. */
             allowed_sign_in_methods?: ("password" | "email_otp" | "sso")[] | null;
             require_sso: boolean;
+            /**
+             * @description Whether the Environment's staff (identities holding a role at the Environment root) may enter this organization. `allowed` until the organization refuses them.
+             * @enum {string}
+             */
+            staff_entry: "allowed" | "refused";
             /** @description The Environment's own settings, the floor this organization's policy tightens from. */
             environment: components["schemas"]["EffectiveOrganizationPolicyDto"];
             /** @description The policy the organization's members sign in under. */
@@ -3200,6 +3471,29 @@ export interface components {
             allowed_sign_in_methods?: ("password" | "email_otp" | "sso")[] | null;
             /** @description Members must sign in through SSO. Password and email-code logins are refused for the organization's members and for any email whose domain routes to a connection bound to this organization. */
             require_sso?: boolean;
+            /**
+             * @description Whether the Environment's staff (identities holding a role at the Environment root) may enter this organization. `refused` refuses each entry, records it in the organization's activity, and ends the sessions staff already have inside at their next refresh.
+             * @enum {string}
+             */
+            staff_entry?: "allowed" | "refused";
+        };
+        OrganizationStaffActivityResponseDto: {
+            id: string;
+            /**
+             * @description `entered` when the staff member entered, `refused` when the organization refused them.
+             * @enum {string}
+             */
+            kind: "entered" | "refused";
+            /** @description The audit action: `organization.operator.entered` or `organization.operator.refused`. */
+            action: string;
+            /** @description The staff member's email. */
+            actor_label?: Record<string, unknown> | null;
+            /** @description The roles the staff member holds at the Environment root: what they could do inside. */
+            role_names: string[];
+            /** @description Why an attempt was refused: `staff_entry_refused` while the organization refuses staff. Null on an entry. */
+            detail?: Record<string, unknown> | null;
+            /** Format: date-time */
+            created_at: string;
         };
         OrganizationSsoRecoveryCodesResponseDto: {
             /** @description The new codes, shown once. The previous generation stops working the moment these are minted. */
@@ -3410,6 +3704,8 @@ export interface components {
             organization_node_id?: string | null;
             /** @description The name of the organization this role belongs to. Populated on list responses; null for an Environment role. */
             organization_name?: string | null;
+            /** @description The organization role template this role was copied from; null for a role made by hand, or once its template is deleted. */
+            template_id?: string | null;
             description?: string | null;
             is_system_role: boolean;
             system_key?: string | null;
@@ -3424,8 +3720,14 @@ export interface components {
             permission_count?: number;
             /** @description Number of distinct identities assigned this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
             member_count?: number;
+            /** @description Whether the role carries `canopy:organization.manage`, `canopy:access.manage` or `canopy:roles.manage`, which an organization's integration may never hold. Populated on list responses. */
+            administers?: boolean;
             /** @description Whether the caller may grant this role at the organization node under the grant ceiling: for an identity, it holds every permission the role carries there; always true for the developer's key and Console users */
             grantable: boolean;
+            /** @description How many people in the organization hold this role at the organization node or anywhere beneath it, each counted once */
+            holder_count: number;
+            /** @description Whether this is the organization's copy of the default member role template: the role an add or invite form offers first */
+            is_default_member: boolean;
         };
         SsoConnectionTestSummaryDto: {
             test_id: string;
@@ -3684,6 +3986,194 @@ export interface components {
             /** @description The role somebody arrives with when no mapped group says otherwise. Required unless the list is empty, and must be one of `role_ids`. */
             default_role_id?: string | null;
         };
+        OrganizationIntegrationConnectionDto: {
+            /** @description Where the integration posts `client_credentials`. */
+            token_endpoint: string;
+            /** @description The audience its tokens name: the Environment's default audience. */
+            audience: string | null;
+            /** @description How long each token lasts, in seconds. */
+            token_lifetime_seconds: number;
+        };
+        OrganizationIntegrationResponseDto: {
+            id: string;
+            /** @description The ID a system sends to obtain a token. */
+            client_id: string;
+            name: string;
+            /** @description Disabled integrations are refused new tokens. */
+            is_active: boolean;
+            organization_node_id: string;
+            /** @description The name of the administrator who created it; null when a developer key created it or the identity is gone. */
+            created_by_name: string | null;
+            /**
+             * Format: date-time
+             * @description When it last obtained a token.
+             */
+            last_token_at?: string | null;
+            /**
+             * Format: date-time
+             * @description While a rotation is in its overlap, when the replaced secret stops working.
+             */
+            previous_secret_expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the secret was last rotated. Null until the first rotation.
+             */
+            secret_rotated_at?: string | null;
+            /** @description Optimistic-lock version. Send it in `If-Match` on an update to refuse a stale write. */
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** @description Every role it holds, on list rows. */
+            roles?: components["schemas"]["AssignmentResponseDto"][];
+            /** @description How to connect, on the single read. */
+            connection?: components["schemas"]["OrganizationIntegrationConnectionDto"];
+        };
+        OrganizationIntegrationCreatedResponseDto: {
+            id: string;
+            /** @description The ID a system sends to obtain a token. */
+            client_id: string;
+            name: string;
+            /** @description Disabled integrations are refused new tokens. */
+            is_active: boolean;
+            organization_node_id: string;
+            /** @description The name of the administrator who created it; null when a developer key created it or the identity is gone. */
+            created_by_name: string | null;
+            /**
+             * Format: date-time
+             * @description When it last obtained a token.
+             */
+            last_token_at?: string | null;
+            /**
+             * Format: date-time
+             * @description While a rotation is in its overlap, when the replaced secret stops working.
+             */
+            previous_secret_expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the secret was last rotated. Null until the first rotation.
+             */
+            secret_rotated_at?: string | null;
+            /** @description Optimistic-lock version. Send it in `If-Match` on an update to refuse a stale write. */
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** @description Every role it holds, on list rows. */
+            roles?: components["schemas"]["AssignmentResponseDto"][];
+            /** @description How to connect, on the single read. */
+            connection?: components["schemas"]["OrganizationIntegrationConnectionDto"];
+            /** @description The secret, shown in this response only. */
+            client_secret: string;
+        };
+        CreateOrganizationIntegrationDto: {
+            /** @description Its name, unique among the organization's integrations. */
+            name: string;
+        };
+        UpdateOrganizationIntegrationDto: {
+            name?: string;
+            /** @description `false` refuses it new tokens straight away; a token already issued lasts until it expires. */
+            is_active?: boolean;
+        };
+        OAuthClientSecretRotatedResponseDto: {
+            client_id: string;
+            /** @description New client secret — shown only once */
+            client_secret: string;
+            /**
+             * Format: date-time
+             * @description When the replaced secret stops working: 24 hours after the rotation, or `null` when the rotation was made with `expire_previous: "now"`.
+             */
+            previous_secret_expires_at?: string | null;
+        };
+        RotateOAuthClientSecretDto: {
+            /**
+             * @description `window` (the default) keeps the replaced secret working for 24 hours so the systems using it can move to the new one. `now` stops it the moment the rotation lands, for a secret that has leaked.
+             * @enum {string}
+             */
+            expire_previous?: "now" | "window";
+        };
+        CreateOAuthClientAssignmentDto: {
+            /** @description The node the role is held at. */
+            node_id: string;
+            /** @description The role the client holds there. */
+            role_id: string;
+            /** @description When the role starts to apply. Omitted, from now. */
+            effective_from?: string;
+            /** @description When the role stops applying. Omitted, never. */
+            effective_to?: string;
+        };
+        OrganizationRoleUsageResponseDto: {
+            /** @description Roles the organization owns */
+            count: number;
+            /** @description The most roles one organization may own */
+            limit: number;
+        };
+        AttachablePermissionResponseDto: {
+            id: string;
+            application_id: string;
+            key: string;
+            name: string;
+            description?: string | null;
+            category?: string | null;
+            /** @enum {string} */
+            source: "system" | "custom";
+            /** Format: date-time */
+            created_at: string;
+            /** @description Optimistic-lock version. Send back as the `If-Match` header when updating to detect concurrent edits. */
+            version: number;
+            /** @description Whether the caller may put this permission into a role here: for an identity, it holds the key at the organization node; always true for the developer's key */
+            attachable: boolean;
+        };
+        CreateOrganizationRoleDto: {
+            /** @description Unique within the organization, and not the name of one of the Environment's roles */
+            name: string;
+            description?: Record<string, unknown> | null;
+            /** @description The permission keys the role carries. A caller signed in as an identity may give only keys it holds at the organization node */
+            permission_keys: string[];
+            /** @description The role this one was copied from, recorded for provenance: one of the Environment's or the organization's own. The permissions are the ones sent in `permission_keys` */
+            copy_from_role_id?: string;
+        };
+        OrganizationRoleDetailResponseDto: {
+            id: string;
+            name: string;
+            /**
+             * @description `environment`: assignable in every organization. `organization`: belongs to the organization `organization_node_id` names and is held only inside it.
+             * @enum {string}
+             */
+            scope: "environment" | "organization";
+            /** @description The organization this role belongs to; null for an Environment role. */
+            organization_node_id?: string | null;
+            /** @description The name of the organization this role belongs to. Populated on list responses; null for an Environment role. */
+            organization_name?: string | null;
+            /** @description The organization role template this role was copied from; null for a role made by hand, or once its template is deleted. */
+            template_id?: string | null;
+            description?: string | null;
+            is_system_role: boolean;
+            system_key?: string | null;
+            is_active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description Optimistic-lock version. Send back as the `If-Match` header when updating to detect concurrent edits. */
+            version: number;
+            /** @description Number of permissions currently assigned to this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
+            permission_count?: number;
+            /** @description Number of distinct identities assigned this role. Populated on list responses; omitted on single-role responses where the join isn't computed. */
+            member_count?: number;
+            /** @description Whether the role carries `canopy:organization.manage`, `canopy:access.manage` or `canopy:roles.manage`, which an organization's integration may never hold. Populated on list responses. */
+            administers?: boolean;
+            permissions: components["schemas"]["PermissionResponseDto"][];
+            /** @description How many people in the organization hold this role at the organization node or anywhere beneath it, each counted once */
+            holder_count: number;
+            /** @description How many of the organization's pending invitations offer this role; deleting the role revokes them */
+            pending_invite_count: number;
+        };
+        UpdateOrganizationRoleDto: {
+            name?: string;
+            description?: Record<string, unknown> | null;
+        };
+        SetRolePermissionsDto: {
+            permission_keys: string[];
+        };
         ScimGroupResponseDto: {
             id: string;
             external_id?: string | null;
@@ -3721,9 +4211,6 @@ export interface components {
         };
         MessageResponseDto: {
             message: string;
-        };
-        SetRolePermissionsDto: {
-            permission_keys: string[];
         };
         AssignmentsSummaryDto: {
             active_count: number;
@@ -4145,6 +4632,28 @@ export interface components {
             /** @description The route in the client's application that starts a sign-in (OpenID Connect `initiate_login_uri`), offered as **Sign in** on hosted pages that end with nothing to return to. */
             initiate_login_uri?: string | null;
             is_active: boolean;
+            /**
+             * @description `developer`: managed here. `organization`: an integration its organization created from its own routes; it is managed there too.
+             * @enum {string}
+             */
+            owner: "developer" | "organization";
+            /**
+             * Format: date-time
+             * @description When a machine client last obtained a token.
+             */
+            last_token_at?: string | null;
+            /**
+             * Format: date-time
+             * @description While a rotation is in its overlap, when the replaced secret stops working.
+             */
+            previous_secret_expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the secret was last rotated. Null until the first rotation.
+             */
+            secret_rotated_at?: string | null;
+            /** @description Optimistic-lock version. Send it in `If-Match` on an update to refuse a stale write. */
+            version: number;
             /** Format: date-time */
             created_at: string;
             /**
@@ -4209,6 +4718,28 @@ export interface components {
             /** @description The route in the client's application that starts a sign-in (OpenID Connect `initiate_login_uri`), offered as **Sign in** on hosted pages that end with nothing to return to. */
             initiate_login_uri?: string | null;
             is_active: boolean;
+            /**
+             * @description `developer`: managed here. `organization`: an integration its organization created from its own routes; it is managed there too.
+             * @enum {string}
+             */
+            owner: "developer" | "organization";
+            /**
+             * Format: date-time
+             * @description When a machine client last obtained a token.
+             */
+            last_token_at?: string | null;
+            /**
+             * Format: date-time
+             * @description While a rotation is in its overlap, when the replaced secret stops working.
+             */
+            previous_secret_expires_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When the secret was last rotated. Null until the first rotation.
+             */
+            secret_rotated_at?: string | null;
+            /** @description Optimistic-lock version. Send it in `If-Match` on an update to refuse a stale write. */
+            version: number;
             /** Format: date-time */
             created_at: string;
             /**
@@ -4238,21 +4769,6 @@ export interface components {
             invite_redirect_url?: string | null;
             /** @description The route in your application that starts a sign-in (OpenID Connect `initiate_login_uri`): it should send the person to Canopy's `/oauth/authorize`. Canopy's hosted pages that end with nothing to return to, such as an accepted invitation or a verified email, offer it as **Sign in**. Absolute `http` or `https` URL; `null` clears it. */
             initiate_login_uri?: string | null;
-        };
-        OAuthClientSecretRotatedResponseDto: {
-            client_id: string;
-            /** @description New client secret — shown only once */
-            client_secret: string;
-        };
-        CreateOAuthClientAssignmentDto: {
-            /** @description The node the role is held at. */
-            node_id: string;
-            /** @description The role the client holds there. */
-            role_id: string;
-            /** @description When the role starts to apply. Omitted, from now. */
-            effective_from?: string;
-            /** @description When the role stops applying. Omitted, never. */
-            effective_to?: string;
         };
         ApiKeyCreatedResponseDto: {
             id: string;
@@ -4976,6 +5492,13 @@ export interface components {
                      * @description The role whose permissions it started from, when it was created as a copy.
                      */
                     copied_from_role_id?: string;
+                    /** @description Every permission key the role carries, when it was created with its permissions in one act (an organization's own role). */
+                    permission_keys?: string[];
+                    /**
+                     * Format: uuid
+                     * @description The organization role template it was copied from, when the organization received it from one.
+                     */
+                    template_id?: string;
                 };
             };
         };
@@ -5009,6 +5532,8 @@ export interface components {
                 metadata: {
                     /** @description The role's name. */
                     name: string;
+                    /** @description How many pending invitations offering the role were revoked with it. */
+                    invites_revoked: number;
                 };
             };
         };
@@ -5221,6 +5746,8 @@ export interface components {
                     sso_bindings_removed: number;
                     /** @description SSO connections it owned, deleted with it. */
                     sso_connections_removed: number;
+                    /** @description Machine clients pinned to it, its integrations among them, deleted with it. */
+                    machine_clients_removed: number;
                 };
             };
         };
@@ -5246,6 +5773,8 @@ export interface components {
                     sso_bindings_removed: number;
                     /** @description SSO connections it owned, deleted with it. */
                     sso_connections_removed: number;
+                    /** @description Machine clients pinned to it, its integrations among them, deleted with it. */
+                    machine_clients_removed: number;
                 };
             };
         };
@@ -5398,6 +5927,11 @@ export interface components {
                     allowed_sign_in_methods: ("password" | "email_otp" | "sso")[] | null;
                     /** @description Whether members must sign in with SSO. */
                     require_sso: boolean;
+                    /**
+                     * @description Whether the Environment's staff (a role at the Environment root) may enter the organization.
+                     * @enum {string}
+                     */
+                    staff_entry: "allowed" | "refused";
                 };
             };
         };
@@ -6653,7 +7187,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6664,7 +7198,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "POST"
@@ -11708,7 +12242,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is inactive or a system role, the window does not start before it ends, or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is inactive or a system role, the window does not start before it ends, or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11719,7 +12253,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is inactive or a system role, the window does not start before it ends, or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is inactive or a system role, the window does not start before it ends, or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments",
                      *         "method": "POST"
@@ -11971,7 +12505,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the new role is inactive or a system role, the window does not start before it ends, or an organization's own role would be held outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the new role is inactive or a system role, the window does not start before it ends, or an organization's own role would be held outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11982,7 +12516,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the new role is inactive or a system role, the window does not start before it ends, or an organization's own role would be held outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the new role is inactive or a system role, the window does not start before it ends, or an organization's own role would be held outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
                      *         "method": "PATCH"
@@ -12201,7 +12735,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, `initial_member` names both or neither of `identity_id` and `email` (`organization.initial_member_invalid`), no role template is the default admin (`role_template.default_admin_missing`), or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12212,7 +12746,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, `initial_member` names both or neither of `identity_id` and `email` (`organization.initial_member_invalid`), no role template is the default admin (`role_template.default_admin_missing`), or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
                      *         "method": "POST"
@@ -12258,6 +12792,27 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description `initial_member.identity_id` is not an identity of this Environment (`identity.not_found`) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "`initial_member.identity_id` is not an identity of this Environment (`identity.not_found`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -12976,6 +13531,128 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
                      *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_listStaffActivity: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search the staff member's email and the role names */
+                q?: string;
+                /** @description Sort column: `created` (when) or `actor` (the staff member's email). Defaults to `created`, newest first. */
+                sort_by?: "created" | "actor";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+                /** @description Only entries (`entered`) or only refused attempts (`refused`). Omit for both. */
+                kind?: "entered" | "refused";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrganizationStaffActivityResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/staff-activity",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/staff-activity",
+                     *         "method": "GET"
                      *       }
                      *     }
                      */
@@ -14302,7 +14979,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14313,7 +14990,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
                      *         "method": "POST"
@@ -14809,7 +15486,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14820,7 +15497,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
                      *         "method": "POST"
@@ -15016,6 +15693,139 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationRolesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrganizationRoleDto"];
+            };
+        };
+        responses: {
+            /** @description The role, created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RoleResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No such organization, or no such role among the ones the organization can use */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No such organization, or no such role among the ones the organization can use",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization or the Environment already has a role by that name (`role.name_taken`), or the organization has reached its role limit (`organization.role_limit`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The organization or the Environment already has a role by that name (`role.name_taken`), or the organization has reached its role limit (`organization.role_limit`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -17534,6 +18344,2058 @@ export interface operations {
             };
         };
     };
+    ApiOrganizationIntegrationsController_list: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search integration names */
+                q?: string;
+                /** @description Sort column. Defaults to `created`, newest first. `last_active` orders by when each last obtained a token. */
+                sort_by?: "name" | "last_active" | "created";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the organization's integrations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["OrganizationIntegrationResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrganizationIntegrationDto"];
+            };
+        };
+        responses: {
+            /** @description The integration, with its secret shown once */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationIntegrationCreatedResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The Environment has no default audience, the organization already holds as many integrations as it may, another of its integrations has this name, or the plan's machine-credential allowance is reached */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The Environment has no default audience, the organization already holds as many integrations as it may, another of its integrations has this name, or the plan's machine-credential allowance is reached",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_roles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The roles an integration may be given */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["RoleResponseDto"][];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-client-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-client-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-client-roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The integration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationIntegrationResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Integration deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_update: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationIntegrationDto"];
+            };
+        };
+        responses: {
+            /** @description The integration as it now stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationIntegrationResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Another of the organization's integrations has this name (`organization.integration_name_taken`), or the integration was modified since the version named in If-Match was read (`version_mismatch`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Another of the organization's integrations has this name (`organization.integration_name_taken`), or the integration was modified since the version named in If-Match was read (`version_mismatch`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_rotateSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateOAuthClientSecretDto"];
+            };
+        };
+        responses: {
+            /** @description The new secret, shown once */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OAuthClientSecretRotatedResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_listAssignments: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search term */
+                q?: string;
+                /** @description Column to sort by. Allowed values depend on the endpoint. */
+                sort_by?: string;
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                id: string;
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the integration's roles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AssignmentResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_assign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOAuthClientAssignmentDto"];
+            };
+        };
+        responses: {
+            /** @description The new assignment */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization or grant this role at this node (`assignment.grant_ceiling`), the role is not one an integration may hold (`organization.integration_role_not_grantable`), or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization or grant this role at this node (`assignment.grant_ceiling`), the role is not one an integration may hold (`organization.integration_role_not_grantable`), or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The node is outside the organization (`oauth.client_outside_organization`), or the integration already holds this role there */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The node is outside the organization (`oauth.client_outside_organization`), or the integration already holds this role there",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_removeAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                clientId: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Assignment removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationIntegrationsController_updateAssignment: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                clientId: string;
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAssignmentDto"];
+            };
+        };
+        responses: {
+            /** @description The assignment as it now stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["AssignmentResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not manage this organization or grant this role at this node (`assignment.grant_ceiling`), the role is not one an integration may hold (`organization.integration_role_not_grantable`), or the Environment does not let organizations create integrations (`organization.integrations_disabled`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not manage this organization or grant this role at this node (`assignment.grant_ceiling`), the role is not one an integration may hold (`organization.integration_role_not_grantable`), or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The assignment changed since it was read (`assignment.version_mismatch`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The assignment changed since it was read (`assignment.version_mismatch`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationRolesController_usage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's role count and limit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationRoleUsageResponseDto"];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationRolesController_permissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every permission, flagged attachable or not */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AttachablePermissionResponseDto"][];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/permissions",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationRolesController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The role and its permissions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationRoleDetailResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/usage",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No such organization, or no such role among the ones the organization can use */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No such organization, or no such role among the ones the organization can use",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationRolesController_remove: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The role is deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No such organization, or no such role among the ones the organization can use */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No such organization, or no such role among the ones the organization can use",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The role is the one directory sync or single sign-on gives new people (`scim.grantable_default_in_use`, `role.idp_arrival_role_in_use`), the organization's last administrator holds it (`organization.last_admin`), or it changed since the version named in If-Match (`version_mismatch`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The role is the one directory sync or single sign-on gives new people (`scim.grantable_default_in_use`, `role.idp_arrival_role_in_use`), the organization's last administrator holds it (`organization.last_admin`), or it changed since the version named in If-Match (`version_mismatch`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationRolesController_update: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationRoleDto"];
+            };
+        };
+        responses: {
+            /** @description The role, changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RoleResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No such organization, or no such role among the ones the organization can use */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No such organization, or no such role among the ones the organization can use",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization or the Environment already has a role by that name (`role.name_taken`), or the role changed since the version named in If-Match (`version_mismatch`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The organization or the Environment already has a role by that name (`role.name_taken`), or the role changed since the version named in If-Match (`version_mismatch`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationRolesController_setPermissions: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRolePermissionsDto"];
+            };
+        };
+        responses: {
+            /** @description The role's permissions, as they now stand */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PermissionResponseDto"][];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field or an id in the path is missing, malformed or out of range, or a role carrying `canopy:roles.manage` is already held beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field or an id in the path is missing, malformed or out of range, or a role carrying `canopy:roles.manage` is already held beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No such organization, or no such role among the ones the organization can use */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No such organization, or no such role among the ones the organization can use",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The role changed since the version named in If-Match (`version_mismatch`), or the change would take `canopy:organization.manage` from the organization's last administrator (`organization.last_admin`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The role changed since the version named in If-Match (`version_mismatch`), or the change would take `canopy:organization.manage` from the organization's last administrator (`organization.last_admin`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
     ApiOrganizationDirectoryGroupsController_list: {
         parameters: {
             query?: {
@@ -18120,7 +20982,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Role name already exists */
+            /** @description The name is taken in the role's tier, or by the other tier: an organization's role named like an Environment role, or an Environment role named like any organization's own role (`role.name_taken`); or an Environment role would take an organization role template's name (`role.name_used_by_template`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18131,7 +20993,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Role name already exists",
+                     *         "message": "The name is taken in the role's tier, or by the other tier: an organization's role named like an Environment role, or an Environment role named like any organization's own role (`role.name_taken`); or an Environment role would take an organization role template's name (`role.name_used_by_template`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
                      *         "method": "POST"
@@ -18356,7 +21218,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The role changed since the If-Match version, it is the role people arrive with through an organization's directory, or it is one the Environment lets identity providers grant */
+            /** @description The role changed since the If-Match version, it is the role people arrive with through an organization's directory, it is one the Environment lets identity providers grant, or it is the role an organization's last administrator holds (`organization.last_admin`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18367,7 +21229,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The role changed since the If-Match version, it is the role people arrive with through an organization's directory, or it is one the Environment lets identity providers grant",
+                     *         "message": "The role changed since the If-Match version, it is the role people arrive with through an organization's directory, it is one the Environment lets identity providers grant, or it is the role an organization's last administrator holds (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
                      *         "method": "DELETE"
@@ -18492,7 +21354,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The role changed since the If-Match version, or another role in the Environment already has that name */
+            /** @description The role changed since the If-Match version, another role in the Environment or any organization's own role already has that name (`role.name_taken`), an Environment role would take an organization role template's name (`role.name_used_by_template`), or disabling it would leave an organization without an administrator (`organization.last_admin`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18503,7 +21365,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The role changed since the If-Match version, or another role in the Environment already has that name",
+                     *         "message": "The role changed since the If-Match version, another role in the Environment or any organization's own role already has that name (`role.name_taken`), an Environment role would take an organization role template's name (`role.name_used_by_template`), or disabling it would leave an organization without an administrator (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
                      *         "method": "PATCH"
@@ -18733,6 +21595,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The change would take `canopy:organization.manage` off the role an organization's last administrator holds at its node (`organization.last_admin`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The change would take `canopy:organization.manage` off the role an organization's last administrator holds at its node (`organization.last_admin`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}/permissions",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiAssignmentsController_listAppWideAssignments: {
@@ -18947,7 +21830,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -18958,7 +21841,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
                      *         "method": "POST"
@@ -19208,7 +22091,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -19219,7 +22102,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
                      *         "method": "PATCH"
@@ -21519,6 +24402,8 @@ export interface operations {
                 sort_by?: "name" | "created";
                 /** @description Sort direction */
                 order?: "asc" | "desc";
+                /** @description Only clients of this kind: `web` (people sign in through it) or `machine` (a principal of its own). Omitted, both. */
+                client_kind?: "web" | "machine";
             };
             header?: never;
             path?: never;
@@ -21737,7 +24622,10 @@ export interface operations {
     ApiOAuthClientsController_summary: {
         parameters: {
             query?: {
+                /** @description Count only clients whose name contains this */
                 q?: string;
+                /** @description Count only clients of this kind. Omitted, both. */
+                client_kind?: "web" | "machine";
             };
             header?: never;
             path?: never;
@@ -22036,7 +24924,10 @@ export interface operations {
     ApiOAuthClientsController_update: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
             path: {
                 id: string;
             };
@@ -22143,6 +25034,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The client was modified since the version named in If-Match was read (`version_mismatch`). Read it again and reapply the change */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The client was modified since the version named in If-Match was read (`version_mismatch`). Read it again and reapply the change",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiOAuthClientsController_rotateSecret: {
@@ -22154,7 +25066,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateOAuthClientSecretDto"];
+            };
+        };
         responses: {
             /** @description OAuth client secret rotated — the new secret is only shown once */
             200: {
@@ -22167,7 +25083,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22178,10 +25094,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/oauth-clients/{id}",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -22287,7 +25203,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22298,7 +25214,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
                      *         "method": "GET"
@@ -22399,7 +25315,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22410,7 +25326,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
                      *         "method": "POST"
@@ -22546,7 +25462,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22557,7 +25473,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
                      *         "method": "DELETE"
@@ -22683,7 +25599,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22694,7 +25610,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
                      *         "method": "PATCH"
@@ -22822,7 +25738,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22833,7 +25749,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/grants",
                      *         "method": "GET"
