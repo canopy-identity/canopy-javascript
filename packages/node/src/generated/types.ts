@@ -161,7 +161,7 @@ export interface paths {
         put?: never;
         /**
          * Create an identity
-         * @description Creates a single identity in the active Application's current Environment, optionally assigning an initial role at a node in the same request (`role_id` + `node_id`). Email is normalized (lower-cased, trimmed) and must be unique within the Account — a duplicate returns `409`; passwords are hashed with argon2id and screened against HaveIBeenPwned, so a breached password returns `400`. Returns the created identity with profile metadata only (the password is never echoed).
+         * @description Creates a single identity in the active Application's current Environment, optionally assigning an initial role at a node in the same request (`role_id` + `node_id`). Email is normalized (lower-cased, trimmed) and must be unique within the Account — a duplicate returns `409`; passwords are hashed with argon2id and screened against HaveIBeenPwned, so a breached password returns `400`. On the public API a `password_hash` from another system (`password_hash_algorithm`: `bcrypt`, `argon2id`, `pbkdf2_sha256` or `scrypt`) is stored as it is and verified that way at sign-in; the first sign-in that proves it re-hashes to argon2id and runs the breach check, sending a breached password to reset. Returns the created identity with profile metadata only (the password is never echoed).
          */
         post: operations["ApiIdentitiesController_createIdentity"];
         delete?: never;
@@ -825,7 +825,7 @@ export interface paths {
         put?: never;
         /**
          * Preview moving a node
-         * @description Reports what moving the node under `parent_node_id` would change, without moving it. `blockers` lists what would refuse the move, with the code and message the move answers `400` with (the schema's parent and child types, depth, a cycle, an organization boundary); when any is listed nothing else is resolved. Otherwise: `subtree_size`, the node and every node beneath it; `identities_gaining`, `identities_losing` and `permissions`, the counts per key, over everyone; `people`, one page of the holders whose access at the node changes (and so beneath it, since grants inside the subtree travel with it), one row per person by name, with the keys `gained` and `lost` and `via`, the grants behind them, and `pagination`. The query narrows the page and never the counts: `q` (name or email), `direction` (`gains` or `loses`), `permission` (one key), `page` and `take` (up to 5000, so a client can export every change in a few reads); and `invites` and `directory_groups`, the pending invitations and directory groups at nodes in the subtree, which move with it. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts and an empty page, whatever the query. Resolved by the rules `evaluate` applies. Read-only. Send `version` as `If-Match` and `parent_version` in the body on the move, so it applies only to the node and the destination previewed. Gated as the move is: `hierarchy.manage` on the node and on the new parent. Returns `404` when the node or the parent is not found in this Environment.
+         * @description Reports what moving the node under `parent_node_id` would change, without moving it. `blockers` lists what would refuse the move, with the code and message the move answers `400` with (the schema's parent and child types, depth, a cycle, an organization boundary); when any is listed nothing else is resolved. Otherwise: `subtree_size`, the node and every node beneath it; `identities_gaining`, `identities_losing` and `permissions`, the counts per key, over everyone; and `invites` and `directory_groups`, the pending invitations and directory groups at nodes in the subtree, which move with it. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts, and an empty page from the people route. The preview is kept under `id` until `expires_at`: read the holders whose access at the node changes (and so beneath it, since grants inside the subtree travel with it), one row per person by name with the keys `gained` and `lost` and `via`, the grants behind them, from `GET /api/v1/access-previews/{previewId}/people`, narrowed by `q`, `direction`, `permission`, `page` and `take`, and as a file from `…/people.csv`. Resolved by the rules `evaluate` applies. Read-only. Send `version` as `If-Match` and `parent_version` in the body on the move, so it applies only to the node and the destination previewed. Gated as the move is: `hierarchy.manage` on the node and on the new parent. Returns `404` when the node or the parent is not found in this Environment.
          */
         post: operations["ApiNodesController_previewMoveNode"];
         delete?: never;
@@ -845,7 +845,7 @@ export interface paths {
         put?: never;
         /**
          * Preview deleting a node
-         * @description Reports what deleting the node would remove, without deleting it. `blockers` lists what would refuse the delete (the root node, or an organization node, which is deleted through the organizations API); when any is listed nothing else is counted. Otherwise: `subtree_size`, the node and every node beneath it; `roles`, the role assignments made in the subtree counted by role, and `assignments_total`; `identities_affected`, and `identities_losing_all_access`, those holding no assignment anywhere else in the Environment; `invites`, the pending invitations there, by email; and `directory_groups`, the directory groups mapped there, by name. The same sets the delete removes. `people` is one page of the holders whose assignments go, one row per person by name, with `via`, their assignments that go as role at node, and `pagination`; `q` (name or email), `role_id`, `page` and `take` (up to 5000) narrow the page and never the counts. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts and an empty page, whatever the query. Read-only. Send `version` as `If-Match` on the delete. Gated as the delete is: `hierarchy.manage` on the node. Returns `404` when the node is not found in this Environment.
+         * @description Reports what deleting the node would remove, without deleting it. `blockers` lists what would refuse the delete (the root node, or an organization node, which is deleted through the organizations API); when any is listed nothing else is counted. Otherwise: `subtree_size`, the node and every node beneath it; `roles`, the role assignments made in the subtree counted by role, and `assignments_total`; `identities_affected`, and `identities_losing_all_access`, those holding no assignment anywhere else in the Environment; `invites`, the pending invitations there, by email; and `directory_groups`, the directory groups mapped there, by name. The same sets the delete removes. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts, and an empty page from the people route. The preview is kept under `id` until `expires_at`: read the holders whose assignments go, one row per person by name with `via`, their assignments as role at node, from `GET /api/v1/access-previews/{previewId}/people`, narrowed by `q`, `role_id`, `page` and `take`, and as a file from `…/people.csv`. Read-only. Send `version` as `If-Match` on the delete. Gated as the delete is: `hierarchy.manage` on the node. Returns `404` when the node is not found in this Environment.
          */
         post: operations["ApiNodesController_previewDeleteNode"];
         delete?: never;
@@ -1177,7 +1177,7 @@ export interface paths {
         put?: never;
         /**
          * Preview moving a node inside an organization
-         * @description Reports what moving the node beneath `parent_node_id` would change, without moving it: the same answer as `POST /nodes/{id}/move/preview` (`blockers`, `subtree_size`, the counts per key and a page of the holders gaining and losing keys at the node, with the same query, and the invitations and directory groups that move with the subtree), authorized as the move is. Read-only.
+         * @description Reports what moving the node beneath `parent_node_id` would change, without moving it: the same answer as `POST /nodes/{id}/move/preview` (`blockers`, `subtree_size`, the counts per key, with the holders gaining and losing keys paged from the stored preview by its `id`, and the invitations and directory groups that move with the subtree), authorized as the move is. Read-only.
          */
         post: operations["ApiOrganizationStructureController_previewMoveNode"];
         delete?: never;
@@ -1217,7 +1217,7 @@ export interface paths {
         put?: never;
         /**
          * Preview deleting a node inside an organization
-         * @description Reports what deleting the node would remove, without deleting it: the same answer as `POST /nodes/{id}/delete/preview` (`blockers`, `subtree_size`, the assignments that go by role and who is left with no access, a page of the people whose assignments go, with the same query, the invitations revoked and the directory groups unmapped), authorized as the delete is. Read-only.
+         * @description Reports what deleting the node would remove, without deleting it: the same answer as `POST /nodes/{id}/delete/preview` (`blockers`, `subtree_size`, the assignments that go by role and who is left with no access, with the people whose assignments go paged from the stored preview by its `id`, the invitations revoked and the directory groups unmapped), authorized as the delete is. Read-only.
          */
         post: operations["ApiOrganizationStructureController_previewDeleteNode"];
         delete?: never;
@@ -2293,7 +2293,7 @@ export interface paths {
         put?: never;
         /**
          * Preview replacing a role's permissions
-         * @description Reports what replacing the role's permissions with `permission_keys` would change, without changing them: `added` and `removed`, and `blockers`, what would refuse the write, with the code and message it answers (`organization.last_admin`, `rbac.roles_manage_below_organization`); when any is listed no access is resolved. Otherwise, wherever the role is held now: `holders`, the identities it grants something to; `identities_gaining`, `identities_losing` and `permissions`, the counts per key, over everyone; and `people`, one page of the holders whose access changes, one row per person by name (a holder of the role at several nodes is one row), with the keys `gained` and `lost` once their other grants on each lineage are counted, `via`, the role at each node behind them, and `pagination`. The query narrows the page and never the counts: `q` (name or email), `direction` (`gains` or `loses`), `permission` (one key), `page` and `take` (up to 5000). People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts and an empty page, whatever the query. A disabled role (`role_active: false`) grants nothing either way. Resolved by the rules `evaluate` applies. Read-only. A key not in the Environment's catalog returns `404`, as on the write. Send `version` as `If-Match` on the write. Requires the `rbac.manage_roles` permission.
+         * @description Reports what replacing the role's permissions with `permission_keys` would change, without changing them: `added` and `removed`, and `blockers`, what would refuse the write, with the code and message it answers (`organization.last_admin`, `rbac.roles_manage_below_organization`); when any is listed no access is resolved. Otherwise, wherever the role is held now: `holders`, the identities it grants something to; `identities_gaining`, `identities_losing` and `permissions`, the counts per key, over everyone. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts, and an empty page from the people route. The preview is kept under `id` until `expires_at`: read the holders whose access changes, one row per person by name (a holder of the role at several nodes is one row) with the keys `gained` and `lost` once their other grants on each lineage are counted and `via`, the role at each node behind them, from `GET /api/v1/access-previews/{previewId}/people`, narrowed by `q`, `direction`, `permission`, `page` and `take`, and as a file from `…/people.csv`. A disabled role (`role_active: false`) grants nothing either way. Resolved by the rules `evaluate` applies. Read-only. A key not in the Environment's catalog returns `404`, as on the write. Send `version` as `If-Match` on the write. Requires the `rbac.manage_roles` permission.
          */
         post: operations["ApiRolesController_previewRolePermissions"];
         delete?: never;
@@ -2382,6 +2382,46 @@ export interface paths {
          * @description Who an existing deny takes access from today, in the shape `POST /denies/preview` answers: the people and machine clients it refuses, per permission, those an exception role spares, and those another deny already refuses there. Requires `deny.view`.
          */
         get: operations["ApiDeniesController_reach"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access-previews/{previewId}/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the people a stored access preview reaches
+         * @description One page of the people a stored access preview reaches, by name, one row per person: for a move or a permissions preview the keys `gained` and `lost` with `via`, the grants behind them; for a delete preview `via`, their assignments that go. The preview is the one its id names, made by `POST …/move/preview`, `…/delete/preview` or `…/permissions/preview`; it is read only by the principal that made it, in the Environment it was made in, and only until its `expires_at`, so anyone else's, an expired one and an unknown id all answer `404`. Each read resolves the change again, under the gate its creation passed, and answers `409` `version_mismatch` once the node, its destination or the role has changed since the preview: preview the change again. The query narrows the page and never the preview's counts: `q` (name or email), `direction` (`gains` or `loses`) and `permission` (one key) on a change preview, `role_id` on a delete preview, `page` and `take` (up to 5000). A reader who may not see the Environment's people (`people_named` false on the preview) gets an empty page, whatever the query.
+         */
+        get: operations["ApiAccessPreviewsController_listPeople"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/access-previews/{previewId}/people.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the people a stored access preview reaches
+         * @description Every person the stored preview reaches, as a CSV file: for a move or a permissions preview one line per key gained or lost (`Name`, `Email`, `Change`, `Permission`, `Through`), for a delete preview one line per assignment that goes (`Name`, `Email`, `Role`, `Node`). Cells are neutralised against spreadsheet formula injection. Read under the same rules as the people route: the preview's maker only, in its Environment, until `expires_at` (`404` otherwise), and `409` once what it read has changed. A reader who may not see the Environment's people gets a file with the header line only.
+         */
+        get: operations["ApiAccessPreviewsController_exportPeople"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3220,7 +3260,7 @@ export interface components {
             assigned_count: number;
             unassigned_count: number;
         };
-        CreateIdentityDto: {
+        ApiCreateIdentityDto: {
             email: string;
             first_name: string;
             last_name: string;
@@ -3232,9 +3272,16 @@ export interface components {
             role_id?: string;
             /** @description Node for an initial assignment — required if role_id is provided */
             node_id?: string;
+            /** @description An existing password hash to import instead of `password`, written the way `password_hash_algorithm` writes one. The identity signs in with its original password; after the first sign-in that proves it, Canopy replaces the hash with its own argon2id hash and runs the breach check, sending a breached password to reset. */
+            password_hash?: string;
+            /**
+             * @description The algorithm `password_hash` is in. `bcrypt` is the modular crypt string (`$2a$`, `$2b$` or `$2y$`); `argon2id` the PHC string; `pbkdf2_sha256` Django's `pbkdf2_sha256$iterations$salt$hash`; `scrypt` Django's `scrypt$N$salt$r$p$hash`. Required with `password_hash`.
+             * @enum {string}
+             */
+            password_hash_algorithm?: "bcrypt" | "argon2id" | "pbkdf2_sha256" | "scrypt";
         };
-        BulkCreateIdentitiesDto: {
-            identities: components["schemas"]["CreateIdentityDto"][];
+        ApiBulkCreateIdentitiesDto: {
+            identities: components["schemas"]["ApiCreateIdentityDto"][];
         };
         IdentityDetailResponseDto: {
             id: string;
@@ -3660,69 +3707,30 @@ export interface components {
             gaining: number;
             losing: number;
         };
-        AssignmentIdentityDto: {
-            id: string;
-            first_name: string;
-            last_name: string;
-            name: string;
-            email: string;
-            avatar_url?: string | null;
-        };
-        PreviewNodeDto: {
-            id: string;
-            name: string;
-        };
-        PreviewGrantDto: {
-            /** @description The role */
-            role: components["schemas"]["PreviewNodeDto"];
-            /** @description Where it is held */
-            node: components["schemas"]["PreviewNodeDto"];
-        };
-        AccessChangeDto: {
-            identity: components["schemas"]["AssignmentIdentityDto"];
-            /** @description Keys the person gains */
-            gained: string[];
-            /** @description Keys the person loses */
-            lost: string[];
-            /** @description The grants that give the keys gained, or gave the keys lost */
-            via: components["schemas"]["PreviewGrantDto"][];
-        };
-        PreviewPageMetaDto: {
-            /** @description Current page number (1-based) */
-            page: number;
-            /** @description People per page */
-            take: number;
-            /** @description People matching the query */
-            item_count: number;
-            /** @description Total number of pages */
-            page_count: number;
-            /** @description Whether a previous page exists */
-            has_previous_page: boolean;
-            /** @description Whether a next page exists */
-            has_next_page: boolean;
-        };
-        AccessChangePageDto: {
-            /** @description One row per person, by name (none unless `people_named`) */
-            items: components["schemas"]["AccessChangeDto"][];
-            /** @description Paging over the people matching `q`, `direction` and `permission` */
-            pagination: components["schemas"]["PreviewPageMetaDto"];
-        };
         NamedSampleDto: {
             total: number;
             names: string[];
         };
         NodeMovePreviewDto: {
+            /**
+             * Format: uuid
+             * @description The preview's id: read its people from `GET …/access-previews/:previewId/people`, and as a file from `…/people.csv`, until `expires_at`
+             */
+            id: string;
+            /**
+             * Format: date-time
+             * @description When the preview stops being readable
+             */
+            expires_at: string;
             /** @description What would refuse the change. When any is listed, nothing below is resolved */
             blockers: components["schemas"]["PreviewBlockerDto"][];
-            /** @description Whether people are named: false for a reader who may not see the Environment's people, who gets the counts and no list */
+            /** @description Whether people are named: false for a reader who may not see the Environment's people, who gets the counts and an empty people page */
             people_named: boolean;
             /** @description Holders who gain at least one permission */
             identities_gaining: number;
             /** @description Holders who lose at least one permission */
             identities_losing: number;
             permissions: components["schemas"]["PermissionChangeCountDto"][];
-            /** @description One page of the people the change reaches. The counts above cover everyone; the page follows the query */
-            people: components["schemas"]["AccessChangePageDto"];
             node_id: string;
             parent_node_id: string;
             /** @description The node's version now: send it as `If-Match` on the move */
@@ -3736,27 +3744,30 @@ export interface components {
             /** @description Directory groups mapped to nodes in the subtree, which move with it, by name */
             directory_groups: components["schemas"]["NamedSampleDto"];
         };
+        PreviewNodeDto: {
+            id: string;
+            name: string;
+        };
         RoleRemovalCountDto: {
             role: components["schemas"]["PreviewNodeDto"];
             assignments: number;
             identities: number;
         };
-        PersonRemovalDto: {
-            identity: components["schemas"]["AssignmentIdentityDto"];
-            /** @description Their assignments that go, as role at node */
-            via: components["schemas"]["PreviewGrantDto"][];
-        };
-        PersonRemovalPageDto: {
-            /** @description One row per person, by name (none unless `people_named`) */
-            items: components["schemas"]["PersonRemovalDto"][];
-            /** @description Paging over the people matching `q` and `role_id` */
-            pagination: components["schemas"]["PreviewPageMetaDto"];
-        };
         NodeDeletePreviewDto: {
+            /**
+             * Format: uuid
+             * @description The preview's id: read its people from `GET …/access-previews/:previewId/people`, and as a file from `…/people.csv`, until `expires_at`
+             */
+            id: string;
+            /**
+             * Format: date-time
+             * @description When the preview stops being readable
+             */
+            expires_at: string;
             node_id: string;
             /** @description The node's version now: send it as `If-Match` on the delete */
             version: number;
-            /** @description Whether people are named: false for a reader who may not see the Environment's people */
+            /** @description Whether people are named: false for a reader who may not see the Environment's people, who gets the counts and an empty people page */
             people_named: boolean;
             /** @description What would refuse the delete. When any is listed, nothing below is counted */
             blockers: components["schemas"]["PreviewBlockerDto"][];
@@ -3770,12 +3781,18 @@ export interface components {
             roles: components["schemas"]["RoleRemovalCountDto"][];
             /** @description How many assignments go in all */
             assignments_total: number;
-            /** @description One page of the people whose assignments go. The counts above cover everyone; the page follows the query */
-            people: components["schemas"]["PersonRemovalPageDto"];
             /** @description Pending invitations revoked, by email (none listed unless `people_named`) */
             invites: components["schemas"]["NamedSampleDto"];
             /** @description Directory groups unmapped, by name */
             directory_groups: components["schemas"]["NamedSampleDto"];
+        };
+        AssignmentIdentityDto: {
+            id: string;
+            first_name: string;
+            last_name: string;
+            name: string;
+            email: string;
+            avatar_url?: string | null;
         };
         AssignmentRoleDto: {
             id: string;
@@ -4817,17 +4834,25 @@ export interface components {
             message: string;
         };
         RolePermissionsPreviewDto: {
+            /**
+             * Format: uuid
+             * @description The preview's id: read its people from `GET …/access-previews/:previewId/people`, and as a file from `…/people.csv`, until `expires_at`
+             */
+            id: string;
+            /**
+             * Format: date-time
+             * @description When the preview stops being readable
+             */
+            expires_at: string;
             /** @description What would refuse the change. When any is listed, nothing below is resolved */
             blockers: components["schemas"]["PreviewBlockerDto"][];
-            /** @description Whether people are named: false for a reader who may not see the Environment's people, who gets the counts and no list */
+            /** @description Whether people are named: false for a reader who may not see the Environment's people, who gets the counts and an empty people page */
             people_named: boolean;
             /** @description Holders who gain at least one permission */
             identities_gaining: number;
             /** @description Holders who lose at least one permission */
             identities_losing: number;
             permissions: components["schemas"]["PermissionChangeCountDto"][];
-            /** @description One page of the people the change reaches. The counts above cover everyone; the page follows the query */
-            people: components["schemas"]["AccessChangePageDto"];
             role_id: string;
             /** @description The role's version now: send it as `If-Match` on the permissions write */
             version: number;
@@ -4932,6 +4957,20 @@ export interface components {
             /** @description The deny's permissions this one would lose. */
             loses: string[];
         };
+        PreviewPageMetaDto: {
+            /** @description Current page number (1-based) */
+            page: number;
+            /** @description People per page */
+            take: number;
+            /** @description People matching the query */
+            item_count: number;
+            /** @description Total number of pages */
+            page_count: number;
+            /** @description Whether a previous page exists */
+            has_previous_page: boolean;
+            /** @description Whether a next page exists */
+            has_next_page: boolean;
+        };
         DenyPreviewPeoplePageDto: {
             /** @description One row per person or machine client losing access, by name; machine clients only unless `people_named` */
             items: components["schemas"]["DenyPreviewPersonDto"][];
@@ -4960,6 +4999,21 @@ export interface components {
             people: components["schemas"]["DenyPreviewPeoplePageDto"];
             /** @description Up to 20 of those an exception role spares. */
             kept: components["schemas"]["DenyPreviewKeptDto"][];
+        };
+        PreviewGrantDto: {
+            /** @description The role */
+            role: components["schemas"]["PreviewNodeDto"];
+            /** @description Where it is held */
+            node: components["schemas"]["PreviewNodeDto"];
+        };
+        PreviewPersonDto: {
+            identity: components["schemas"]["AssignmentIdentityDto"];
+            /** @description Keys the person gains (a move or a permissions preview) */
+            gained?: string[];
+            /** @description Keys the person loses (a move or a permissions preview) */
+            lost?: string[];
+            /** @description The grants that give the keys gained or gave the keys lost; on a delete preview, the person's assignments that go */
+            via: components["schemas"]["PreviewGrantDto"][];
         };
         AssignmentsSummaryDto: {
             active_count: number;
@@ -8119,7 +8173,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateIdentityDto"];
+                "application/json": components["schemas"]["ApiCreateIdentityDto"];
             };
         };
         responses: {
@@ -8134,7 +8188,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), `password_hash` is not written the way `password_hash_algorithm` writes one (`identity.password_hash_invalid`), both `password` and `password_hash` were sent (`identity.password_and_hash_exclusive`), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -8145,7 +8199,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), `password_hash` is not written the way `password_hash_algorithm` writes one (`identity.password_hash_invalid`), both `password` and `password_hash` were sent (`identity.password_and_hash_exclusive`), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "POST"
@@ -8439,7 +8493,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BulkCreateIdentitiesDto"];
+                "application/json": components["schemas"]["ApiBulkCreateIdentitiesDto"];
             };
         };
         responses: {
@@ -12346,18 +12400,7 @@ export interface operations {
     };
     ApiNodesController_previewMoveNode: {
         parameters: {
-            query?: {
-                /** @description Page of people (1-based) */
-                page?: number;
-                /** @description People per page (1-5000, default 20) */
-                take?: number;
-                /** @description Only people whose name or email contains this, ignoring case */
-                q?: string;
-                /** @description Only the people gaining access, or only those losing it */
-                direction?: "gains" | "loses";
-                /** @description Only the people gaining or losing this permission key (with `direction`, only that side) */
-                permission?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: string;
@@ -12469,16 +12512,7 @@ export interface operations {
     };
     ApiNodesController_previewDeleteNode: {
         parameters: {
-            query?: {
-                /** @description Page of people (1-based) */
-                page?: number;
-                /** @description People per page (1-5000, default 20) */
-                take?: number;
-                /** @description Only people whose name or email contains this, ignoring case */
-                q?: string;
-                /** @description Only the people holding this role in the subtree */
-                role_id?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: string;
@@ -14762,18 +14796,7 @@ export interface operations {
     };
     ApiOrganizationStructureController_previewMoveNode: {
         parameters: {
-            query?: {
-                /** @description Page of people (1-based) */
-                page?: number;
-                /** @description People per page (1-5000, default 20) */
-                take?: number;
-                /** @description Only people whose name or email contains this, ignoring case */
-                q?: string;
-                /** @description Only the people gaining access, or only those losing it */
-                direction?: "gains" | "loses";
-                /** @description Only the people gaining or losing this permission key (with `direction`, only that side) */
-                permission?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: string;
@@ -15023,16 +15046,7 @@ export interface operations {
     };
     ApiOrganizationStructureController_previewDeleteNode: {
         parameters: {
-            query?: {
-                /** @description Page of people (1-based) */
-                page?: number;
-                /** @description People per page (1-5000, default 20) */
-                take?: number;
-                /** @description Only people whose name or email contains this, ignoring case */
-                q?: string;
-                /** @description Only the people holding this role in the subtree */
-                role_id?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: string;
@@ -24258,18 +24272,7 @@ export interface operations {
     };
     ApiRolesController_previewRolePermissions: {
         parameters: {
-            query?: {
-                /** @description Page of people (1-based) */
-                page?: number;
-                /** @description People per page (1-5000, default 20) */
-                take?: number;
-                /** @description Only people whose name or email contains this, ignoring case */
-                q?: string;
-                /** @description Only the people gaining access, or only those losing it */
-                direction?: "gains" | "loses";
-                /** @description Only the people gaining or losing this permission key (with `direction`, only that side) */
-                permission?: string;
-            };
+            query?: never;
             header?: never;
             path: {
                 id: string;
@@ -25005,6 +25008,276 @@ export interface operations {
                      *         "message": "No deny with this id in the Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/{id}/reach",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiAccessPreviewsController_listPeople: {
+        parameters: {
+            query?: {
+                /** @description Page of people (1-based) */
+                page?: number;
+                /** @description People per page (1-5000, default 20) */
+                take?: number;
+                /** @description Only people whose name or email contains this, ignoring case */
+                q?: string;
+                /** @description Change previews: only the people gaining access, or only those losing it */
+                direction?: "gains" | "loses";
+                /** @description Change previews: only the people gaining or losing this permission key (with `direction`, only that side) */
+                permission?: string;
+                /** @description Delete previews: only the people holding this role in the subtree */
+                role_id?: string;
+            };
+            header?: never;
+            path: {
+                previewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the people the preview reaches */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PreviewPersonDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The preview id is not a UUID or the query failed validation (`direction` other than `gains` or `loses`, `take` above 5000, `role_id` not a UUID); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The preview id is not a UUID or the query failed validation (`direction` other than `gains` or `loses`, `take` above 5000, `role_id` not a UUID); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No stored preview with this id was made by this principal in this Environment, or it has expired (`access_preview.not_found`); the node, its destination, the organization or the role the preview read no longer exists; or a resource the path names does not exist. Preview the change again */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No stored preview with this id was made by this principal in this Environment, or it has expired (`access_preview.not_found`); the node, its destination, the organization or the role the preview read no longer exists; or a resource the path names does not exist. Preview the change again",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The node, its destination or the role has changed since the preview was made (`version_mismatch`); preview the change again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The node, its destination or the role has changed since the preview was made (`version_mismatch`); preview the change again",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiAccessPreviewsController_exportPeople: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                previewId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The people as a CSV file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description The preview id is not a UUID; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The preview id is not a UUID; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people.csv",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No stored preview with this id was made by this principal in this Environment, or it has expired (`access_preview.not_found`); the node, its destination, the organization or the role the preview read no longer exists; or a resource the path names does not exist. Preview the change again */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No stored preview with this id was made by this principal in this Environment, or it has expired (`access_preview.not_found`); the node, its destination, the organization or the role the preview read no longer exists; or a resource the path names does not exist. Preview the change again",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people.csv",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The node, its destination or the role has changed since the preview was made (`version_mismatch`); preview the change again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The node, its destination or the role has changed since the preview was made (`version_mismatch`); preview the change again",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-previews/{previewId}/people.csv",
                      *         "method": "GET"
                      *       }
                      *     }

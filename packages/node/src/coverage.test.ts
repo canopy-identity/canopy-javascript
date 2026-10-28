@@ -23,7 +23,11 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 197 as of denies (`/api/v1/denies`: list, get, create, preview, reach,
+// 199 as of stored access previews: each preview answers an `id` and
+// `expires_at` in place of a `people` page, and the people are read from
+// the stored preview (`/api/v1/access-previews/:previewId/people` and
+// `people.csv`). Unwrapped like the previews, so the floor does not move.
+// Before that, 197 as of denies (`/api/v1/denies`: list, get, create, preview, reach,
 // remove), management routes unwrapped like API keys and OAuth clients, and
 // the reads and previews that shipped beside them: a node's holders, an
 // identity's access at a node, the delete and move previews for a node and
@@ -69,7 +73,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 197;
+const EXPECTED_OPERATION_COUNT = 199;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
