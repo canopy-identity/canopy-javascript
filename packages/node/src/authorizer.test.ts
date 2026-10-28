@@ -1,6 +1,6 @@
 import { getEventListeners } from "node:events";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 
 import { LocalAuthorizer } from "./authorizer.js";
 import { isCanopyAuthorizerError } from "./errors.js";
@@ -70,10 +70,13 @@ const GRANTS = {
 
 const EMPTY_TREE = { model_version: 1, items: [], pagination: meta(1, 0) };
 
+/** A client read: every one resolves, so an implementation returns a promise. */
+type ReadMock = Mock<(...args: never[]) => Promise<unknown>>;
+
 interface Harness {
   authorizer: LocalAuthorizer;
-  request: ReturnType<typeof vi.fn>;
-  requestConditional: ReturnType<typeof vi.fn>;
+  request: ReadMock;
+  requestConditional: ReadMock;
   advance: (ms: number) => void;
 }
 
@@ -82,10 +85,12 @@ function makeAuthorizer(
 ): Harness {
   let clock = 1_000;
 
-  const request = vi.fn().mockResolvedValue(overrides.grants ?? GRANTS);
+  const request: ReadMock = vi
+    .fn<(...args: never[]) => Promise<unknown>>()
+    .mockResolvedValue(overrides.grants ?? GRANTS);
 
-  const requestConditional = vi
-    .fn()
+  const requestConditional: ReadMock = vi
+    .fn<(...args: never[]) => Promise<unknown>>()
     .mockResolvedValue({ modified: true, data: TREE, etag: 'W/"v1"' });
 
   const client = { request, requestConditional } as unknown as CanopyClient;
@@ -1102,5 +1107,282 @@ describe("LocalAuthorizer — denies", () => {
       allowed: true,
       reason: null,
     });
+  });
+});
+
+/** A delivery as the API sends it, with only what the cache reads. */
+function delivery(
+  event: string,
+  metadata: Record<string, unknown> = {},
+  resource: { type?: string; id?: string } = {},
+) {
+  return {
+    event,
+    data: {
+      resource_type: resource.type ?? null,
+      resource_id: resource.id ?? null,
+      metadata,
+    },
+  };
+}
+
+const NO_GRANTS = { model_version: 1, items: [], pagination: meta(1, 0) };
+
+describe("LocalAuthorizer — applying changes", () => {
+  /**
+   * The point of the whole surface: a revocation delivered as a webhook
+   * reaches the next local decision now, not when the window lapses.
+   */
+  it("denies on the next check after an assignment.removed, inside the window", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    expect((await authorizer.evaluate(check("frontend"))).allowed).toBe(true);
+
+    request.mockResolvedValue(NO_GRANTS);
+
+    const applied = authorizer.applyEvent(
+      delivery("assignment.removed", {
+        identity_id: "id-1",
+        oauth_client_id: null,
+        client_id: null,
+        node_id: "engineering",
+        role_id: "role-1",
+      }),
+    );
+
+    expect(applied).toEqual({
+      event: "assignment.removed",
+      invalidated: "subjects",
+      subjects: [{ principalType: "identity", id: "id-1" }],
+    });
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: false,
+      reason: "permission_not_held",
+    });
+  });
+
+  it("keeps everyone else's grants and the hierarchy for a change naming one person", async () => {
+    const { authorizer, request, requestConditional } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate({ ...check("frontend"), identity_id: "id-2" });
+
+    authorizer.applyEvent(
+      delivery("organization.member.removed", { identity_id: "id-1" }),
+    );
+
+    await authorizer.evaluate(check("frontend"));
+    await authorizer.evaluate({ ...check("frontend"), identity_id: "id-2" });
+
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(requestConditional).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops everything for a change whose reach it cannot name", async () => {
+    const { authorizer, request, requestConditional } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+
+    expect(authorizer.applyEvent(delivery("role.permissions.updated"))).toEqual(
+      { event: "role.permissions.updated", invalidated: "all" },
+    );
+
+    await authorizer.evaluate(check("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(requestConditional).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops nothing for a change that moves no one's access", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    await authorizer.evaluate(check("frontend"));
+
+    expect(authorizer.applyEvent(delivery("identity.updated"))).toEqual({
+      event: "identity.updated",
+      invalidated: "none",
+    });
+
+    await authorizer.evaluate(check("frontend"));
+
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The race a webhook-driven cache has to close: a read that began before
+   * the change finishes after it. Kept, it would put the revoked access back
+   * for a whole window.
+   */
+  it("does not keep a grant read that was in flight when its subject was invalidated", async () => {
+    const { authorizer, request } = makeAuthorizer();
+    let finish: (value: unknown) => void = () => undefined;
+
+    request.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+
+    const inFlight = authorizer.evaluate(check("frontend"));
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+
+    authorizer.applyEvent(
+      delivery("assignment.removed", { identity_id: "id-1" }),
+    );
+    request.mockResolvedValue(NO_GRANTS);
+    finish(GRANTS);
+
+    // The check that started before the change answers from what it read.
+    expect((await inFlight).allowed).toBe(true);
+    // The next one reads again and sees the revocation.
+    expect((await authorizer.evaluate(check("frontend"))).allowed).toBe(false);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not keep a hierarchy read that was in flight when everything was invalidated", async () => {
+    const { authorizer, requestConditional } = makeAuthorizer();
+    let finish: (value: unknown) => void = () => undefined;
+
+    requestConditional.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+
+    const inFlight = authorizer.evaluate(check("frontend"));
+
+    await vi.waitFor(() => expect(requestConditional).toHaveBeenCalledTimes(1));
+
+    authorizer.applyEvent(delivery("node.moved"));
+    finish({ modified: true, data: TREE, etag: 'W/"v1"' });
+
+    await inFlight;
+    await authorizer.evaluate(check("frontend"));
+
+    expect(requestConditional).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("LocalAuthorizer — replaying the change feed", () => {
+  /** A change feed of `events`, served `limit` to a page as the API does. */
+  function changeFeed(events: ReturnType<typeof delivery>[]) {
+    return (
+      _method: string,
+      path: string,
+      options: { query?: Record<string, unknown> },
+    ) => {
+      if (path !== "/api/v1/changes") {
+        return Promise.resolve(GRANTS);
+      }
+
+      const limit = Number(options.query?.["limit"]);
+      const cursor = options.query?.["cursor"];
+      const start = cursor === undefined ? 0 : Number(cursor);
+      const items = events
+        .slice(start, start + limit)
+        .map((event, i) => ({ id: `c${start + i}`, ...event }));
+      const end = start + items.length;
+
+      return Promise.resolve({
+        items,
+        pagination: {
+          next_cursor:
+            items.length > 0
+              ? String(end)
+              : ((cursor as string | undefined) ?? null),
+        },
+      });
+    };
+  }
+
+  it("applies every change after the cursor and answers where it stopped", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    request.mockImplementation(
+      changeFeed([
+        delivery("identity.updated"),
+        delivery("assignment.removed", { identity_id: "id-1" }),
+        delivery("organization.member.removed", { identity_id: "id-2" }),
+      ]),
+    );
+
+    const result = await authorizer.replayChanges({ cursor: "1" });
+
+    expect(result).toEqual({
+      cursor: "3",
+      changes: 2,
+      invalidatedAll: false,
+      subjectsInvalidated: 2,
+    });
+    expect(request).toHaveBeenCalledWith(
+      "GET",
+      "/api/v1/changes",
+      expect.objectContaining({ query: { limit: 200, cursor: "1" } }),
+    );
+  });
+
+  it("reads page after page until it reaches the newest change", async () => {
+    const { authorizer, request } = makeAuthorizer();
+    const events = Array.from({ length: 450 }, () =>
+      delivery("assignment.removed", { identity_id: "id-1" }),
+    );
+
+    request.mockImplementation(changeFeed(events));
+
+    const result = await authorizer.replayChanges();
+
+    expect(result.cursor).toBe("450");
+    expect(result.changes).toBe(450);
+    expect(request).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops a cached answer a replayed change revoked", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    expect((await authorizer.evaluate(check("frontend"))).allowed).toBe(true);
+
+    const feed = changeFeed([delivery("role.permissions.updated")]);
+
+    request.mockImplementation(
+      (
+        method: string,
+        path: string,
+        options: { query?: Record<string, unknown> },
+      ) =>
+        path === "/api/v1/changes"
+          ? feed(method, path, options)
+          : Promise.resolve(NO_GRANTS),
+    );
+
+    const result = await authorizer.replayChanges();
+
+    expect(result.invalidatedAll).toBe(true);
+    expect((await authorizer.evaluate(check("frontend"))).allowed).toBe(false);
+  });
+
+  it("keeps the cursor it was given when nothing is newer", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    request.mockImplementation(changeFeed([delivery("identity.updated")]));
+
+    const result = await authorizer.replayChanges({ cursor: "1" });
+
+    expect(result).toEqual({
+      cursor: "1",
+      changes: 0,
+      invalidatedAll: false,
+      subjectsInvalidated: 0,
+    });
+  });
+
+  it("answers a null cursor for a feed that has never held a change", async () => {
+    const { authorizer, request } = makeAuthorizer();
+
+    request.mockImplementation(changeFeed([]));
+
+    expect((await authorizer.replayChanges()).cursor).toBeNull();
   });
 });
