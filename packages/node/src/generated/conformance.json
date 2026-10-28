@@ -1,5 +1,5 @@
 {
-  "model_version": 1,
+  "model_version": 2,
   "vectors": [
     {
       "name": "inheritance",
@@ -1610,6 +1610,575 @@
             "viewer"
           ],
           "sdk_reason": null
+        }
+      ]
+    },
+    {
+      "name": "denies",
+      "description": "A deny refuses its permissions to its target at its node and everything beneath it, before any grant is read, and no grant beneath it can undo it. Every office except Office A: the viewer role is denied documents.view at Office A, so its holders keep it at Office B and lose it at Office A and its team, unless they hold the compliance exception role anywhere. A grant made beneath the deny allows nothing there. A deny on one identity binds whatever roles it holds, and a deny on a machine client binds the client. Asked anywhere, a permission is held while one grant stands clear of every deny.",
+      "tree": [
+        {
+          "id": "root",
+          "parent": null
+        },
+        {
+          "id": "region",
+          "parent": "root"
+        },
+        {
+          "id": "office-a",
+          "parent": "region"
+        },
+        {
+          "id": "office-b",
+          "parent": "region"
+        },
+        {
+          "id": "team-a",
+          "parent": "office-a"
+        }
+      ],
+      "permissions": [
+        "documents.view",
+        "documents.edit"
+      ],
+      "roles": [
+        {
+          "id": "viewer",
+          "permissions": [
+            "documents.view"
+          ]
+        },
+        {
+          "id": "compliance",
+          "permissions": [
+            "documents.view"
+          ]
+        },
+        {
+          "id": "editor",
+          "permissions": [
+            "documents.edit",
+            "documents.view"
+          ]
+        }
+      ],
+      "identities": [
+        {
+          "id": "alice"
+        },
+        {
+          "id": "bob"
+        },
+        {
+          "id": "carol"
+        },
+        {
+          "id": "dave"
+        },
+        {
+          "id": "erin"
+        }
+      ],
+      "machine_clients": [
+        {
+          "id": "sync"
+        }
+      ],
+      "denies": [
+        {
+          "id": "office-a-hold",
+          "role": "viewer",
+          "permissions": [
+            "documents.view"
+          ],
+          "node": "office-a",
+          "exception_roles": [
+            "compliance"
+          ]
+        },
+        {
+          "id": "dave-read-only",
+          "identity": "dave",
+          "permissions": [
+            "documents.edit"
+          ],
+          "node": "root"
+        },
+        {
+          "id": "sync-read-only",
+          "machine_client": "sync",
+          "permissions": [
+            "documents.edit"
+          ],
+          "node": "region"
+        }
+      ],
+      "assignments": [
+        {
+          "identity": "alice",
+          "role": "viewer",
+          "node": "region"
+        },
+        {
+          "identity": "bob",
+          "role": "viewer",
+          "node": "region"
+        },
+        {
+          "identity": "bob",
+          "role": "compliance",
+          "node": "root"
+        },
+        {
+          "identity": "carol",
+          "role": "viewer",
+          "node": "region"
+        },
+        {
+          "identity": "carol",
+          "role": "editor",
+          "node": "team-a"
+        },
+        {
+          "identity": "dave",
+          "role": "editor",
+          "node": "office-b"
+        },
+        {
+          "identity": "erin",
+          "role": "viewer",
+          "node": "office-a"
+        },
+        {
+          "machine_client": "sync",
+          "role": "editor",
+          "node": "region"
+        }
+      ],
+      "grants": {
+        "alice": [
+          {
+            "permission": "documents.view",
+            "node": "region"
+          }
+        ],
+        "bob": [
+          {
+            "permission": "documents.view",
+            "node": "region"
+          },
+          {
+            "permission": "documents.view",
+            "node": "root"
+          }
+        ],
+        "carol": [
+          {
+            "permission": "documents.view",
+            "node": "region"
+          },
+          {
+            "permission": "documents.edit",
+            "node": "team-a"
+          },
+          {
+            "permission": "documents.view",
+            "node": "team-a"
+          }
+        ],
+        "dave": [
+          {
+            "permission": "documents.edit",
+            "node": "office-b"
+          },
+          {
+            "permission": "documents.view",
+            "node": "office-b"
+          }
+        ],
+        "erin": [
+          {
+            "permission": "documents.view",
+            "node": "office-a"
+          }
+        ],
+        "sync": [
+          {
+            "permission": "documents.edit",
+            "node": "region"
+          },
+          {
+            "permission": "documents.view",
+            "node": "region"
+          }
+        ]
+      },
+      "deny_roots": {
+        "alice": [
+          {
+            "permission": "documents.view",
+            "node": "office-a",
+            "deny": "office-a-hold"
+          }
+        ],
+        "carol": [
+          {
+            "permission": "documents.view",
+            "node": "office-a",
+            "deny": "office-a-hold"
+          }
+        ],
+        "dave": [
+          {
+            "permission": "documents.edit",
+            "node": "root",
+            "deny": "dave-read-only"
+          }
+        ],
+        "erin": [
+          {
+            "permission": "documents.view",
+            "node": "office-a",
+            "deny": "office-a-hold"
+          }
+        ],
+        "sync": [
+          {
+            "permission": "documents.edit",
+            "node": "region",
+            "deny": "sync-read-only"
+          }
+        ]
+      },
+      "grant_windows": {
+        "alice": [
+          {
+            "permission": "documents.view",
+            "node": "region"
+          }
+        ],
+        "bob": [
+          {
+            "permission": "documents.view",
+            "node": "region"
+          },
+          {
+            "permission": "documents.view",
+            "node": "root"
+          }
+        ],
+        "carol": [
+          {
+            "permission": "documents.view",
+            "node": "region"
+          },
+          {
+            "permission": "documents.edit",
+            "node": "team-a"
+          },
+          {
+            "permission": "documents.view",
+            "node": "team-a"
+          }
+        ],
+        "dave": [
+          {
+            "permission": "documents.edit",
+            "node": "office-b"
+          },
+          {
+            "permission": "documents.view",
+            "node": "office-b"
+          }
+        ],
+        "erin": [
+          {
+            "permission": "documents.view",
+            "node": "office-a"
+          }
+        ],
+        "sync": [
+          {
+            "permission": "documents.edit",
+            "node": "region"
+          },
+          {
+            "permission": "documents.view",
+            "node": "region"
+          }
+        ]
+      },
+      "accessible": [
+        {
+          "identity": "alice",
+          "permission": "documents.view",
+          "env_wide": false,
+          "roots": [
+            "region"
+          ],
+          "excluded_roots": [
+            "office-a"
+          ],
+          "nodes": [
+            "office-b",
+            "region"
+          ]
+        },
+        {
+          "identity": "carol",
+          "permission": "documents.view",
+          "env_wide": false,
+          "roots": [
+            "region"
+          ],
+          "excluded_roots": [
+            "office-a"
+          ],
+          "nodes": [
+            "office-b",
+            "region"
+          ]
+        },
+        {
+          "identity": "bob",
+          "permission": "documents.view",
+          "env_wide": true,
+          "roots": [
+            "root"
+          ],
+          "nodes": null
+        },
+        {
+          "identity": "erin",
+          "permission": "documents.view",
+          "env_wide": false,
+          "roots": [],
+          "nodes": []
+        },
+        {
+          "identity": "carol",
+          "permission": "documents.edit",
+          "env_wide": false,
+          "roots": [
+            "team-a"
+          ],
+          "nodes": [
+            "team-a"
+          ]
+        }
+      ],
+      "permissions_at": [
+        {
+          "identity": "alice",
+          "node": "office-a",
+          "permissions": []
+        },
+        {
+          "identity": "alice",
+          "node": "office-b",
+          "permissions": [
+            "documents.view"
+          ]
+        },
+        {
+          "identity": "carol",
+          "node": "team-a",
+          "permissions": [
+            "documents.edit"
+          ]
+        },
+        {
+          "identity": "bob",
+          "node": "team-a",
+          "permissions": [
+            "documents.view"
+          ]
+        },
+        {
+          "identity": "dave",
+          "node": "office-b",
+          "permissions": [
+            "documents.view"
+          ]
+        }
+      ],
+      "holds_anywhere_under": [
+        {
+          "identity": "alice",
+          "permission": "documents.view",
+          "subtree_root": "region",
+          "held": true,
+          "roots": [
+            "region"
+          ]
+        },
+        {
+          "identity": "alice",
+          "permission": "documents.view",
+          "subtree_root": "office-a",
+          "held": false,
+          "roots": []
+        },
+        {
+          "identity": "carol",
+          "permission": "documents.edit",
+          "subtree_root": "office-a",
+          "held": true,
+          "roots": [
+            "team-a"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "identity": "alice",
+          "permission": "documents.view",
+          "scope": "node",
+          "node": "office-a",
+          "allowed": false,
+          "reason": "DENIED",
+          "effective_node": "office-a",
+          "granting_roles": [],
+          "sdk_reason": "denied"
+        },
+        {
+          "identity": "alice",
+          "permission": "documents.view",
+          "scope": "node",
+          "node": "team-a",
+          "allowed": false,
+          "reason": "DENIED",
+          "effective_node": "office-a",
+          "granting_roles": [],
+          "sdk_reason": "denied"
+        },
+        {
+          "identity": "alice",
+          "permission": "documents.view",
+          "scope": "node",
+          "node": "office-b",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "region",
+          "granting_roles": [
+            "viewer"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "bob",
+          "permission": "documents.view",
+          "scope": "node",
+          "node": "team-a",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "region",
+          "granting_roles": [
+            "viewer"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "carol",
+          "permission": "documents.view",
+          "scope": "node",
+          "node": "team-a",
+          "allowed": false,
+          "reason": "DENIED",
+          "effective_node": "office-a",
+          "granting_roles": [],
+          "sdk_reason": "denied"
+        },
+        {
+          "identity": "carol",
+          "permission": "documents.edit",
+          "scope": "node",
+          "node": "team-a",
+          "allowed": true,
+          "reason": null,
+          "effective_node": "team-a",
+          "granting_roles": [
+            "editor"
+          ],
+          "sdk_reason": null
+        },
+        {
+          "identity": "dave",
+          "permission": "documents.edit",
+          "scope": "node",
+          "node": "office-b",
+          "allowed": false,
+          "reason": "DENIED",
+          "effective_node": "root",
+          "granting_roles": [],
+          "sdk_reason": "denied"
+        },
+        {
+          "identity": "dave",
+          "permission": "documents.edit",
+          "scope": "app_wide",
+          "allowed": false,
+          "reason": "DENIED",
+          "effective_node": null,
+          "granting_roles": [],
+          "sdk_reason": "denied"
+        },
+        {
+          "identity": "dave",
+          "permission": "documents.view",
+          "scope": "app_wide",
+          "allowed": true,
+          "reason": null,
+          "effective_node": null,
+          "granting_roles": [],
+          "sdk_reason": null
+        },
+        {
+          "identity": "erin",
+          "permission": "documents.view",
+          "scope": "app_wide",
+          "allowed": false,
+          "reason": "DENIED",
+          "effective_node": null,
+          "granting_roles": [],
+          "sdk_reason": "denied"
+        },
+        {
+          "identity": "erin",
+          "permission": "documents.view",
+          "scope": "node",
+          "node": "office-b",
+          "allowed": false,
+          "reason": "NO_ROLE_ASSIGNMENT",
+          "effective_node": "office-b",
+          "granting_roles": [],
+          "sdk_reason": "outside_grants"
+        }
+      ],
+      "machine_client_checks": [
+        {
+          "machine_client": "sync",
+          "permission": "documents.edit",
+          "scope": "node",
+          "node": "office-b",
+          "allowed": false,
+          "sdk_reason": "denied"
+        },
+        {
+          "machine_client": "sync",
+          "permission": "documents.view",
+          "scope": "node",
+          "node": "office-b",
+          "allowed": true,
+          "sdk_reason": null
+        },
+        {
+          "machine_client": "sync",
+          "permission": "documents.edit",
+          "scope": "app_wide",
+          "allowed": false,
+          "sdk_reason": "denied"
         }
       ]
     }

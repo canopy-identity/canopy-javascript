@@ -111,7 +111,11 @@ describe("LocalAuthorizer — where an identity may act", () => {
 
     const roots = await authorizer.grantRoots("id-1", "reports.view");
 
-    expect(roots).toEqual({ roots: ["engineering"], envWide: false });
+    expect(roots).toEqual({
+      roots: ["engineering"],
+      excludedRoots: [],
+      envWide: false,
+    });
 
     const set = await authorizer.accessibleNodes("id-1", "reports.view");
 
@@ -133,10 +137,12 @@ describe("LocalAuthorizer — where an identity may act", () => {
 
     expect(await authorizer.grantRoots("id-1", "reports.view")).toEqual({
       roots: ["root"],
+      excludedRoots: [],
       envWide: true,
     });
     expect(await authorizer.accessibleNodes("id-1", "reports.view")).toEqual({
       roots: ["root"],
+      excludedRoots: [],
       envWide: true,
       nodes: null,
       complete: true,
@@ -152,6 +158,7 @@ describe("LocalAuthorizer — where an identity may act", () => {
 
     expect(set).toEqual({
       roots: [],
+      excludedRoots: [],
       envWide: false,
       nodes: new Set(),
       complete: true,
@@ -166,6 +173,7 @@ describe("LocalAuthorizer — where an identity may act", () => {
 
     expect(await authorizer.accessibleNodes("id-1", "reports.view")).toEqual({
       roots: ["engineering"],
+      excludedRoots: [],
       envWide: false,
       nodes: null,
       complete: false,
@@ -189,6 +197,7 @@ describe("LocalAuthorizer — where an identity may act", () => {
 
     expect(await authorizer.grantRoots("id-1", "reports.view")).toEqual({
       roots: ["field"],
+      excludedRoots: [],
       envWide: false,
     });
   });
@@ -450,7 +459,7 @@ describe("LocalAuthorizer — whether a permission is held under a node", () => 
 
     expect(
       await authorizer.holdsAnywhereUnder("id-1", "reports.view", "sales"),
-    ).toEqual({ held: true, roots: ["sales"] });
+    ).toEqual({ held: true, roots: ["sales"], excludedRoots: [] });
   });
 
   it("names the topmost grants inside the subtree, and nothing outside it", async () => {
@@ -462,10 +471,14 @@ describe("LocalAuthorizer — whether a permission is held under a node", () => 
 
     expect(
       await authorizer.holdsAnywhereUnder("id-1", "reports.view", "root"),
-    ).toEqual({ held: true, roots: ["engineering", "field"] });
+    ).toEqual({
+      held: true,
+      roots: ["engineering", "field"],
+      excludedRoots: [],
+    });
     expect(
       await authorizer.holdsAnywhereUnder("id-1", "reports.edit", "root"),
-    ).toEqual({ held: false, roots: [] });
+    ).toEqual({ held: false, roots: [], excludedRoots: [] });
   });
 
   it("counts no grant whose window is not in effect", async () => {
@@ -475,7 +488,7 @@ describe("LocalAuthorizer — whether a permission is held under a node", () => 
 
     expect(
       await authorizer.holdsAnywhereUnder("id-1", "reports.view", "sales"),
-    ).toEqual({ held: false, roots: [] });
+    ).toEqual({ held: false, roots: [], excludedRoots: [] });
   });
 
   it("refuses a subtree root the readable hierarchy does not contain", async () => {

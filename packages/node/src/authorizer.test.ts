@@ -949,3 +949,158 @@ describe("LocalAuthorizer — machine clients", () => {
     );
   });
 });
+
+/** A version 2 grants page: the rows, with the subject's deny roots beside them. */
+function withDenies(
+  items: { permission: string; node_id: string }[],
+  denies: { permission: string; node_id: string }[],
+  pagination = meta(1, items.length),
+) {
+  return {
+    model_version: 2,
+    items,
+    pagination,
+    denies: denies.map((deny, index) => ({
+      ...deny,
+      deny_id: `deny-${index}`,
+    })),
+  };
+}
+
+describe("LocalAuthorizer — denies", () => {
+  it("refuses beneath a deny root even with a grant at the node itself", async () => {
+    const { authorizer, requestConditional } = makeAuthorizer({
+      grants: withDenies(
+        [{ permission: "reports.view", node_id: "frontend" }],
+        [{ permission: "reports.view", node_id: "engineering" }],
+      ),
+    });
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: false,
+      reason: "denied",
+    });
+    // A direct grant normally needs no tree; a deny on the permission does.
+    expect(requestConditional).toHaveBeenCalled();
+  });
+
+  it("says denied rather than not held beneath a deny, and only there", async () => {
+    const { authorizer } = makeAuthorizer({
+      grants: withDenies(
+        [],
+        [{ permission: "reports.view", node_id: "engineering" }],
+      ),
+    });
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: false,
+      reason: "denied",
+    });
+    expect(await authorizer.evaluate(check("sales"))).toEqual({
+      allowed: false,
+      reason: "permission_not_held",
+    });
+  });
+
+  it("leaves other permissions to their grants", async () => {
+    const { authorizer } = makeAuthorizer({
+      grants: withDenies(
+        [{ permission: "reports.view", node_id: "engineering" }],
+        [{ permission: "reports.edit", node_id: "root" }],
+      ),
+    });
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: true,
+      reason: null,
+    });
+  });
+
+  it("gathers the deny roots from every page of grants", async () => {
+    const { authorizer, request } = makeAuthorizer();
+    const rows = [
+      { permission: "reports.view", node_id: "engineering" },
+      { permission: "reports.edit", node_id: "engineering" },
+    ];
+
+    request
+      .mockResolvedValueOnce(withDenies([rows[0]!], [], meta(1, 2, 1)))
+      .mockResolvedValueOnce(
+        withDenies(
+          [rows[1]!],
+          [{ permission: "reports.view", node_id: "frontend" }],
+          meta(2, 2, 1),
+        ),
+      );
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: false,
+      reason: "denied",
+    });
+    expect(await authorizer.evaluate(check("engineering"))).toEqual({
+      allowed: true,
+      reason: null,
+    });
+  });
+
+  it("holds a permission anywhere while one grant stands clear of every deny", async () => {
+    const above = makeAuthorizer({
+      grants: withDenies(
+        [{ permission: "reports.view", node_id: "engineering" }],
+        [{ permission: "reports.view", node_id: "root" }],
+      ),
+    });
+    const beneath = makeAuthorizer({
+      grants: withDenies(
+        [{ permission: "reports.view", node_id: "engineering" }],
+        [{ permission: "reports.view", node_id: "frontend" }],
+      ),
+    });
+    const appWide = {
+      identity_id: "id-1",
+      permission: "reports.view",
+      scope: "app_wide" as const,
+    };
+
+    expect(await above.authorizer.evaluate(appWide)).toEqual({
+      allowed: false,
+      reason: "denied",
+    });
+    expect(await beneath.authorizer.evaluate(appWide)).toEqual({
+      allowed: true,
+      reason: null,
+    });
+  });
+
+  it("cuts a denied subtree out of an Environment-wide grant", async () => {
+    const { authorizer } = makeAuthorizer({
+      grants: withDenies(
+        [{ permission: "reports.view", node_id: "root" }],
+        [{ permission: "reports.view", node_id: "engineering" }],
+      ),
+    });
+
+    const set = await authorizer.accessibleNodes("id-1", "reports.view");
+
+    expect({ ...set, nodes: [...(set.nodes ?? [])].sort() }).toEqual({
+      roots: ["root"],
+      excludedRoots: ["engineering"],
+      envWide: false,
+      nodes: ["root", "sales"],
+      complete: true,
+    });
+    expect(await authorizer.permissionsAt("id-1", "frontend")).toEqual([]);
+    expect(await authorizer.permissionsAt("id-1", "sales")).toEqual([
+      "reports.view",
+    ]);
+  });
+
+  it("reads a version 1 answer, which carries no denies, as none", async () => {
+    const { authorizer } = makeAuthorizer();
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: true,
+      reason: null,
+    });
+  });
+});
