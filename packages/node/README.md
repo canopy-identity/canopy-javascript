@@ -327,12 +327,23 @@ every request then finds the cache expired and refetches.
 
 Each answer carries a reason when it is no, from what the grant roots and the
 tree can say: `permission_not_held`, `outside_grants`, `expired`,
-`not_yet_effective`, or `node_missing` for a `node` check with no node. The
+`not_yet_effective`, `denied`, or `node_missing` for a `node` check with no
+node. The
 grant roots are read with their windows, so a grant that ends sooner than the
 TTL is dropped at its boundary, not at the next expiry. `onDecision` and
 `onDenied` hooks hear every verdict after it is reached, never awaited and
 never able to change it, for audit trails and alerting without a fork of the
 guard.
+
+A deny refuses a permission at a node and everything beneath it, whatever the
+grants allow. The grants read carries the identity's deny roots beside its
+grant roots, already resolved by Canopy (the roles it holds, the exception
+roles that spare it), so a check refuses with `denied` when a deny root for
+the permission is at the node or above it, before any grant is looked at. An
+`app_wide` check holds while one grant in effect stands clear of every deny.
+Denies ride the same cache and TTL as grants: a deny created or deleted
+reaches this authorizer within `ttlMs`, and `invalidate()` with no argument
+picks it up at once, since a deny on a role binds everyone holding it.
 
 A machine client's grants are its own, read from
 `GET /api/v1/oauth-clients/:id/grants`. Pass `principal_type: "service"` with
@@ -363,13 +374,15 @@ const authorizer = new LocalAuthorizer(canopy.client, {
 A list needs the other direction: which nodes may this identity see. The same
 cache answers it, in the shape your query wants. `grantRoots` names the nodes
 the permission is granted at, in effect now, minus the ones another root
-already covers, and says whether one is the Environment's root (`envWide`:
-every node qualifies, so no filter). `accessibleNodes` expands those roots
-through their descendants into a `Set` for an `IN (...)` filter, capped at
-`maxNodes` (10,000 by default, per authorizer or per call); past the cap it
-hands back the roots with `nodes: null` and `complete: false`, so an
-application with a closure table or a materialised path filters by "beneath a
-root" instead. `permissionsAt` lists what the identity holds at one node, for
+already covers or a deny refuses, and says whether one is the Environment's
+root (`envWide`: every node qualifies, so no filter). `excludedRoots` names
+the deny roots beneath those roots; each cuts out its subtree, and `envWide`
+is false while there are any. `accessibleNodes` expands the roots through
+their descendants, leaving the excluded subtrees out, into a `Set` for an
+`IN (...)` filter, capped at `maxNodes` (10,000 by default, per authorizer or
+per call); past the cap it hands back the roots with `nodes: null` and
+`complete: false`, so an application with a closure table or a materialised
+path filters by "beneath a root and not beneath an excluded root" instead. `permissionsAt` lists what the identity holds at one node, for
 rendering a screen's controls, and `permissionsAtMany` answers several nodes
 from one read, for the rows of a list.
 
@@ -381,7 +394,8 @@ if (access.envWide) {
 }
 
 if (!access.complete) {
-  // Too large for an IN (...) list: filter beneath access.roots instead.
+  // Too large for an IN (...) list: filter beneath access.roots, and not
+  // beneath access.excludedRoots, instead.
 }
 
 return db.reports.findMany({ where: { nodeId: { in: [...access.nodes] } } });
@@ -392,7 +406,9 @@ hold the permission anywhere in it? `app_wide` cannot say, since it covers the
 whole Environment, so a grant in another organization would show the menu
 here too. `holdsAnywhereUnder` answers for one subtree, with `roots` as the
 subtree root alone when a grant at or above it reaches all of it, and
-otherwise the topmost granted nodes inside it:
+otherwise the topmost granted nodes inside it, with `excludedRoots` as the
+deny roots inside those. A deny at the subtree's root or above it refuses the
+whole subtree:
 
 ```ts
 const { held, roots } = await authorizer.holdsAnywhereUnder(

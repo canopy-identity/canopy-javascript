@@ -137,7 +137,7 @@ export interface paths {
         put?: never;
         /**
          * Explain a node-scoped authorization decision
-         * @description Returns a full authorization trace explaining why an identity is or isn't granted a `permission` at a `node_id`. In addition to the verdict (copied verbatim from the evaluate engine), the response includes the resolved `lineage` from the node up its ancestors, each node's role assignments, and which assignments actually grant the permission — useful for debugging inherited access. Returns `404` when the identity or node cannot be found; scoped API keys must carry the evaluate scope (`403`). Rate-limited to 200 requests/minute.
+         * @description Returns a full authorization trace explaining why an identity is or isn't granted a `permission` at a `node_id`. In addition to the verdict (copied verbatim from the evaluate engine), the response includes the resolved `lineage` from the node up its ancestors, each node's role assignments, and which assignments actually grant the permission — useful for debugging inherited access. Returns `404` when the identity or node cannot be found; scoped API keys must carry the evaluate scope (`403`). The trace names who holds which roles, so an admin's token also needs `env_identities.view`, and in a production Environment `production_identities.access` (`403`). Rate-limited to 200 requests/minute.
          */
         post: operations["ApiPermissionsController_explain"];
         delete?: never;
@@ -478,6 +478,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/identities/{id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get every permission an identity holds at a node, and what grants it
+         * @description Every permission the identity holds at `node_id`, each with `granted_by`: the roles that grant it, the lineage node each is held at and `access_type` (`direct` at the node itself), nearest the node first. The same assignments and enabled roles `evaluate` reads, so every key listed is one `evaluate` allows at the node; an inactive identity holds nothing. Unpaginated, sorted by key. Requires the `identity.view` permission. Returns `404` when the identity has no membership in this Environment, or when `node_id` names no node in it.
+         */
+        get: operations["ApiIdentitiesController_getIdentityAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/identities/{id}/permissions": {
         parameters: {
             query?: never;
@@ -702,7 +722,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a hierarchy node
-         * @description Soft-deletes a hierarchy node and its entire subtree in the current Environment by setting each node's status to `deleted` (rows are retained rather than hard-deleted), and removes every role assignment anchored at any node in the subtree so hidden branches can't keep granting access. Gated by `hierarchy.manage` on the node; the root node cannot be deleted (`400`). Supply an `If-Match` header with the node's current `version` for optimistic concurrency — a stale value returns `409`. Returns `204 No Content` and writes a `node.deleted` audit row.
+         * @description Soft-deletes a hierarchy node and its entire subtree in the current Environment by setting each node's status to `deleted` (rows are retained rather than hard-deleted), removes every role assignment anchored at any node in the subtree so hidden branches can't keep granting access, revokes every pending invitation that would grant there, and unmaps every directory group mapped there. `POST /nodes/{id}/delete/preview` reports all of this beforehand. Gated by `hierarchy.manage` on the node; the root node cannot be deleted (`400`). Supply an `If-Match` header with the node's current `version` for optimistic concurrency: a stale value returns `409`. Returns `204 No Content` and writes a `node.deleted` audit row.
          */
         delete: operations["ApiNodesController_deleteNode"];
         options?: never;
@@ -785,9 +805,49 @@ export interface paths {
         put?: never;
         /**
          * Move (reparent) a node
-         * @description Reparents a node under a new `parent_node_id` in the current Environment, gated by `hierarchy.manage` on the node; the move is re-validated against the schema (allowed parent/child types, depth, no cycles). Supply an `If-Match` header with the node's current `version` for optimistic concurrency — a stale value returns `409`. Returns the updated node and writes a `node.moved` audit row.
+         * @description Reparents a node under a new `parent_node_id` in the current Environment, gated by `hierarchy.manage` on the node and on the new parent; the move is re-validated against the schema (allowed parent/child types, depth, no cycles). `POST /nodes/{id}/move/preview` reports whose access the move changes beforehand. Supply an `If-Match` header with the node's current `version`, and optionally `parent_version` with the destination's, for optimistic concurrency: a stale value returns `409`. Returns the updated node and writes a `node.moved` audit row.
          */
         post: operations["ApiNodesController_moveNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/move/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview moving a node
+         * @description Reports what moving the node under `parent_node_id` would change, without moving it. `blockers` lists what would refuse the move, with the code and message the move answers `400` with (the schema's parent and child types, depth, a cycle, an organization boundary); when any is listed nothing else is resolved. Otherwise: `subtree_size`, the node and every node beneath it; `identities_gaining`, `identities_losing` and `permissions`, the counts per key, over everyone; `people`, one page of the holders whose access at the node changes (and so beneath it, since grants inside the subtree travel with it), one row per person by name, with the keys `gained` and `lost` and `via`, the grants behind them, and `pagination`. The query narrows the page and never the counts: `q` (name or email), `direction` (`gains` or `loses`), `permission` (one key), `page` and `take` (up to 5000, so a client can export every change in a few reads); and `invites` and `directory_groups`, the pending invitations and directory groups at nodes in the subtree, which move with it. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts and an empty page, whatever the query. Resolved by the rules `evaluate` applies. Read-only. Send `version` as `If-Match` and `parent_version` in the body on the move, so it applies only to the node and the destination previewed. Gated as the move is: `hierarchy.manage` on the node and on the new parent. Returns `404` when the node or the parent is not found in this Environment.
+         */
+        post: operations["ApiNodesController_previewMoveNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/delete/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview deleting a node
+         * @description Reports what deleting the node would remove, without deleting it. `blockers` lists what would refuse the delete (the root node, or an organization node, which is deleted through the organizations API); when any is listed nothing else is counted. Otherwise: `subtree_size`, the node and every node beneath it; `roles`, the role assignments made in the subtree counted by role, and `assignments_total`; `identities_affected`, and `identities_losing_all_access`, those holding no assignment anywhere else in the Environment; `invites`, the pending invitations there, by email; and `directory_groups`, the directory groups mapped there, by name. The same sets the delete removes. `people` is one page of the holders whose assignments go, one row per person by name, with `via`, their assignments that go as role at node, and `pagination`; `q` (name or email), `role_id`, `page` and `take` (up to 5000) narrow the page and never the counts. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts and an empty page, whatever the query. Read-only. Send `version` as `If-Match` on the delete. Gated as the delete is: `hierarchy.manage` on the node. Returns `404` when the node is not found in this Environment.
+         */
+        post: operations["ApiNodesController_previewDeleteNode"];
         delete?: never;
         options?: never;
         head?: never;
@@ -803,9 +863,29 @@ export interface paths {
         };
         /**
          * List identities at a node
-         * @description Returns a paginated list of identity role assignments effective at a node, gated by `hierarchy.view` on that node. The result spans the node's full lineage so inherited assignments (granted at ancestor nodes) appear alongside direct ones, with each row flagged accordingly. Supports filtering by `q`, `role_id`, `access_type`, `status`, and `source_node_id`, plus sorting and paging. Returns `404` when the node is not found in this Environment.
+         * @description Returns a paginated list of identity role assignments on a node's lineage, gated by `hierarchy.view` on that node and `identity.view`, since it names the Environment's people (an admin in a production Environment also needs `production_identities.access`). The result spans the node's full lineage so inherited assignments (granted at ancestor nodes) appear alongside direct ones, with each row flagged accordingly. Each assignment carries `status` (where its window stands) and `in_effect` with `not_in_effect_reason` (`role_inactive`, `membership_inactive`, `scheduled`, `expired`), by the rules `evaluate` applies. Supports filtering by `q`, `role_id`, `access_type`, `status`, and `source_node_id`, plus sorting and paging. Returns `404` when the node is not found in this Environment.
          */
         get: operations["ApiNodesController_listIdentityAssignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/holders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List who holds a permission at a node
+         * @description Who holds `permission` at the node now, directly or by inheritance: one row per assignment on the node's lineage that grants it, with the identity, the role, the node it was granted at (`granted_at`), `access_type` (`direct` at the node itself) and the window. A person holding it through two roles appears twice. The rules are `evaluate`'s: an active identity in the Environment, an enabled role carrying the key, the assignment's window open, and inside an organization an active membership there; every identity listed is one `evaluate` allows at the node. Supports filtering by `q`, `role_id` and `access_type`, sorting by `name`, `role` or `access_type` (name by default), and paging. Gated by `hierarchy.view` on the node and `identity.view`, since it names the Environment's people (an admin in a production Environment also needs `production_identities.access`). Returns `404` when the node is not found in this Environment.
+         */
+        get: operations["ApiNodesController_listHolders"];
         put?: never;
         post?: never;
         delete?: never;
@@ -823,7 +903,7 @@ export interface paths {
         };
         /**
          * Get identity summary for a node
-         * @description Returns aggregate identity-assignment counts for a node, gated by `hierarchy.view`. Computed across the node's lineage so both direct and inherited assignments are reflected: `direct_count`, `inherited_count`, status breakdown (`active_count`, `scheduled_count`, `expired_count`, `expiring_soon_count`), `distinct_role_count`, a sample of the five most recent identities, and `can_manage_assignments` (whether the caller also holds `hierarchy.manage` here). Returns `404` when the node is not found in this Environment.
+         * @description Returns aggregate identity-assignment counts for a node, gated by `hierarchy.view` and `identity.view`, since its sample names the Environment's people (an admin in a production Environment also needs `production_identities.access`). Computed across the node's lineage so both direct and inherited assignments are reflected: `direct_count`, `inherited_count`, status breakdown (`active_count`, `scheduled_count`, `expired_count`, `expiring_soon_count`), `distinct_role_count`, a sample of the five most recent identities, and `can_manage_assignments` (whether the caller also holds `hierarchy.manage` here). Returns `404` when the node is not found in this Environment.
          */
         get: operations["ApiNodesController_getIdentityAssignmentsSummary"];
         put?: never;
@@ -843,7 +923,7 @@ export interface paths {
         };
         /**
          * What the caller administers in an organization
-         * @description The authority read a customer's admin screen renders from: whether the caller holds `canopy:organization.manage` at the organization node (`administers_organization`), the topmost nodes where they hold `canopy:access.manage` inside it (`access_roots`, each with its name, type and the path of names from the organization down to it; the organization node itself when they administer the organization), the same for the structure key (empty until it ships), the organization node in `roles_roots` when they may shape the organization's own roles (`canopy:roles.manage` there, or administering the organization), and whether the Environment's schema allows nodes beneath an organization (`has_hierarchy`). Computed from assignments at or beneath the organization node only, so a role held above every organization does not count. The developer's key answers as administering the whole organization. Refused with `403` for a caller holding nothing inside the organization.
+         * @description The authority read a customer's admin screen renders from: whether the caller holds `canopy:organization.manage` at the organization node (`administers_organization`), the topmost nodes where they hold `canopy:access.manage` inside it (`access_roots`, each with its name, type and the path of names from the organization down to it; the organization node itself when they administer the organization), the same for `canopy:structure.manage` (`structure_roots`, which may create, rename, move and delete what is beneath them; empty without a hierarchy), the organization node in `roles_roots` when they may shape the organization's own roles (`canopy:roles.manage` there, or administering the organization), and whether the Environment's schema allows nodes beneath an organization (`has_hierarchy`). Computed from assignments at or beneath the organization node only, so a role held above every organization does not count. The developer's key answers as administering the whole organization. Refused with `403` for a caller holding nothing inside the organization.
          */
         get: operations["ApiOrganizationAccessController_me"];
         put?: never;
@@ -883,9 +963,29 @@ export interface paths {
         };
         /**
          * List who holds a role at a node in the organization
-         * @description Who holds a role at the node, directly or inherited from a node above it inside the organization: one row per assignment with the identity, the role, where it was granted and its window. Paginated; filtered and sorted as the developer's node identities listing is. Requires `hierarchy.view` at the node, or `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it.
+         * @description Who holds a role at the node, directly or inherited from a node above it inside the organization: one row per assignment with the identity, the role, where it was granted and its window. Paginated; filtered and sorted as the developer's node identities listing is. Requires `hierarchy.view` at the node, or `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it. It names the Environment's people, so the developer's key also needs `identity.view` (an admin in a production Environment also needs `production_identities.access`).
          */
         get: operations["ApiOrganizationAccessController_listAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/holders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List who holds a permission at a node in the organization
+         * @description Who holds the permission at the node now, directly or inherited from a node above it: one row per assignment that grants it, with the identity, the role, where it was granted (`granted_at`), `access_type` and the window. The rules are `evaluate`'s, so a disabled role, a closed window or an ended membership in the organization grants nothing and is left out. Supports filtering by `q`, `role_id` and `access_type`, sorting by `name`, `role` or `access_type`, and paging. Requires the same as the node access listing.
+         */
+        get: operations["ApiOrganizationAccessController_listHolders"];
         put?: never;
         post?: never;
         delete?: never;
@@ -998,6 +1098,134 @@ export interface paths {
         patch: operations["ApiOrganizationAccessController_updateAssignment"];
         trace?: never;
     };
+    "/api/v1/organizations/{id}/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the schema an organization's tree follows
+         * @description The Environment's hierarchy schema as a tenant's admin screen needs it: `node_types`, `allowed_children` (which types go beneath which) and `max_depth`, counted from the organization. An Environment without a hierarchy answers `404 hierarchy.schema_not_configured`. Readable by whoever administers anything inside the organization (the same callers as `GET /organizations/{id}/me`); refused with `403` for a caller holding nothing there.
+         */
+        get: operations["ApiOrganizationStructureController_schema"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a node inside an organization
+         * @description Creates a node beneath `parent_node_id`, the organization or a node inside it, with `node_type`, `name` and an optional `description`. The schema decides what goes where, as on `POST /nodes`: a type not allowed beneath the parent, or a node past `max_depth`, answers `400` (`hierarchy.child_type_not_allowed`, `hierarchy.max_depth_exceeded`), and the organization node type cannot be created here. Requires the developer's `hierarchy.manage`, or `canopy:structure.manage` held at the parent or above it inside the organization; `canopy:organization.manage` at the organization node implies it. Emits `node.created`.
+         */
+        post: operations["ApiOrganizationStructureController_createNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a node inside an organization
+         * @description One node inside the organization, the organization node included, with the `version` its writes send back as `If-Match`. Readable by whoever may see it in `GET /organizations/{id}/tree`: the developer's `hierarchy.view` at the node, or `canopy:structure.manage` or `canopy:access.manage` held at the node or above it inside the organization; `canopy:organization.manage` at the organization node implies both.
+         */
+        get: operations["ApiOrganizationStructureController_getNode"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a node inside an organization
+         * @description Soft-deletes the node and everything beneath it, removes every role assignment made there, revokes the pending invitations granting there and unmaps the directory groups mapped there, as `DELETE /nodes/{id}` does. The organization node is deleted through `DELETE /organizations/{id}` and answers `400 organization.use_organizations_api` here. Requires the developer's `hierarchy.manage`, or `canopy:structure.manage` at the node's parent or above it, so an office's admin deletes what is beneath the office but not the office. Preview it first with `POST .../delete/preview` and send the `version` it answers as `If-Match`: a stale one answers `409`. Emits `node.deleted`.
+         */
+        delete: operations["ApiOrganizationStructureController_deleteNode"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a node inside an organization
+         * @description Changes a node's `name` and `description` (`null` clears it). The organization node itself is renamed through `PATCH /organizations/{id}` and answers `400 organization.use_organizations_api` here. Supply `If-Match` with the node's `version`: a stale one answers `409`. Requires the developer's `hierarchy.manage`, or `canopy:structure.manage` held at the node or above it, so an office's admin renames the office. Emits `node.updated`.
+         */
+        patch: operations["ApiOrganizationStructureController_updateNode"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/move/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview moving a node inside an organization
+         * @description Reports what moving the node beneath `parent_node_id` would change, without moving it: the same answer as `POST /nodes/{id}/move/preview` (`blockers`, `subtree_size`, the counts per key and a page of the holders gaining and losing keys at the node, with the same query, and the invitations and directory groups that move with the subtree), authorized as the move is. Read-only.
+         */
+        post: operations["ApiOrganizationStructureController_previewMoveNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a node inside an organization
+         * @description Moves the node beneath `parent_node_id`, a node inside the same organization. Authorized at both ends, as Google Cloud and Azure authorize a move: the caller needs the developer's `hierarchy.manage`, or `canopy:structure.manage`, at the node's current parent and at the destination, so an office's admin reorganizes teams inside the office and can move none of them out of it, nor move the office itself. The schema, depth and cycle rules of `POST /nodes/{id}/move` apply. Preview it first with `POST .../move/preview` and send the `version` it answers as `If-Match` and its `parent_version` in the body: a node or destination changed since answers `409`. Emits `node.moved`.
+         */
+        post: operations["ApiOrganizationStructureController_moveNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/nodes/{nodeId}/delete/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview deleting a node inside an organization
+         * @description Reports what deleting the node would remove, without deleting it: the same answer as `POST /nodes/{id}/delete/preview` (`blockers`, `subtree_size`, the assignments that go by role and who is left with no access, a page of the people whose assignments go, with the same query, the invitations revoked and the directory groups unmapped), authorized as the delete is. Read-only.
+         */
+        post: operations["ApiOrganizationStructureController_previewDeleteNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/organizations": {
         parameters: {
             query?: never;
@@ -1042,7 +1270,7 @@ export interface paths {
         post?: never;
         /**
          * Delete an organization
-         * @description Deletes an organization by `id`: removes every membership and every assignment beneath the organization, revokes every pending invitation bound to it or its tree, and soft-deletes the organization with its subtree. Member identities themselves are untouched and keep their memberships in other organizations. Supports optimistic concurrency via the `If-Match` header (`409` on a version mismatch). Responds `204 No Content`, requires the `hierarchy.manage` permission at the organization, and emits `organization.deleted`.
+         * @description Deletes an organization by `id`: removes every membership and every assignment beneath the organization, revokes every pending invitation bound to it or its tree, and soft-deletes the organization with its subtree. Member identities themselves are untouched and keep their memberships in other organizations. `POST /organizations/{id}/delete/preview` counts all of this beforehand. Supports optimistic concurrency via the `If-Match` header (`409` on a version mismatch). Responds `204 No Content`, requires the `hierarchy.manage` permission at the organization, and emits `organization.deleted`.
          */
         delete: operations["ApiOrganizationsController_deleteOrganization"];
         options?: never;
@@ -1052,6 +1280,26 @@ export interface paths {
          * @description Updates an organization's `name`, `description`, `metadata`, and/or `external_id` (`null` clears it; a value already used by another organization in the Environment answers `409 organization.external_id_conflict`) by `id`. The slug is frozen at create and never changes. Supports optimistic concurrency via the `If-Match` header carrying the organization's current version (`409` on a version mismatch). Requires the `hierarchy.manage` permission at the organization and emits `organization.updated`.
          */
         patch: operations["ApiOrganizationsController_updateOrganization"];
+        trace?: never;
+    };
+    "/api/v1/organizations/{id}/delete/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview deleting an organization
+         * @description Reports what deleting the organization would remove, without deleting it: `members`, whose memberships end (the first 100 and the total); `assignments_removed`, every assignment in its tree; `nodes_deleted`, beneath it; `roles`, its own roles; `invites`, the pending invitations revoked, by email; `domains`, its verified domains; `sso_bindings` and `sso_connections`, the connections bound to it and owned by it, by name; `machine_clients`, by name; and `directory`, whether its directory connection goes. The same sets the delete removes. People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts and empty lists. Read-only. Send `version` as `If-Match` on the delete. Requires the `hierarchy.manage` permission at the organization. Returns `404` when the id does not name a live organization in this Environment.
+         */
+        post: operations["ApiOrganizationsController_previewDeleteOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/organizations/{id}/policy": {
@@ -1855,7 +2103,7 @@ export interface paths {
         };
         /**
          * List the permissions a role editor may attach
-         * @description The Environment's permissions, each with `attachable`: whether the caller may put it into one of the organization's roles. An identity may attach only keys it holds at the organization node (`canopy:organization.manage` counts as holding `canopy:access.manage` and `canopy:roles.manage`); the developer's key may attach any. Requires `rbac.manage_roles` or the organization's roles delegation.
+         * @description The Environment's permissions, each with `attachable`: whether the caller may put it into one of the organization's roles. An identity may attach only keys it holds at the organization node (`canopy:organization.manage` counts as holding `canopy:access.manage`, `canopy:roles.manage` and `canopy:structure.manage`); the developer's key may attach any. Requires `rbac.manage_roles` or the organization's roles delegation.
          */
         get: operations["ApiOrganizationRolesController_permissions"];
         put?: never;
@@ -2024,9 +2272,117 @@ export interface paths {
         get: operations["ApiRolesController_getRolePermissions"];
         /**
          * Replace permissions on a role
-         * @description Replaces the role's entire permission set with the supplied `permission_keys` (a full overwrite, not a merge). Every key must exist in the Environment's catalog or the call returns `404`, and `system`-source permissions cannot be attached to a custom role (`400`). Taking `canopy:organization.manage` off the role an organization's last administrator holds at its node returns `409 organization.last_admin`. Returns `200` with a `{ message }` confirmation, requires the `rbac.manage_roles` permission, and emits a `role.permissions_updated` audit event.
+         * @description Replaces the role's entire permission set with the supplied `permission_keys` (a full overwrite, not a merge). Every key must exist in the Environment's catalog or the call returns `404`, and `system`-source permissions cannot be attached to a custom role (`400`). Taking `canopy:organization.manage` off the role an organization's last administrator holds at its node returns `409 organization.last_admin`. `POST /roles/{id}/permissions/preview` reports whose access the change moves beforehand. Supply an `If-Match` header with the role's current `version` for optimistic concurrency: a stale value returns `409`. Returns `200` with a `{ message }` confirmation, requires the `rbac.manage_roles` permission, and emits a `role.permissions_updated` audit event.
          */
         put: operations["ApiRolesController_setRolePermissions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/roles/{id}/permissions/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview replacing a role's permissions
+         * @description Reports what replacing the role's permissions with `permission_keys` would change, without changing them: `added` and `removed`, and `blockers`, what would refuse the write, with the code and message it answers (`organization.last_admin`, `rbac.roles_manage_below_organization`); when any is listed no access is resolved. Otherwise, wherever the role is held now: `holders`, the identities it grants something to; `identities_gaining`, `identities_losing` and `permissions`, the counts per key, over everyone; and `people`, one page of the holders whose access changes, one row per person by name (a holder of the role at several nodes is one row), with the keys `gained` and `lost` once their other grants on each lineage are counted, `via`, the role at each node behind them, and `pagination`. The query narrows the page and never the counts: `q` (name or email), `direction` (`gains` or `loses`), `permission` (one key), `page` and `take` (up to 5000). People are named only for a reader who may see the Environment's people (`people_named`: `env_identities.view` in the Console, and `production_identities.access` in a production Environment; `identity.view` for an API key; access administration at the node for a tenant's administrator); anyone else gets the counts and an empty page, whatever the query. A disabled role (`role_active: false`) grants nothing either way. Resolved by the rules `evaluate` applies. Read-only. A key not in the Environment's catalog returns `404`, as on the write. Send `version` as `If-Match` on the write. Requires the `rbac.manage_roles` permission.
+         */
+        post: operations["ApiRolesController_previewRolePermissions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/denies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List denies
+         * @description One page of the Environment's denies, newest first by default (`sort_by`: `created` or `node`). A deny refuses its `permission_keys` to its target (an identity, a machine client, or every holder of a role) at its node and everywhere beneath, whatever grants allow. Narrow with `node_id` (with `node_mode`: `at`, the denies made at the node, or `applies`, those at it or above it, everything that refuses access there), `target_type`, `target_id` and `permission`; `q` searches target names and permission keys. A person is named only to a reader who may see the Environment's people (`identity.view`; for an administrator `env_identities.view`, and `production_identities.access` in a production Environment); otherwise `target.name` and `target.email` are null. Requires `deny.view`.
+         */
+        get: operations["ApiDeniesController_list"];
+        put?: never;
+        /**
+         * Create a deny
+         * @description Refuses `permission_keys` to a target at `node_id` and every node beneath it, checked before any grant: no role held anywhere, and no grant made lower down, can undo it. The target is an identity, a machine client (`oauth_client`, by its row `id`), or a role, which binds everyone holding it wherever they hold it. Holders of an `exception_role_ids` role keep access wherever they hold it, while that assignment is in effect; use one so the people who manage access are not locked out. A `reason` is required. A deny is never edited: to change one, delete it and create another. Canopy's own routes refuse from the next request; an SDK within its cache window. Preview it first with `POST /denies/preview`, which takes the same body. Writes a `deny.created` audit row and webhook event. Requires `deny.manage`; a person as the target also needs the right to see the Environment's people.
+         */
+        post: operations["ApiDeniesController_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/denies/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a deny
+         * @description Who a deny would take access from, without creating it. Takes the body `POST /denies` takes. `losing_count` counts every active person and machine client the target names who holds one of the permissions today on the node's lineage or beneath it, and `permissions` counts them per key; `kept_count` the ones an exception role spares; `already_refused_count` the ones another deny already refuses there. `items` is one page (`page`, `take`) of those losing access, each with the keys it loses, named only to a reader who may see the Environment's people (`people_named`; machine clients are always named), and `kept` up to 20 exception holders with the role that spares them. Read-only. Requires `deny.manage`.
+         */
+        post: operations["ApiDeniesController_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/denies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a deny
+         * @description One deny: its target, the permissions it refuses, its node and the path to it, the roles it spares, its reason, and who created it when. A person is named under the same rule as the list. Requires `deny.view`.
+         */
+        get: operations["ApiDeniesController_get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a deny
+         * @description Deletes a deny: access returns to whatever grants allow, on Canopy's routes from the next request and in an SDK within its cache window. Writes a `deny.deleted` audit row and webhook event (`cause: deleted`). Requires `deny.manage`.
+         */
+        delete: operations["ApiDeniesController_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/denies/{id}/reach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What a deny refuses today
+         * @description Who an existing deny takes access from today, in the shape `POST /denies/preview` answers: the people and machine clients it refuses, per permission, those an exception role spares, and those another deny already refuses there. Requires `deny.view`.
+         */
+        get: operations["ApiDeniesController_reach"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -2295,7 +2651,7 @@ export interface paths {
         };
         /**
          * Get hierarchy schema for the active Environment
-         * @description Returns the hierarchy schema for the active Environment, resolved from the principal context — the Application and Environment ride on the API key (env-pinned at issue time) or the admin token, so the path carries no slugs. The schema defines the Environment's `node_types`, the `allowed_children` map governing parent/child rules, `max_depth`, and the `root_node_type` used when the root node is auto-created. Sibling Environments in the same Application can carry independent schemas; returns `null` when the Environment is in flat mode. Requires the `hierarchy.view` permission.
+         * @description Returns the hierarchy schema for the active Environment, resolved from the principal context: the Application and Environment ride on the API key (env-pinned at issue time) or the admin token, so the path carries no slugs. The schema defines the Environment's `node_types`, the `allowed_children` map governing parent/child rules, `max_depth`, and the `root_node_type` used when the root node is auto-created. Sibling Environments in the same Application can carry independent schemas. A flat Environment has none and answers `404 hierarchy.schema_not_configured`. Requires the `hierarchy.view` permission.
          */
         get: operations["ApiHierarchySchemaController_getSchema"];
         put?: never;
@@ -2724,8 +3080,10 @@ export interface components {
             effective_node_id?: string | null;
             /** @description Ids of the roles whose assignments produced a node-scoped allow. Always empty for `scope_evaluated: "app_wide"`, whose answer is not tied to a node, and for a deny. */
             granting_roles: string[];
-            /** @description Why the check was refused: `NO_ROLE_ASSIGNMENT`, `PERMISSION_NOT_GRANTED`, `NODE_SCOPE_VIOLATION`, `ROLE_EXPIRED`, `IDENTITY_INACTIVE`, `IDENTITY_NOT_ENV_MEMBER`, or `ORGANIZATION_MEMBERSHIP_INACTIVE` (assignments sit on the lineage inside an organization the identity's membership in is deactivated, so none count). Null on an allow. */
+            /** @description Why the check was refused: `NO_ROLE_ASSIGNMENT`, `PERMISSION_NOT_GRANTED`, `NODE_SCOPE_VIOLATION`, `ROLE_EXPIRED`, `IDENTITY_INACTIVE`, `IDENTITY_NOT_ENV_MEMBER`, `ORGANIZATION_MEMBERSHIP_INACTIVE` (assignments sit on the lineage inside an organization the identity's membership in is deactivated, so none count), or `DENIED` (a deny at the node or above it refuses the permission, whatever grants allow). Null on an allow. */
             denial_reason?: string | null;
+            /** @description The deny that refused, when `denial_reason` is `DENIED`; null otherwise. */
+            deny_id?: string | null;
         };
         EvaluatePermissionDto: {
             /** @description Identity ID (from the `identities` table — the end user being evaluated, not an admin). */
@@ -2761,6 +3119,11 @@ export interface components {
             role_name: string;
             /** @description Whether the assignment counts right now: within its effective_from/effective_to window, its role active, and, inside an organization, the holder's membership there active. An assignment that fails any of these is listed but grants nothing. */
             active: boolean;
+            /**
+             * @description Why the assignment grants nothing now, or null when it is `active`: the role is disabled, the membership of its organization has ended, its window has not opened, or it has closed
+             * @enum {string|null}
+             */
+            not_in_effect_reason: "role_inactive" | "membership_inactive" | "scheduled" | "expired" | null;
             effective_from?: string | null;
             effective_to?: string | null;
             /** @description Whether the assigned role carries the explained permission. */
@@ -2775,6 +3138,8 @@ export interface components {
             /** @description True for the node the explain was requested at (the deepest). */
             is_target: boolean;
             assignments: components["schemas"]["PermissionTraceAssignmentDto"][];
+            /** @description The denies at this node that refuse the permission to the identity. A deny refuses at its node and everywhere beneath it, so one above the target decides the verdict whatever the assignments grant. */
+            deny_ids: string[];
         };
         PermissionTraceDto: {
             identity_id: string;
@@ -2787,6 +3152,8 @@ export interface components {
             granting_role_ids: string[];
             /** @description Lineage node IDs that carry a granting assignment — the inheritance path to highlight in the tree. Empty on a denial. */
             granting_node_ids: string[];
+            /** @description The deny that refused, when `denial_reason` is `DENIED`; null otherwise. */
+            deny_id?: string | null;
             /** @description Root-first lineage of the target node, each with the identity's assignments observed at that node. */
             lineage: components["schemas"]["PermissionTraceNodeDto"][];
         };
@@ -2991,14 +3358,34 @@ export interface components {
             /** @description Optimistic-lock version; send it back as `If-Match` */
             version: number;
         };
+        IdentityAccessGrantDto: {
+            role_id: string;
+            role_name: string;
+            /** @description The node the assignment was made at: the node itself or an ancestor */
+            node_id: string;
+            node_name: string;
+            /**
+             * @description `direct` when the assignment is at the node itself
+             * @enum {string}
+             */
+            access_type: "direct" | "inherited";
+        };
+        IdentityAccessItemDto: {
+            /** @description The permission key */
+            permission: string;
+            /** @description Every role granting it at the node, nearest the node first */
+            granted_by: components["schemas"]["IdentityAccessGrantDto"][];
+        };
         IdentityAccessibleNodesResponseDto: {
             /** @example reports.view */
             permission: string;
-            /** @description True when a root is the Environment's own root, so every node qualifies and a list needs no filter. `nodes` is null then. */
+            /** @description True when a root is the Environment's own root and no deny cuts anything out, so every node qualifies and a list needs no filter. `nodes` is null then. */
             env_wide: boolean;
             /** @description The nodes the permission is granted at, in effect now, that no other such node already covers. Each reaches everything beneath it. */
             roots: string[];
-            /** @description Every node beneath the roots, the roots included, for an `IN (...)` filter. Null when `env_wide`, or when there are more than `max_nodes` (then `complete` is false and the caller filters by `roots` instead). */
+            /** @description Nodes beneath the roots where a deny refuses the permission: each one, and everything beneath it, is not accessible. A list filtered by `roots` leaves these subtrees out. Empty when no deny applies. */
+            excluded_roots: string[];
+            /** @description Every node beneath the roots, the roots included and the excluded subtrees left out, for an `IN (...)` filter. Null when `env_wide`, or when there are more than `max_nodes` (then `complete` is false and the caller filters by `roots` instead). */
             nodes: string[] | null;
             /** @description False when the set beneath the roots was larger than `max_nodes` and was not sent. */
             complete: boolean;
@@ -3021,6 +3408,20 @@ export interface components {
              * @description When the assignment behind this root ends, or null for no end. Present only with `include=windows`.
              */
             effective_to?: string | null;
+        };
+        DenyRootResponseDto: {
+            /** @example documents.view */
+            permission: string;
+            /**
+             * Format: uuid
+             * @description The deny's node. It refuses there and everywhere beneath.
+             */
+            node_id: string;
+            /**
+             * Format: uuid
+             * @description The deny that refuses.
+             */
+            deny_id: string;
         };
         IdentityInviteResponseDto: {
             id: string;
@@ -3246,6 +3647,18 @@ export interface components {
         };
         MoveNodeDto: {
             parent_node_id: string;
+            /** @description The destination's `version`, as the move's preview read it: the move answers `409 version_mismatch` when the destination has changed since */
+            parent_version?: number;
+        };
+        PreviewBlockerDto: {
+            /** @example hierarchy.reparent_cycle */
+            code: string;
+            message: string;
+        };
+        PermissionChangeCountDto: {
+            permission: string;
+            gaining: number;
+            losing: number;
         };
         AssignmentIdentityDto: {
             id: string;
@@ -3254,6 +3667,115 @@ export interface components {
             name: string;
             email: string;
             avatar_url?: string | null;
+        };
+        PreviewNodeDto: {
+            id: string;
+            name: string;
+        };
+        PreviewGrantDto: {
+            /** @description The role */
+            role: components["schemas"]["PreviewNodeDto"];
+            /** @description Where it is held */
+            node: components["schemas"]["PreviewNodeDto"];
+        };
+        AccessChangeDto: {
+            identity: components["schemas"]["AssignmentIdentityDto"];
+            /** @description Keys the person gains */
+            gained: string[];
+            /** @description Keys the person loses */
+            lost: string[];
+            /** @description The grants that give the keys gained, or gave the keys lost */
+            via: components["schemas"]["PreviewGrantDto"][];
+        };
+        PreviewPageMetaDto: {
+            /** @description Current page number (1-based) */
+            page: number;
+            /** @description People per page */
+            take: number;
+            /** @description People matching the query */
+            item_count: number;
+            /** @description Total number of pages */
+            page_count: number;
+            /** @description Whether a previous page exists */
+            has_previous_page: boolean;
+            /** @description Whether a next page exists */
+            has_next_page: boolean;
+        };
+        AccessChangePageDto: {
+            /** @description One row per person, by name (none unless `people_named`) */
+            items: components["schemas"]["AccessChangeDto"][];
+            /** @description Paging over the people matching `q`, `direction` and `permission` */
+            pagination: components["schemas"]["PreviewPageMetaDto"];
+        };
+        NamedSampleDto: {
+            total: number;
+            names: string[];
+        };
+        NodeMovePreviewDto: {
+            /** @description What would refuse the change. When any is listed, nothing below is resolved */
+            blockers: components["schemas"]["PreviewBlockerDto"][];
+            /** @description Whether people are named: false for a reader who may not see the Environment's people, who gets the counts and no list */
+            people_named: boolean;
+            /** @description Holders who gain at least one permission */
+            identities_gaining: number;
+            /** @description Holders who lose at least one permission */
+            identities_losing: number;
+            permissions: components["schemas"]["PermissionChangeCountDto"][];
+            /** @description One page of the people the change reaches. The counts above cover everyone; the page follows the query */
+            people: components["schemas"]["AccessChangePageDto"];
+            node_id: string;
+            parent_node_id: string;
+            /** @description The node's version now: send it as `If-Match` on the move */
+            version: number;
+            /** @description The destination's version now: send it as `parent_version` on the move */
+            parent_version: number;
+            /** @description The node and every node beneath it */
+            subtree_size: number;
+            /** @description Pending invitations to nodes in the subtree, which move with it, by email (none listed unless `people_named`) */
+            invites: components["schemas"]["NamedSampleDto"];
+            /** @description Directory groups mapped to nodes in the subtree, which move with it, by name */
+            directory_groups: components["schemas"]["NamedSampleDto"];
+        };
+        RoleRemovalCountDto: {
+            role: components["schemas"]["PreviewNodeDto"];
+            assignments: number;
+            identities: number;
+        };
+        PersonRemovalDto: {
+            identity: components["schemas"]["AssignmentIdentityDto"];
+            /** @description Their assignments that go, as role at node */
+            via: components["schemas"]["PreviewGrantDto"][];
+        };
+        PersonRemovalPageDto: {
+            /** @description One row per person, by name (none unless `people_named`) */
+            items: components["schemas"]["PersonRemovalDto"][];
+            /** @description Paging over the people matching `q` and `role_id` */
+            pagination: components["schemas"]["PreviewPageMetaDto"];
+        };
+        NodeDeletePreviewDto: {
+            node_id: string;
+            /** @description The node's version now: send it as `If-Match` on the delete */
+            version: number;
+            /** @description Whether people are named: false for a reader who may not see the Environment's people */
+            people_named: boolean;
+            /** @description What would refuse the delete. When any is listed, nothing below is counted */
+            blockers: components["schemas"]["PreviewBlockerDto"][];
+            /** @description The node and every node beneath it */
+            subtree_size: number;
+            /** @description Identities holding an assignment that goes */
+            identities_affected: number;
+            /** @description Identities holding no assignment anywhere else in the Environment, left with no access */
+            identities_losing_all_access: number;
+            /** @description The assignments that go, counted by role */
+            roles: components["schemas"]["RoleRemovalCountDto"][];
+            /** @description How many assignments go in all */
+            assignments_total: number;
+            /** @description One page of the people whose assignments go. The counts above cover everyone; the page follows the query */
+            people: components["schemas"]["PersonRemovalPageDto"];
+            /** @description Pending invitations revoked, by email (none listed unless `people_named`) */
+            invites: components["schemas"]["NamedSampleDto"];
+            /** @description Directory groups unmapped, by name */
+            directory_groups: components["schemas"]["NamedSampleDto"];
         };
         AssignmentRoleDto: {
             id: string;
@@ -3269,8 +3791,18 @@ export interface components {
             effective_from?: string | null;
             /** Format: date-time */
             effective_to?: string | null;
-            /** @enum {string} */
+            /**
+             * @description Where the assignment's window stands. Whether it grants anything is `in_effect`.
+             * @enum {string}
+             */
             status: "active" | "scheduled" | "expired";
+            /** @description Whether the assignment grants its role's permissions now, by the rules `evaluate` applies */
+            in_effect: boolean;
+            /**
+             * @description Why the assignment grants nothing, when it does not: the role is disabled, the membership of its organization has ended, its window has not opened, or it has closed
+             * @enum {string|null}
+             */
+            not_in_effect_reason: "role_inactive" | "membership_inactive" | "scheduled" | "expired" | null;
             /** Format: date-time */
             created_at: string;
             /** @description Optimistic-lock version; send it back as `If-Match` */
@@ -3280,6 +3812,27 @@ export interface components {
             identity: components["schemas"]["AssignmentIdentityDto"];
             role: components["schemas"]["AssignmentRoleDto"];
             assignment: components["schemas"]["AssignmentDetailDto"];
+        };
+        NodeHolderGrantedAtDto: {
+            id: string;
+            name: string;
+        };
+        NodeHolderDto: {
+            identity: components["schemas"]["AssignmentIdentityDto"];
+            role: components["schemas"]["AssignmentRoleDto"];
+            /** @description The assignment that grants it */
+            assignment_id: string;
+            /** @description The node the assignment was made at: the node itself or an ancestor */
+            granted_at: components["schemas"]["NodeHolderGrantedAtDto"];
+            /**
+             * @description `direct` when the assignment is at the node itself
+             * @enum {string}
+             */
+            access_type: "direct" | "inherited";
+            /** Format: date-time */
+            effective_from?: string | null;
+            /** Format: date-time */
+            effective_to?: string | null;
         };
         RecentIdentityDto: {
             id: string;
@@ -3312,7 +3865,7 @@ export interface components {
             administers_organization: boolean;
             /** @description The topmost nodes where `canopy:access.manage` is held inside the organization; the organization node when `administers_organization` */
             access_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
-            /** @description The same for `canopy:structure.manage`, a key no role carries yet; always empty */
+            /** @description The topmost nodes where `canopy:structure.manage` is held inside the organization; the organization node when `administers_organization`, and for the developer's key holding `hierarchy.manage` there. Empty in an Environment without a hierarchy */
             structure_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
             /** @description The organization node when the caller may shape its own roles: they hold `canopy:roles.manage` there, or `administers_organization`. The key is held at the organization node only, so this is never a node beneath it; empty otherwise */
             roles_roots: components["schemas"]["OrganizationAuthorityRootDto"][];
@@ -3372,6 +3925,27 @@ export interface components {
             effective_from?: string | null;
             effective_to?: string | null;
         };
+        HierarchySchemaResponseDto: {
+            node_types: string[];
+            allowed_children: {
+                [key: string]: string[];
+            };
+            max_depth: number;
+            root_node_type?: string | null;
+        };
+        CreateOrganizationNodeDto: {
+            /** @description The node it goes beneath: the organization or a node in it */
+            parent_node_id: string;
+            /** @description A node type the schema allows beneath it */
+            node_type: string;
+            name: string;
+            description?: string;
+        };
+        UpdateOrganizationNodeDto: {
+            name?: string;
+            /** @description `null` clears it */
+            description?: string | null;
+        };
         OrganizationResponseDto: {
             id: string;
             name: string;
@@ -3419,6 +3993,36 @@ export interface components {
             metadata?: Record<string, unknown>;
             /** @description Your own id for this organization, unique per Environment. `null` clears it. */
             external_id?: string | null;
+        };
+        PreviewMembersDto: {
+            total: number;
+            /** @description None listed unless `people_named` */
+            sample: components["schemas"]["AssignmentIdentityDto"][];
+        };
+        OrganizationDeletePreviewDto: {
+            organization_id: string;
+            /** @description The organization's version now: send it as `If-Match` on the delete */
+            version: number;
+            /** @description Whether people are named: false for a reader who may not see the Environment's people */
+            people_named: boolean;
+            members: components["schemas"]["PreviewMembersDto"];
+            assignments_removed: number;
+            /** @description Nodes beneath the organization */
+            nodes_deleted: number;
+            /** @description The organization's own roles */
+            roles: components["schemas"]["PreviewNodeDto"][];
+            /** @description Pending invitations revoked, by email (none listed unless `people_named`) */
+            invites: components["schemas"]["NamedSampleDto"];
+            /** @description Verified domains released */
+            domains: string[];
+            /** @description The connections bound to it for sign-in, by name */
+            sso_bindings: string[];
+            /** @description The connections it owns, by name */
+            sso_connections: string[];
+            /** @description Machine clients, by name */
+            machine_clients: string[];
+            /** @description Whether a directory connection goes with it */
+            directory: boolean;
         };
         EffectiveOrganizationPolicyDto: {
             mfa_required: boolean;
@@ -4212,6 +4816,151 @@ export interface components {
         MessageResponseDto: {
             message: string;
         };
+        RolePermissionsPreviewDto: {
+            /** @description What would refuse the change. When any is listed, nothing below is resolved */
+            blockers: components["schemas"]["PreviewBlockerDto"][];
+            /** @description Whether people are named: false for a reader who may not see the Environment's people, who gets the counts and no list */
+            people_named: boolean;
+            /** @description Holders who gain at least one permission */
+            identities_gaining: number;
+            /** @description Holders who lose at least one permission */
+            identities_losing: number;
+            permissions: components["schemas"]["PermissionChangeCountDto"][];
+            /** @description One page of the people the change reaches. The counts above cover everyone; the page follows the query */
+            people: components["schemas"]["AccessChangePageDto"];
+            role_id: string;
+            /** @description The role's version now: send it as `If-Match` on the permissions write */
+            version: number;
+            /** @description A disabled role grants nothing, so no holder's access moves */
+            role_active: boolean;
+            added: string[];
+            removed: string[];
+            /** @description Identities the role grants something to now */
+            holders: number;
+        };
+        DenyTargetDto: {
+            /** @enum {string} */
+            type: "identity" | "oauth_client" | "role";
+            /** Format: uuid */
+            id: string;
+            /** @description The role's or machine client's name, or the person's, when the reader may see the Environment's people; null otherwise. */
+            name?: string | null;
+            /** @description A person's email, under the same rule; null otherwise. */
+            email?: string | null;
+        };
+        DenyNodeDto: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** @description The names from the root down to the node, the node included. */
+            path: string[];
+        };
+        DenyRoleRefDto: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        DenyCreatorDto: {
+            /** @enum {string} */
+            type: "user" | "api_key";
+            /** Format: uuid */
+            id?: string | null;
+            /** @description The administrator's name or the API key's name. */
+            name?: string | null;
+        };
+        DenyResponseDto: {
+            /** Format: uuid */
+            id: string;
+            target: components["schemas"]["DenyTargetDto"];
+            /**
+             * @example [
+             *       "documents.view"
+             *     ]
+             */
+            permission_keys: string[];
+            node: components["schemas"]["DenyNodeDto"];
+            exception_roles: components["schemas"]["DenyRoleRefDto"][];
+            reason: string;
+            created_by: components["schemas"]["DenyCreatorDto"];
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreateDenyDto: {
+            /**
+             * @description What the deny targets: one identity, one machine client (`oauth_client`), or every holder of a role, wherever they hold it.
+             * @enum {string}
+             */
+            target_type: "identity" | "oauth_client" | "role";
+            /**
+             * Format: uuid
+             * @description The identity, the machine client's row id, or the role it targets.
+             */
+            target_id: string;
+            /**
+             * @description The permission keys it refuses, each in the Environment's catalog.
+             * @example [
+             *       "documents.view"
+             *     ]
+             */
+            permission_keys: string[];
+            /**
+             * Format: uuid
+             * @description The node it applies at. It refuses there and at every node beneath, and no grant lower down can undo it.
+             */
+            node_id: string;
+            /** @description Roles whose holders keep access despite the deny, wherever they hold them, while that assignment is in effect. Use one so the people who manage access are not locked out. */
+            exception_role_ids?: string[];
+            /**
+             * @description Why the deny exists. Required: it is the record an auditor reads.
+             * @example Office A files are under legal hold.
+             */
+            reason: string;
+        };
+        DenyPreviewPermissionDto: {
+            /** @example documents.view */
+            permission: string;
+            /** @description How many would lose this permission. */
+            losing: number;
+        };
+        DenyPreviewPersonDto: {
+            /** @enum {string} */
+            type: "identity" | "oauth_client";
+            /** Format: uuid */
+            id: string;
+            name?: string | null;
+            email?: string | null;
+            /** @description The deny's permissions this one would lose. */
+            loses: string[];
+        };
+        DenyPreviewPeoplePageDto: {
+            /** @description One row per person or machine client losing access, by name; machine clients only unless `people_named` */
+            items: components["schemas"]["DenyPreviewPersonDto"][];
+            /** @description Paging over those losing access */
+            pagination: components["schemas"]["PreviewPageMetaDto"];
+        };
+        DenyPreviewKeptDto: {
+            /** @enum {string} */
+            type: "identity" | "oauth_client";
+            /** Format: uuid */
+            id: string;
+            name?: string | null;
+            email?: string | null;
+            exception_role: components["schemas"]["DenyRoleRefDto"];
+        };
+        DenyPreviewResponseDto: {
+            /** @description Whether people are named: true for a reader who may see the Environment's people. Otherwise `people` and `kept` list only machine clients, and the counts still count everyone. */
+            people_named: boolean;
+            /** @description How many would lose at least one permission. */
+            losing_count: number;
+            /** @description How many an exception role spares. */
+            kept_count: number;
+            /** @description How many another deny already refuses there, so this one takes nothing from them. */
+            already_refused_count: number;
+            permissions: components["schemas"]["DenyPreviewPermissionDto"][];
+            people: components["schemas"]["DenyPreviewPeoplePageDto"];
+            /** @description Up to 20 of those an exception role spares. */
+            kept: components["schemas"]["DenyPreviewKeptDto"][];
+        };
         AssignmentsSummaryDto: {
             active_count: number;
             scheduled_count: number;
@@ -4433,14 +5182,6 @@ export interface components {
             /** @description The event type — identical to the webhook event/audit action (e.g. `assignment.removed`, `role.permissions.updated`). */
             event: string;
             data: components["schemas"]["ChangeEventDataDto"];
-        };
-        HierarchySchemaResponseDto: {
-            node_types: string[];
-            allowed_children: {
-                [key: string]: string[];
-            };
-            max_depth: number;
-            root_node_type?: string | null;
         };
         UpdateHierarchySchemaDto: {
             /** @description Allowed node types (e.g. ['region', 'district', 'team']). Order is informational, not structural — parent/child rules are governed by `allowed_children`. Names starting with `canopy:` are reserved; with organizations enabled the list starts with `canopy:organization`. */
@@ -4799,7 +5540,7 @@ export interface components {
              */
             access_mode: "scoped" | "full_access";
             /** @description Permission scopes this key is authorized for, each one the platform offers (`GET .../api-keys/scopes`). Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
-            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage" | "branding.view" | "branding.manage")[];
+            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "deny.view" | "deny.manage" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage" | "branding.view" | "branding.manage")[];
             /** @description Expiration date (ISO 8601). Omit for no expiration. */
             expires_at?: string;
         };
@@ -5124,6 +5865,208 @@ export interface components {
                      * @description The role assigned.
                      */
                     role_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.activated` webhook event. */
+        WebhookAssignmentActivatedEvent: {
+            /** @enum {string} */
+            event: "assignment.activated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The identity holding the assignment; null when a machine client holds it.
+                     */
+                    identity_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The machine OAuth client holding the assignment; null when a person holds it.
+                     */
+                    oauth_client_id: string | null;
+                    /** @description That machine client's `client_id`: its token's `sub`, the id its grants route takes and an SDK cache names it by. Null when a person holds the assignment. */
+                    client_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The hierarchy node the role is held at.
+                     */
+                    node_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role assigned.
+                     */
+                    role_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `assignment.expired` webhook event. */
+        WebhookAssignmentExpiredEvent: {
+            /** @enum {string} */
+            event: "assignment.expired";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "role_assignment";
+                metadata: {
+                    /**
+                     * Format: uuid
+                     * @description The identity holding the assignment; null when a machine client holds it.
+                     */
+                    identity_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The machine OAuth client holding the assignment; null when a person holds it.
+                     */
+                    oauth_client_id: string | null;
+                    /** @description That machine client's `client_id`: its token's `sub`, the id its grants route takes and an SDK cache names it by. Null when a person holds the assignment. */
+                    client_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The hierarchy node the role is held at.
+                     */
+                    node_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role assigned.
+                     */
+                    role_id: string;
+                };
+            };
+        };
+        /** @description A delivery of the `deny.created` webhook event. */
+        WebhookDenyCreatedEvent: {
+            /** @enum {string} */
+            event: "deny.created";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "deny";
+                metadata: {
+                    /**
+                     * @description What the deny targets: one identity, one machine client, or every holder of a role.
+                     * @enum {string}
+                     */
+                    target_type: "identity" | "oauth_client" | "role";
+                    /**
+                     * Format: uuid
+                     * @description The identity it targets; null otherwise.
+                     */
+                    identity_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The machine client it targets; null otherwise.
+                     */
+                    oauth_client_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The role whose holders it targets, wherever they hold it; null otherwise.
+                     */
+                    role_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The node it applies at, and to everything beneath.
+                     */
+                    node_id: string;
+                    /** @description The permission keys it refuses. */
+                    permission_keys: string[];
+                    /** @description Roles whose holders it spares, wherever they hold them. */
+                    exception_role_ids: string[];
+                };
+            };
+        };
+        /** @description A delivery of the `deny.deleted` webhook event. */
+        WebhookDenyDeletedEvent: {
+            /** @enum {string} */
+            event: "deny.deleted";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "deny";
+                metadata: {
+                    /**
+                     * @description What the deny targets: one identity, one machine client, or every holder of a role.
+                     * @enum {string}
+                     */
+                    target_type: "identity" | "oauth_client" | "role";
+                    /**
+                     * Format: uuid
+                     * @description The identity it targets; null otherwise.
+                     */
+                    identity_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The machine client it targets; null otherwise.
+                     */
+                    oauth_client_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The role whose holders it targets, wherever they hold it; null otherwise.
+                     */
+                    role_id: string | null;
+                    /**
+                     * Format: uuid
+                     * @description The node it applies at, and to everything beneath.
+                     */
+                    node_id: string;
+                    /** @description The permission keys it refuses. */
+                    permission_keys: string[];
+                    /** @description Roles whose holders it spares, wherever they hold them. */
+                    exception_role_ids: string[];
+                    /**
+                     * @description `deleted` when it was deleted by hand; `target_removed`, `node_removed` or `permission_removed` when it went with what it named.
+                     * @enum {string}
+                     */
+                    cause?: "deleted" | "target_removed" | "node_removed" | "permission_removed";
+                };
+            };
+        };
+        /** @description A delivery of the `oauth_client.updated` webhook event. */
+        WebhookOauthClientUpdatedEvent: {
+            /** @enum {string} */
+            event: "oauth_client.updated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "oauth_client";
+                metadata: {
+                    /** @description The client's `client_id`. */
+                    client_id: string;
+                    /** @description Whether the client is enabled. A disabled client obtains no new tokens. */
+                    is_active: boolean;
+                };
+            };
+        };
+        /** @description A delivery of the `oauth_client.secret_rotated` webhook event. */
+        WebhookOauthClientSecretRotatedEvent: {
+            /** @enum {string} */
+            event: "oauth_client.secret_rotated";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "oauth_client";
+                metadata: {
+                    /** @description The client's `client_id`. */
+                    client_id: string;
+                    /**
+                     * @description `now` when the old secret stopped working at once, `window` when it keeps working until `previous_secret_expires_at`.
+                     * @enum {string}
+                     */
+                    expire_previous: "now" | "window";
+                    /**
+                     * Format: date-time
+                     * @description When the old secret stops working; null when it already has.
+                     */
+                    previous_secret_expires_at: string | null;
+                };
+            };
+        };
+        /** @description A delivery of the `oauth_client.deleted` webhook event. */
+        WebhookOauthClientDeletedEvent: {
+            /** @enum {string} */
+            event: "oauth_client.deleted";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "oauth_client";
+                metadata: {
+                    /** @description The client's `client_id`. */
+                    client_id: string;
                 };
             };
         };
@@ -5665,6 +6608,10 @@ export interface components {
                     descendant_count: number;
                     /** @description Role assignments removed across the subtree. */
                     assignments_removed: number;
+                    /** @description Pending invitations granting in the subtree, revoked with it. */
+                    invites_revoked: number;
+                    /** @description Directory groups mapped in the subtree, unmapped with it. */
+                    directory_groups_unmapped: number;
                 };
             };
         };
@@ -6999,7 +7946,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted) */
+            /** @description The bearer token is not an admin or platform token, a scoped API key is missing the `permissions.evaluate` scope, or an admin lacks `env_identities.view` (and, in a production Environment, `production_identities.access`), because the trace names who holds which roles */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7010,7 +7957,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
+                     *         "message": "The bearer token is not an admin or platform token, a scoped API key is missing the `permissions.evaluate` scope, or an admin lacks `env_identities.view` (and, in a production Environment, `production_identities.access`), because the trace names who holds which roles",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/explain",
                      *         "method": "POST"
@@ -7140,7 +8087,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7151,7 +8098,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -7229,7 +8176,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7240,7 +8187,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -7372,7 +8319,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7383,7 +8330,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -7457,7 +8404,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7468,7 +8415,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -7602,7 +8549,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7613,7 +8560,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -7710,7 +8657,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7721,7 +8668,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -7814,7 +8761,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7825,7 +8772,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -7926,7 +8873,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7937,7 +8884,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8034,7 +8981,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8045,7 +8992,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8142,7 +9089,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8153,7 +9100,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8246,7 +9193,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8257,7 +9204,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8360,7 +9307,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8371,7 +9318,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8465,7 +9412,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8476,7 +9423,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8569,7 +9516,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8580,7 +9527,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8677,7 +9624,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8688,7 +9635,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8781,7 +9728,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8792,7 +9739,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8889,7 +9836,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8900,7 +9847,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -8993,7 +9940,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9004,7 +9951,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -9113,7 +10060,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9124,7 +10071,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -9148,6 +10095,117 @@ export interface operations {
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/assignments",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiIdentitiesController_getIdentityAccess: {
+        parameters: {
+            query: {
+                /** @description The node to answer for. */
+                node_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The permissions held at the node, each with the roles that grant it and where they are held */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["IdentityAccessItemDto"][];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No identity with that id has a membership in this Environment, or `node_id` names no node in it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No identity with that id has a membership in this Environment, or `node_id` names no node in it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/access",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -9224,7 +10282,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9235,7 +10293,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -9337,7 +10395,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9348,7 +10406,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -9410,6 +10468,8 @@ export interface operations {
                         model_version: number;
                         items: components["schemas"]["IdentityGrantResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
+                        /** @description Every deny root binding the subject, on every page: the permission and the node a deny refuses it at. Empty under model version 1. A grant root at or beneath a deny root for the same permission grants nothing. */
+                        denies: components["schemas"]["DenyRootResponseDto"][];
                     };
                 };
             };
@@ -9455,7 +10515,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9466,7 +10526,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
                      *         "method": "GET"
@@ -9575,7 +10635,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9586,7 +10646,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "GET"
@@ -9664,7 +10724,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9675,7 +10735,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "GET"
@@ -9770,7 +10830,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9781,7 +10841,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "GET"
@@ -9915,7 +10975,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -9926,7 +10986,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "GET"
@@ -10023,7 +11083,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10034,7 +11094,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "GET"
@@ -10127,7 +11187,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10138,7 +11198,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "GET"
@@ -11284,6 +12344,246 @@ export interface operations {
             };
         };
     };
+    ApiNodesController_previewMoveNode: {
+        parameters: {
+            query?: {
+                /** @description Page of people (1-based) */
+                page?: number;
+                /** @description People per page (1-5000, default 20) */
+                take?: number;
+                /** @description Only people whose name or email contains this, ignoring case */
+                q?: string;
+                /** @description Only the people gaining access, or only those losing it */
+                direction?: "gains" | "loses";
+                /** @description Only the people gaining or losing this permission key (with `direction`, only that side) */
+                permission?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveNodeDto"];
+            };
+        };
+        responses: {
+            /** @description What the move would change: blockers, subtree size, and whose access changes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeMovePreviewDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/move/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The node, or its new parent, does not exist in this Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The node, or its new parent, does not exist in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/move/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiNodesController_previewDeleteNode: {
+        parameters: {
+            query?: {
+                /** @description Page of people (1-based) */
+                page?: number;
+                /** @description People per page (1-5000, default 20) */
+                take?: number;
+                /** @description Only people whose name or email contains this, ignoring case */
+                q?: string;
+                /** @description Only the people holding this role in the subtree */
+                role_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the delete would remove: blockers, subtree size, assignments, invitations and directory group mappings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeDeletePreviewDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/delete/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Node not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/delete/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
     ApiNodesController_listIdentityAssignments: {
         parameters: {
             query?: {
@@ -11368,7 +12668,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11379,9 +12679,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}/identities",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -11403,6 +12703,132 @@ export interface operations {
                      *         "message": "Node not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiNodesController_listHolders: {
+        parameters: {
+            query: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search the holders by first name, last name or email. */
+                q?: string;
+                /** @description Sort column. Defaults to `name`, ascending. Ties end on the assignment id. */
+                sort_by?: "name" | "role" | "access_type";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+                /** @description The permission to list holders of, by key. */
+                permission: string;
+                /** @description `direct` for grants made at the node itself, `inherited` for grants made above it. */
+                access_type?: "direct" | "inherited";
+                /** @description Only grants through this role. */
+                role_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["NodeHolderDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/holders",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/holders",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Node not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes/{id}/holders",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -11476,7 +12902,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11487,9 +12913,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/nodes",
+                     *         "path": "/api/v1/nodes/{id}/identities/summary",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -11833,7 +13259,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11844,7 +13270,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
                      *         "method": "GET"
@@ -11868,6 +13294,133 @@ export interface operations {
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationAccessController_listHolders: {
+        parameters: {
+            query: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search the holders by first name, last name or email. */
+                q?: string;
+                /** @description Sort column. Defaults to `name`, ascending. Ties end on the assignment id. */
+                sort_by?: "name" | "role" | "access_type";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+                /** @description The permission to list holders of, by key. */
+                permission: string;
+                /** @description `direct` for grants made at the node itself, `inherited` for grants made above it. */
+                access_type?: "direct" | "inherited";
+                /** @description Only grants through this role. */
+                role_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Holders returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["NodeHolderDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/holders",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/me",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/holders",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/holders",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -11942,7 +13495,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11953,9 +13506,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access/summary",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -12064,7 +13617,7 @@ export interface operations {
                      *         "code": null,
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/grantable-roles",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -12185,7 +13738,7 @@ export interface operations {
                      *         "code": null,
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/grantable-roles",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -12604,6 +14157,980 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
                      *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_schema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The schema */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["HierarchySchemaResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment (`organization.not_found`), or the Environment has no hierarchy schema (`hierarchy.schema_not_configured`) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment (`organization.not_found`), or the Environment has no hierarchy schema (`hierarchy.schema_not_configured`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_createNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOrganizationNodeDto"];
+            };
+        };
+        responses: {
+            /** @description The node created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeResponseDto"];
+                    };
+                };
+            };
+            /** @description The organization id in the path or a body field is missing or malformed, or the schema refuses the node beneath the parent (`hierarchy.child_type_not_allowed`, `hierarchy.max_depth_exceeded`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The organization id in the path or a body field is missing or malformed, or the schema refuses the node beneath the parent (`hierarchy.child_type_not_allowed`, `hierarchy.max_depth_exceeded`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_getNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeResponseDto"];
+                    };
+                };
+            };
+            /** @description An id in the path is malformed; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "An id in the path is malformed; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds neither the developer's `hierarchy.view` nor `canopy:structure.manage` or `canopy:access.manage` (or `canopy:organization.manage` at the organization node) at the node or above it */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds neither the developer's `hierarchy.view` nor `canopy:structure.manage` or `canopy:access.manage` (or `canopy:organization.manage` at the organization node) at the node or above it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_deleteNode: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Node deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description An id in the path is malformed, or the node is the organization itself (`organization.use_organizations_api`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "An id in the path is malformed, or the node is the organization itself (`organization.use_organizations_api`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_updateNode: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationNodeDto"];
+            };
+        };
+        responses: {
+            /** @description The node as it now stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeResponseDto"];
+                    };
+                };
+            };
+            /** @description An id in the path or a body field is malformed, or the node is the organization itself (`organization.use_organizations_api`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "An id in the path or a body field is malformed, or the node is the organization itself (`organization.use_organizations_api`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_previewMoveNode: {
+        parameters: {
+            query?: {
+                /** @description Page of people (1-based) */
+                page?: number;
+                /** @description People per page (1-5000, default 20) */
+                take?: number;
+                /** @description Only people whose name or email contains this, ignoring case */
+                q?: string;
+                /** @description Only the people gaining access, or only those losing it */
+                direction?: "gains" | "loses";
+                /** @description Only the people gaining or losing this permission key (with `direction`, only that side) */
+                permission?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveNodeDto"];
+            };
+        };
+        responses: {
+            /** @description What the move would change: blockers, subtree size, and whose access changes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeMovePreviewDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_moveNode: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveNodeDto"];
+            };
+        };
+        responses: {
+            /** @description The node as it now stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeResponseDto"];
+                    };
+                };
+            };
+            /** @description An id in the path or `parent_node_id` is malformed, or the move breaks the schema, the depth limit or makes a cycle (`hierarchy.child_type_not_allowed`, `hierarchy.max_depth_exceeded`, `hierarchy.reparent_cycle`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "An id in the path or `parent_node_id` is malformed, or the move breaks the schema, the depth limit or makes a cycle (`hierarchy.child_type_not_allowed`, `hierarchy.max_depth_exceeded`, `hierarchy.reparent_cycle`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationStructureController_previewDeleteNode: {
+        parameters: {
+            query?: {
+                /** @description Page of people (1-based) */
+                page?: number;
+                /** @description People per page (1-5000, default 20) */
+                take?: number;
+                /** @description Only people whose name or email contains this, ignoring case */
+                q?: string;
+                /** @description Only the people holding this role in the subtree */
+                role_id?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+                nodeId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the delete would remove: blockers, subtree size, assignments, invitations and directory group mappings */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["NodeDeletePreviewDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/delete/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/delete/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The organization is not in this Environment, or the node is not inside it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/delete/preview",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -13287,6 +15814,114 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
                      *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiOrganizationsController_previewDeleteOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the delete would remove, counted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["OrganizationDeletePreviewDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/delete/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Organization not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/delete/preview",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -21488,7 +24123,10 @@ export interface operations {
     ApiRolesController_setRolePermissions: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
             path: {
                 id: string;
             };
@@ -21595,7 +24233,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The change would take `canopy:organization.manage` off the role an organization's last administrator holds at its node (`organization.last_admin`) */
+            /** @description The role changed since the version named in If-Match (`version_mismatch`), or the change would take `canopy:organization.manage` off the role an organization's last administrator holds at its node (`organization.last_admin`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -21606,10 +24244,768 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The change would take `canopy:organization.manage` off the role an organization's last administrator holds at its node (`organization.last_admin`)",
+                     *         "message": "The role changed since the version named in If-Match (`version_mismatch`), or the change would take `canopy:organization.manage` off the role an organization's last administrator holds at its node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions",
                      *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiRolesController_previewRolePermissions: {
+        parameters: {
+            query?: {
+                /** @description Page of people (1-based) */
+                page?: number;
+                /** @description People per page (1-5000, default 20) */
+                take?: number;
+                /** @description Only people whose name or email contains this, ignoring case */
+                q?: string;
+                /** @description Only the people gaining access, or only those losing it */
+                direction?: "gains" | "loses";
+                /** @description Only the people gaining or losing this permission key (with `direction`, only that side) */
+                permission?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRolePermissionsDto"];
+            };
+        };
+        responses: {
+            /** @description What the change would do: keys added and removed, blockers, and whose access changes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RolePermissionsPreviewDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}/permissions/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Role not found, or a permission key is not in this Environment's catalog */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "Role not found, or a permission key is not in this Environment's catalog",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/roles/{id}/permissions/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiDeniesController_list: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+                /** @description Search term */
+                q?: string;
+                /** @description `created` (the default, newest first) or `node`. */
+                sort_by?: "created" | "node";
+                /** @description Sort direction */
+                order?: "asc" | "desc";
+                /** @description Only denies at this node, or that apply here (`node_mode`). */
+                node_id?: string;
+                /** @description With `node_id`: `at` (the default) the denies made at the node; `applies` the denies at it or any node above it, everything that refuses access there. */
+                node_mode?: "at" | "applies";
+                target_type?: "identity" | "oauth_client" | "role";
+                /** @description Only denies targeting this identity, machine client or role. */
+                target_id?: string;
+                /** @description Only denies refusing this permission key. */
+                permission?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of denies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["DenyResponseDto"][];
+                        pagination: components["schemas"]["PageMetaDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiDeniesController_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDenyDto"];
+            };
+        };
+        responses: {
+            /** @description The deny created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DenyResponseDto"];
+                    };
+                };
+            };
+            /** @description The body is invalid, or names something that is not in the Environment: the node (`deny.node_not_found`), the target (`deny.target_not_found`, `oauth.client_not_machine` for a client that is not a machine client), a permission key (`deny.permission_not_found`, with the missing keys in `data.permission_keys`) or an exception role (`deny.exception_role_not_found`); or the target role is also an exception (`deny.target_is_exception`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The body is invalid, or names something that is not in the Environment: the node (`deny.node_not_found`), the target (`deny.target_not_found`, `oauth.client_not_machine` for a client that is not a machine client), a permission key (`deny.permission_not_found`, with the missing keys in `data.permission_keys`) or an exception role (`deny.exception_role_not_found`); or the target role is also an exception (`deny.target_is_exception`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks `deny.manage` (an admin's `env_denies.manage`); or the target is a person and the caller may not see the Environment's people (`identity.view`, and for an admin in a production Environment `production_identities.access`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks `deny.manage` (an admin's `env_denies.manage`); or the target is a person and the caller may not see the Environment's people (`identity.view`, and for an admin in a production Environment `production_identities.access`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description An identical deny already exists, with the same target, node, permissions and exceptions (`deny.duplicate`, its id in `data.deny_id`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "An identical deny already exists, with the same target, node, permissions and exceptions (`deny.duplicate`, its id in `data.deny_id`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiDeniesController_preview: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDenyDto"];
+            };
+        };
+        responses: {
+            /** @description Who the deny would take access from */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DenyPreviewResponseDto"];
+                    };
+                };
+            };
+            /** @description The body is invalid, or names something that is not in the Environment: the node (`deny.node_not_found`), the target (`deny.target_not_found`, `oauth.client_not_machine` for a client that is not a machine client), a permission key (`deny.permission_not_found`, with the missing keys in `data.permission_keys`) or an exception role (`deny.exception_role_not_found`); or the target role is also an exception (`deny.target_is_exception`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The body is invalid, or names something that is not in the Environment: the node (`deny.node_not_found`), the target (`deny.target_not_found`, `oauth.client_not_machine` for a client that is not a machine client), a permission key (`deny.permission_not_found`, with the missing keys in `data.permission_keys`) or an exception role (`deny.exception_role_not_found`); or the target role is also an exception (`deny.target_is_exception`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks `deny.manage` (an admin's `env_denies.manage`); or the target is a person and the caller may not see the Environment's people (`identity.view`, and for an admin in a production Environment `production_identities.access`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks `deny.manage` (an admin's `env_denies.manage`); or the target is a person and the caller may not see the Environment's people (`identity.view`, and for an admin in a production Environment `production_identities.access`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiDeniesController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deny */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DenyResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No deny with this id in the Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No deny with this id in the Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/{id}",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiDeniesController_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deny was deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No deny with this id in the Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No deny with this id in the Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiDeniesController_reach: {
+        parameters: {
+            query?: {
+                /** @description Page number (1-based) */
+                page?: number;
+                /** @description Items per page (1-100, default 20) */
+                take?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Who the deny takes access from today */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DenyPreviewResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/{id}/reach",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description No deny with this id in the Environment */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "No deny with this id in the Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/denies/{id}/reach",
+                     *         "method": "GET"
                      *       }
                      *     }
                      */
@@ -21698,7 +25094,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -21709,7 +25105,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -21783,7 +25179,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -21794,7 +25190,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -21872,7 +25268,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -21883,7 +25279,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -21997,7 +25393,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22008,7 +25404,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -22133,7 +25529,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22144,7 +25540,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -22260,7 +25656,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22271,7 +25667,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -22391,7 +25787,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22402,7 +25798,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -22575,7 +25971,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22586,7 +25982,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
                      *         "method": "GET"
@@ -23376,6 +26772,27 @@ export interface operations {
                      *         "statusCode": 403,
                      *         "code": null,
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/hierarchy-schema",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The Environment has no hierarchy schema: it is flat (`hierarchy.schema_not_configured`) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": null,
+                     *         "message": "The Environment has no hierarchy schema: it is flat (`hierarchy.schema_not_configured`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
                      *         "method": "GET"
@@ -25735,6 +29152,8 @@ export interface operations {
                         model_version: number;
                         items: components["schemas"]["IdentityGrantResponseDto"][];
                         pagination: components["schemas"]["PageMetaDto"];
+                        /** @description Every deny root binding the subject, on every page: the permission and the node a deny refuses it at. Empty under model version 1. A grant root at or beneath a deny root for the same permission grants nothing. */
+                        denies: components["schemas"]["DenyRootResponseDto"][];
                     };
                 };
             };

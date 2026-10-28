@@ -15,9 +15,9 @@ import { CanopyError, isCanopyAuthorizerError } from "./errors.js";
  * identity's grant roots with their windows, the accessible sets, the
  * permissions at a node, and every `evaluate` answer. This replays the same
  * file from the other side. The authorizer is handed exactly what the vector
- * says the API serves (the windowed grant roots, the parent edges) and must
- * reach the same `allowed`, the local reason, the same sets and the same
- * per-node permissions. A machine client's checks are replayed as a service
+ * says the API serves (the windowed grant roots with the subject's deny
+ * roots, the parent edges) and must reach the same `allowed`, the local
+ * reason, the same sets and the same per-node permissions. A machine client's checks are replayed as a service
  * token's, so its grants must be read from the client's own endpoint. `npm run generate` refreshes the file;
  * `generate:check` fails when Canopy has published new rules.
  */
@@ -27,6 +27,11 @@ interface Vector {
   tree: Array<{ id: string; parent: string | null }>;
   machine_clients?: Array<{ id: string; organization?: string }>;
   grants: Record<string, Array<{ permission: string; node: string }> | null>;
+  /** The deny roots each holder's grants read carries; absent is none. */
+  deny_roots?: Record<
+    string,
+    Array<{ permission: string; node: string; deny: string }>
+  >;
   grant_windows: Record<
     string,
     Array<{
@@ -41,6 +46,8 @@ interface Vector {
     permission: string;
     env_wide: boolean;
     roots: string[];
+    /** Deny roots beneath the roots; absent is none. */
+    excluded_roots?: string[];
     nodes: string[] | null;
   }>;
   /** Where a permission is held at or beneath a node; absent on older vectors. */
@@ -88,8 +95,9 @@ const DAY = 24 * 60 * 60 * 1000;
 const at = (days: number | undefined): string | null =>
   days === undefined ? null : new Date(NOW + days * DAY).toISOString();
 
-const page = <T>(items: T[]) => ({
+const page = <T>(items: T[], extra: object = {}) => ({
   model_version: CONFORMANCE.model_version,
+  ...extra,
   items,
   pagination: {
     page: 1,
@@ -139,6 +147,13 @@ function authorizerFor(vector: Vector): LocalAuthorizer {
           effective_from: at(root.from_days),
           effective_to: at(root.to_days),
         })),
+        {
+          denies: (vector.deny_roots?.[holder] ?? []).map((deny) => ({
+            permission: deny.permission,
+            node_id: deny.node,
+            deny_id: deny.deny,
+          })),
+        },
       ),
     );
   });
@@ -187,7 +202,7 @@ const sorted = (values: string[] | null) =>
 
 describe("LocalAuthorizer — Canopy's conformance vectors", () => {
   it("replays the model version this package understands", () => {
-    expect(CONFORMANCE.model_version).toBe(1);
+    expect(CONFORMANCE.model_version).toBe(2);
     expect(CONFORMANCE.vectors.length).toBeGreaterThan(0);
   });
 
@@ -244,12 +259,16 @@ describe("LocalAuthorizer — Canopy's conformance vectors", () => {
 
         expect({
           roots: sorted(roots.roots),
+          excludedRoots: sorted(roots.excludedRoots),
           envWide: roots.envWide,
+          setExcludedRoots: sorted(set.excludedRoots),
           nodes: set.nodes === null ? null : sorted([...set.nodes]),
           complete: set.complete,
         }).toEqual({
           roots: sorted(entry.roots),
+          excludedRoots: sorted(entry.excluded_roots ?? []),
           envWide: entry.env_wide,
+          setExcludedRoots: sorted(entry.excluded_roots ?? []),
           nodes: sorted(entry.nodes),
           complete: true,
         });

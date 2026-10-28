@@ -23,7 +23,15 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 176 as of an organization's staff activity, wrapped as
+// 197 as of denies (`/api/v1/denies`: list, get, create, preview, reach,
+// remove), management routes unwrapped like API keys and OAuth clients, and
+// the reads and previews that shipped beside them: a node's holders, an
+// identity's access at a node, the delete and move previews for a node and
+// an organization, a role's permission preview, and an organization shaping
+// its own tree (`/api/v1/organizations/:id/schema` and `nodes`: get, create,
+// update, move, delete and their previews). None is wrapped, so the floor
+// does not move.
+// Before that, 176 as of an organization's staff activity, wrapped as
 // `organizations.listStaffActivity`, and an organization shaping its own
 // roles (`/api/v1/organizations/:id/roles` create, get, update, remove,
 // permissions, usage, and the permission catalog) and its own integrations
@@ -61,7 +69,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 176;
+const EXPECTED_OPERATION_COUNT = 197;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
