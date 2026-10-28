@@ -38,7 +38,7 @@ Then the authorization model: is the Environment **flat**, a **hierarchy**, or d
 5. **Fail closed, and keep the failures apart.** `403` means denied. `503` means Canopy could not be reached and nothing was decided: never turn it into a `403`, and never into an allow. `500` means the integration is broken (bad API key, missing scope). Outside NestJS, `tokenErrorStatus` and `authorizationErrorStatus` give the status for a failed verification or check.
 6. **Never send an API key to a browser.** `cnpy_…` keys and the OAuth client secret stay on the server. `pk_…` publishable keys and the `client_id` are public.
 7. **Never authorize from the ID token**, never parse the refresh token, and never replay an old refresh token: replay revokes every session the identity holds. Overwrite the stored refresh token on every refresh.
-8. **Verify webhook signatures over the raw body**, in constant time. The SDK types deliveries but does not check signatures; see [references/node.md](references/node.md).
+8. **Verify webhook signatures over the raw body** with `verifyWebhookSignature`, never a hand-written check, then pass the delivery to `authorizer.applyEvent` so a revocation does not wait out the cache. See [references/node.md](references/node.md).
 9. **Do not log token values**, and do not invent password rules: read `password_policy` from `GET /v1/identity/auth/config`.
 10. **Take organization and node context from a verified token or your own data**, never from a header or body the caller controls.
 

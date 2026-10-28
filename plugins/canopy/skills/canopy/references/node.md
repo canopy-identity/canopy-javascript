@@ -151,7 +151,7 @@ export async function mayImportOrders(
 }
 ```
 
-- A client's grants are read from `GET /api/v1/oauth-clients/:id/grants` and cached apart from people's. Invalidate one with `authorizer.invalidate(clientId, { principalType: "service" })`, where `clientId` is the `client_id` an assignment webhook carries in `data.metadata.client_id`.
+- A client's grants are read from `GET /api/v1/oauth-clients/:id/grants` and cached apart from people's. `applyEvent` invalidates one from the `client_id` an assignment webhook carries in `data.metadata.client_id`; by hand, `authorizer.invalidate(clientId, { principalType: "service" })`.
 - Never take the principal type from the request: read it off the verified claims.
 - Without `serviceAudience` a service token is refused (`token.audience_unverified`); one minted for another API answers `token.audience_mismatch`.
 
@@ -184,57 +184,64 @@ export async function mayViewReports(
 - A denial carries `reason` (`permission_not_held`, `outside_grants`, `expired`, `not_yet_effective`, `denied`, `node_missing`). `denied` is a deny at the node or above it: it refuses whatever the grants allow, and no grant beneath it undoes it. `onDecision` / `onDenied` options hear every verdict after it is reached; they are never awaited and cannot change it.
 - To filter a list, do not call `evaluate` per row. `authorizer.accessibleNodes(identityId, permission)` gives the node ids the identity may see as a `Set` for an `IN (...)` filter (`nodes: null, complete: false` past `maxNodes`; `envWide: true` means no filter at all), and `authorizer.grantRoots(...)` gives the roots for a closure-table or path filter. Both name `excludedRoots`, the subtrees a deny cuts out from under a root: a roots filter must exclude them too. `authorizer.permissionsAt(identityId, nodeId)` lists what someone holds at one node, and `permissionsAtMany(identityId, nodeIds)` several nodes from one read. All three answer from the same cache as a check. The write that follows still checks its node.
 - For a menu inside an organization, `authorizer.holdsAnywhereUnder(identityId, permission, orgId)` answers whether the permission is held at the organization or anywhere beneath it (`{ held, roots, excludedRoots }`). `app_wide` cannot, since it covers the whole Environment. It is a read for menus, never a guard: the write checks its own node.
-- Answers are cached for at most 60 seconds (`ttlMs`, up to 300 000). That is the revocation delay. Use `canopy.permissions.evaluate` for a decision that must be fresh.
+- Answers are cached for at most 60 seconds (`ttlMs`, up to 300 000). That is the revocation delay unless webhooks reach `applyEvent` (see Webhooks). Use `canopy.permissions.evaluate` for a decision that must be fresh.
 - A scoped API key needs `identity.view` and `hierarchy.view`. Without `hierarchy.view`, node checks throw `CanopyAuthorizerError` instead of answering `false`: treat that as a broken integration (`500`), not a denial.
 - Mapping failures to HTTP statuses: see [express.md](express.md).
 
 ## Webhooks
 
-The SDK types deliveries (`isWebhookEvent` narrows by event name) but does not check signatures. Check every delivery before acting on it: an HMAC-SHA256 with the subscription's signing secret over `{X-Canopy-Webhook-Id}.{X-Canopy-Timestamp}.{raw body}`, sent in `X-Canopy-Signature` as `v1,<hex>`. After a secret rotation the header briefly carries two values separated by a space, the new secret's first.
+Check every delivery with `verifyWebhookSignature` before acting on it, over the body exactly as it arrived, then pass it to `authorizer.applyEvent` so a revocation reaches the next local check instead of waiting out `ttlMs`. Never hand-write the HMAC check.
 
 ```ts
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { isWebhookEvent, type WebhookDelivery } from "@canopy-io/node";
+import express from "express";
+import {
+  isWebhookEvent,
+  LocalAuthorizer,
+  verifyWebhookSignature,
+  type WebhookDelivery,
+} from "@canopy-io/node";
 
-export function verifyCanopySignature(
-  headers: Record<string, string | undefined>,
-  rawBody: string,
-  secret: string,
-): boolean {
-  const id = headers["x-canopy-webhook-id"];
-  const timestamp = headers["x-canopy-timestamp"];
-  const signature = headers["x-canopy-signature"];
+declare const app: express.Express;
+declare const authorizer: LocalAuthorizer;
+declare const webhookSecret: string;
 
-  if (!id || !timestamp || !signature) {
-    return false;
-  }
+app.post(
+  "/webhooks/canopy",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const valid = await verifyWebhookSignature({
+      headers: req.headers,
+      rawBody: req.body as Buffer,
+      secret: webhookSecret,
+    });
 
-  const expected = createHmac("sha256", secret)
-    .update(`${id}.${timestamp}.${rawBody}`)
-    .digest();
+    if (!valid) {
+      res.sendStatus(401);
 
-  // Compare each value on its own, in constant time.
-  return signature
-    .split(/\s+/)
-    .filter((value) => value.startsWith("v1,"))
-    .map((value) => Buffer.from(value.slice("v1,".length), "hex"))
-    .some(
-      (actual) =>
-        actual.length === expected.length && timingSafeEqual(actual, expected),
-    );
-}
+      return;
+    }
 
-export function handleDelivery(rawBody: string): void {
-  const delivery = JSON.parse(rawBody) as WebhookDelivery;
+    const delivery = JSON.parse(
+      (req.body as Buffer).toString(),
+    ) as WebhookDelivery;
 
-  if (isWebhookEvent(delivery, "organization.member.added")) {
-    const { identity_id, role_id } = delivery.data.metadata;
+    authorizer.applyEvent(delivery);
 
-    console.log(identity_id, role_id);
-  }
-}
+    if (isWebhookEvent(delivery, "organization.member.added")) {
+      const { identity_id, role_id } = delivery.data.metadata;
+
+      console.log(identity_id, role_id);
+    }
+
+    res.sendStatus(204);
+  },
+);
 ```
 
-- Sign over the **raw bytes** received. Re-serializing parsed JSON changes spacing or key order and breaks the match; in Express, use `express.raw({ type: "application/json" })` on the webhook route.
-- Deliveries are at-least-once. `X-Canopy-Webhook-Id` is the same across retries: use it as an idempotency key.
+- Verify over the **raw bytes** received. Re-serializing parsed JSON changes spacing or key order and breaks the match; in Express, use `express.raw({ type: "application/json" })` on the webhook route.
+- After a secret rotation the header briefly carries two signatures; either verifies. To roll the new secret out without a gap, pass both: `secret: [newSecret, oldSecret]`.
+- A timestamp more than five minutes from the server's clock is refused as a replay (`toleranceSeconds` widens it).
+- `applyEvent` drops only the subjects a change names (an assignment, a membership, an identity's status), everything for a role, permission, node or schema change, and nothing for a profile edit. It returns what it did.
+- A delivery reaches one process. Across several instances either fan it out over your own pub/sub, or run `authorizer.replayChanges({ cursor })` on every instance on an interval shorter than `ttlMs`, keeping the cursor it returns. Run `replayChanges` at startup too, to catch up on what a process missed while down.
+- Deliveries are at-least-once. `X-Canopy-Webhook-Id` is the same across retries: use it as an idempotency key for your own handlers. `applyEvent` is safe to repeat.
 - Answer `2xx` quickly and do the work afterwards.

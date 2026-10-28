@@ -4,6 +4,11 @@ import type {
   RequestOptions,
 } from "./client.js";
 import { CanopyAuthorizerError } from "./errors.js";
+import {
+  type AppliedChange,
+  type AuthorizationChange,
+  invalidationFor,
+} from "./invalidation.js";
 import { paginate, type PageParams } from "./pagination.js";
 import type { ResponseBody } from "./schema.js";
 
@@ -75,6 +80,12 @@ const MAX_PAGES = 10_000;
  * kept anyway, without a validator, so the next refresh reads it in full.
  */
 const MAX_TREE_WALKS = 3;
+
+/** The change feed `replayChanges` reads. */
+const CHANGES_PATH = "/api/v1/changes";
+
+/** The change feed's largest page. */
+const CHANGES_PAGE_SIZE = 200;
 
 /**
  * Why a check was denied, as far as the grant roots and the tree can say.
@@ -305,6 +316,7 @@ type GrantRow = GrantPage["items"][number];
  */
 type ParentPage = ResponseBody<"ApiNodesController_listNodeParents">;
 type ParentEdge = ParentPage["items"][number];
+type ChangePage = ResponseBody<"ApiChangesController_query">;
 
 /**
  * The versions of Canopy's authorization model this authorizer understands.
@@ -386,6 +398,29 @@ function refusedOn(
   return false;
 }
 
+export interface ReplayChangesOptions {
+  /**
+   * Where the last replay stopped: the `cursor` it returned. Omit it the
+   * first time, and the replay starts at the oldest change Canopy still
+   * retains.
+   */
+  cursor?: string | null;
+}
+
+export interface ReplayChangesResult {
+  /**
+   * Where this replay stopped. Keep it, and pass it to the next replay;
+   * `null` only when the feed has never held a change.
+   */
+  cursor: string | null;
+  /** How many changes were read and applied. */
+  changes: number;
+  /** Whether any change dropped the whole cache. */
+  invalidatedAll: boolean;
+  /** How many subjects' grants were dropped one at a time. */
+  subjectsInvalidated: number;
+}
+
 export class LocalAuthorizer {
   private readonly client: CanopyClient;
   private readonly ttlMs: number;
@@ -409,6 +444,14 @@ export class LocalAuthorizer {
    */
   private readonly pendingGrants = new Map<string, Promise<Holdings>>();
   private pendingTree: Promise<TreeEntry> | undefined;
+
+  /**
+   * Bumped by every full invalidation. A hierarchy read that began before
+   * the bump answers the caller that was waiting on it but is not kept, so
+   * a read already in flight when a change lands cannot cache what the
+   * change replaced. Grants use the pending map for the same purpose.
+   */
+  private treeGeneration = 0;
 
   private stats: LocalAuthorizerStats = {
     grantFetches: 0,
@@ -1001,15 +1044,128 @@ export class LocalAuthorizer {
    */
   invalidate(identityId?: string, subject: SubjectOptions = {}): void {
     if (identityId !== undefined) {
-      this.grants.delete(
-        subjectKey(subject.principalType ?? "identity", identityId),
-      );
+      const key = subjectKey(subject.principalType ?? "identity", identityId);
+
+      // A read in flight began before the change; it answers whoever is
+      // waiting on it, but the next check reads again rather than joining it.
+      this.grants.delete(key);
+      this.pendingGrants.delete(key);
 
       return;
     }
 
     this.grants.clear();
+    this.pendingGrants.clear();
     this.tree = undefined;
+    this.pendingTree = undefined;
+    this.treeGeneration += 1;
+  }
+
+  /**
+   * Drop what one change makes stale, from a webhook delivery or a
+   * change-feed entry (the two share one shape). Answers what it dropped.
+   *
+   * A change naming whose access moved (an assignment, an Environment or
+   * organization membership, an identity's status, a deny on one person,
+   * a machine client disabled or deleted) drops those subjects' grants and
+   * keeps everyone else's and the hierarchy warm. A change whose reach it
+   * cannot name (a role, a permission, a node, the hierarchy schema, an
+   * organization created or deleted, a deny on a role or a machine client,
+   * a directory group mapped) drops everything. A change that moves no
+   * one's access (a profile edit, a sign-in policy, a session revoked)
+   * drops nothing. An event this SDK does not know drops everything.
+   *
+   * Check the delivery's signature first (`verifyWebhookSignature`): this
+   * trusts what it is given. Like {@link invalidate}, it reaches this
+   * process only; see there for what that means across several instances.
+   */
+  applyEvent(change: AuthorizationChange): AppliedChange {
+    const reach = invalidationFor(change);
+
+    if (reach === "none") {
+      return { event: change.event, invalidated: "none" };
+    }
+
+    if (reach === "all") {
+      this.invalidate();
+
+      return { event: change.event, invalidated: "all" };
+    }
+
+    for (const subject of reach) {
+      this.invalidate(subject.id, { principalType: subject.principalType });
+    }
+
+    return { event: change.event, invalidated: "subjects", subjects: reach };
+  }
+
+  /**
+   * Read `GET /api/v1/changes` from `cursor` to the newest change and apply
+   * each one, as {@link applyEvent} would a webhook. Answers the cursor to
+   * resume from next time.
+   *
+   * Two uses. After a restart, to catch up on deliveries a process missed
+   * while it was down, before it serves from a cache warmed elsewhere. And
+   * in place of webhooks: every instance polling on an interval shorter
+   * than `ttlMs` sees every change, which a webhook (delivered to one
+   * instance) does not give a fleet.
+   *
+   * The feed holds what the audit log retains, so a cursor older than that
+   * resumes at the oldest change still held. Each page is one request; a
+   * replay with no cursor walks the whole retained window once.
+   */
+  async replayChanges(
+    options: ReplayChangesOptions = {},
+  ): Promise<ReplayChangesResult> {
+    let cursor = options.cursor ?? null;
+    let changes = 0;
+    let invalidatedAll = false;
+    let subjectsInvalidated = 0;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const read: ChangePage = await this.client.request<ChangePage>(
+        "GET",
+        CHANGES_PATH,
+        {
+          ...this.readOptions,
+          query: {
+            limit: CHANGES_PAGE_SIZE,
+            ...(cursor === null ? {} : { cursor }),
+          },
+        },
+      );
+
+      for (const change of read.items) {
+        const applied = this.applyEvent(change);
+
+        changes += 1;
+
+        if (applied.invalidated === "all") {
+          invalidatedAll = true;
+        }
+
+        if (applied.invalidated === "subjects") {
+          subjectsInvalidated += applied.subjects.length;
+        }
+      }
+
+      const next = read.pagination.next_cursor;
+
+      // A short page is the newest change; the feed echoes the cursor it was
+      // given once it has nothing newer, so an unchanged cursor ends it too.
+      const caughtUp =
+        read.items.length < CHANGES_PAGE_SIZE ||
+        next === null ||
+        next === cursor;
+
+      cursor = next ?? cursor;
+
+      if (caughtUp) {
+        break;
+      }
+    }
+
+    return { cursor, changes, invalidatedAll, subjectsInvalidated };
   }
 
   /** Fire the decision hooks, after the verdict and without waiting on them. */
@@ -1087,8 +1243,14 @@ export class LocalAuthorizer {
       return pending;
     }
 
-    const read = this.fetchGrantRoots(identityId, type).finally(() => {
-      this.pendingGrants.delete(key);
+    const read: Promise<Holdings> = this.fetchGrantRoots(
+      identityId,
+      type,
+      () => this.pendingGrants.get(key) === read,
+    ).finally(() => {
+      if (this.pendingGrants.get(key) === read) {
+        this.pendingGrants.delete(key);
+      }
     });
 
     this.pendingGrants.set(key, read);
@@ -1117,6 +1279,7 @@ export class LocalAuthorizer {
   private async fetchGrantRoots(
     identityId: string,
     type: PrincipalType,
+    stillCurrent: () => boolean = () => true,
   ): Promise<Holdings> {
     this.stats.grantFetches += 1;
 
@@ -1184,10 +1347,14 @@ export class LocalAuthorizer {
 
     const holdings: Holdings = { roots, denies };
 
-    this.grants.set(subjectKey(type, identityId), {
-      holdings,
-      expiresAt: Math.min(now + this.ttlMs, boundary),
-    });
+    // Invalidated while it was read: the answer goes to the caller that was
+    // waiting, but is not kept, since it may predate the change.
+    if (stillCurrent()) {
+      this.grants.set(subjectKey(type, identityId), {
+        holdings,
+        expiresAt: Math.min(now + this.ttlMs, boundary),
+      });
+    }
 
     return holdings;
   }
@@ -1201,8 +1368,10 @@ export class LocalAuthorizer {
       return this.pendingTree;
     }
 
-    const read = this.fetchTree().finally(() => {
-      this.pendingTree = undefined;
+    const read: Promise<TreeEntry> = this.fetchTree().finally(() => {
+      if (this.pendingTree === read) {
+        this.pendingTree = undefined;
+      }
     });
 
     this.pendingTree = read;
@@ -1232,19 +1401,25 @@ export class LocalAuthorizer {
     this.stats.treeRequests += 1;
 
     const held = this.tree;
+    const generation = this.treeGeneration;
 
     let first = await this.parentsFirstPage(held?.etag ?? undefined);
 
     if (!first.modified) {
       if (held) {
         this.stats.treeNotModified += 1;
-        this.tree = { ...held, expiresAt: this.now() + this.ttlMs };
 
-        return this.tree;
+        const renewed = { ...held, expiresAt: this.now() + this.ttlMs };
+
+        if (generation === this.treeGeneration) {
+          this.tree = renewed;
+        }
+
+        return renewed;
       }
 
       // A `304` to a request that carried no validator has nothing to keep.
-      return this.keepTree([], null);
+      return this.keepTree([], null, generation);
     }
 
     for (let walk = 1; ; walk++) {
@@ -1253,20 +1428,20 @@ export class LocalAuthorizer {
       // One page is one response, so it cannot have been torn; without a
       // validator there is nothing to confirm with.
       if (!spansPages(first.data) || first.etag === null) {
-        return this.keepTree(edges, first.etag);
+        return this.keepTree(edges, first.etag, generation);
       }
 
       const confirm = await this.parentsFirstPage(first.etag);
 
       if (!confirm.modified) {
-        return this.keepTree(edges, first.etag);
+        return this.keepTree(edges, first.etag, generation);
       }
 
       if (walk >= MAX_TREE_WALKS) {
         // Still changing. Keep the latest walk, but with no validator, so the
         // next refresh reads every page again rather than revalidating a map
         // that may be missing a node.
-        return this.keepTree(edges, null);
+        return this.keepTree(edges, null, generation);
       }
 
       first = confirm;
@@ -1327,7 +1502,11 @@ export class LocalAuthorizer {
     return edges;
   }
 
-  private keepTree(edges: ParentEdge[], etag: string | null): TreeEntry {
+  private keepTree(
+    edges: ParentEdge[],
+    etag: string | null,
+    generation: number,
+  ): TreeEntry {
     // One string per node. A parsed response holds each id twice, once as
     // its own node's `id` and again, as a separate copy, in every child's
     // `parent_node_id`; storing those copies doubled the cache. So the
@@ -1362,14 +1541,19 @@ export class LocalAuthorizer {
       }
     }
 
-    this.tree = {
+    const entry: TreeEntry = {
       parents,
       children,
       etag,
       expiresAt: this.now() + this.ttlMs,
     };
 
-    return this.tree;
+    // Invalidated while the walk ran: answer from it, but do not keep it.
+    if (generation === this.treeGeneration) {
+      this.tree = entry;
+    }
+
+    return entry;
   }
 }
 

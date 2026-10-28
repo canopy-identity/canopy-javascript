@@ -26,6 +26,7 @@ Despite the name, it is not Node-only: the client is `fetch` and nothing else, s
 - **Typed errors.** `CanopyError` carries a stable `code`, `CanopyConnectionError` marks a transport failure, `CanopyTokenError` a rejected token, `CanopyAuthorizerError` a check that could not be decided — each with a type guard.
 - **Local access-token verification.** `TokenVerifier` checks Canopy's RS256 signatures against the published key set: one JWKS fetch, then no network on any verification after it.
 - **Local authorization.** `LocalAuthorizer` answers permission checks in-process from an identity's grant roots and a shared copy of your hierarchy, so a check costs a walk up the tree rather than a round trip.
+- **Webhooks wired to the cache.** `verifyWebhookSignature` checks a delivery in constant time, `authorizer.applyEvent` drops exactly what the change made stale, and `authorizer.replayChanges` catches up from the change feed.
 - **Conditional reads.** `requestConditional` sends the validator you already hold and tells you whether anything changed, so something expensive can be held and revalidated cheaply.
 - **Deadlines and cancellation.** A per-attempt timeout and a caller's own `AbortSignal`, settable client-wide or per call.
 - **Types generated from the published spec**, with CI failing on drift.
@@ -203,8 +204,8 @@ beneath the organization. Authorize by evaluating, never by the list.
 A grant inside an organization counts only while the membership is active.
 The grants `LocalAuthorizer` caches already apply that: a deactivated
 membership drops every grant inside the organization from the next read, so
-the authorizer sees it within the cache TTL, and sooner on
-`invalidate(identityId)` when an `organization.member.removed` webhook arrives.
+the authorizer sees it within the cache TTL, and at once when the
+`organization.member.removed` webhook is passed to `authorizer.applyEvent`.
 
 Tokens also carry `amr`, how the session was proven (`pwd`, `otp` or `sso`,
 plus `mfa` once a second factor was verified), so a backend can insist on
@@ -260,29 +261,64 @@ const { token, base_url } = await canopy.organizations.mintDirectoryToken(
 
 ### Handling webhooks
 
+Check every delivery's signature before acting on it, over the body exactly
+as it arrived, then hand it to the authorizer and to your own handlers.
 Every webhook event has a published schema, and the SDK types deliveries from
-it. Narrow by event name and read that event's `metadata` without a cast; a
-field the API adds arrives with the next `npm run generate`.
+it: narrow by event name and read that event's `metadata` without a cast.
 
 ```ts
-import { isWebhookEvent, type WebhookDelivery } from "@canopy-io/node";
+import express from "express";
+import {
+  isWebhookEvent,
+  verifyWebhookSignature,
+  type WebhookDelivery,
+} from "@canopy-io/node";
 
-app.post("/webhooks/canopy", (req, res) => {
-  const delivery = req.body as WebhookDelivery;
+app.post(
+  "/webhooks/canopy",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const valid = await verifyWebhookSignature({
+      headers: req.headers,
+      rawBody: req.body,
+      secret: process.env.CANOPY_WEBHOOK_SECRET,
+    });
 
-  if (isWebhookEvent(delivery, "organization.member.added")) {
-    const { identity_id, role_id } = delivery.data.metadata;
-    // ...
-  }
+    if (!valid) {
+      return res.sendStatus(401);
+    }
 
-  res.sendStatus(204);
-});
+    const delivery = JSON.parse(req.body.toString()) as WebhookDelivery;
+
+    authorizer.applyEvent(delivery);
+
+    if (isWebhookEvent(delivery, "organization.member.added")) {
+      const { identity_id, role_id } = delivery.data.metadata;
+      // ...
+    }
+
+    res.sendStatus(204);
+  },
+);
 ```
+
+`verifyWebhookSignature` resolves `false` for a missing header, a signature
+that matches no secret, or an `X-Canopy-Timestamp` more than five minutes
+from this machine's clock (`toleranceSeconds` changes it). For a while after
+you rotate the secret the header carries two signatures, the new secret's
+first, so a receiver still holding the old secret keeps verifying. To roll
+the new secret out without a gap, pass both: `secret: [newSecret, oldSecret]`.
+It runs on Web Crypto, so it works in edge workers as well as Node.
+
+Deliveries are at least once. `X-Canopy-Webhook-Id` is the same across
+retries: use it as an idempotency key for your own handlers. `applyEvent` is
+safe to repeat.
 
 `WebhookEvent<"assignment.updated">` is the delivery of one event, and
 `WebhookEventName` is every event a subscription can receive. The API's
 `GET /api/v1/webhooks/event-types` names each event's schema in
-`payload_schema`.
+`payload_schema`. A field the API adds arrives with the next
+`npm run generate`.
 
 ### Authorizing without a call per request
 
@@ -320,7 +356,8 @@ and read again if the hierarchy changed while its pages were being read. At
 50,000 nodes a rebuild is 501 requests, and a revalidation is one.
 
 Both are held for at most 60 seconds, which is the delay between an access
-change and it taking effect, including a moved node. Set `ttlMs` to change it,
+change and it taking effect, including a moved node, unless a webhook or the
+change feed drops them sooner (see "Revoking before the window lapses"). Set `ttlMs` to change it,
 up to five minutes (`300_000`); a longer value throws when the authorizer is
 created. Shortening it below the gap between a user's requests saves nothing:
 every request then finds the cache expired and refetches.
@@ -342,16 +379,17 @@ roles that spare it), so a check refuses with `denied` when a deny root for
 the permission is at the node or above it, before any grant is looked at. An
 `app_wide` check holds while one grant in effect stands clear of every deny.
 Denies ride the same cache and TTL as grants: a deny created or deleted
-reaches this authorizer within `ttlMs`, and `invalidate()` with no argument
-picks it up at once, since a deny on a role binds everyone holding it.
+reaches this authorizer within `ttlMs`, and at once through `applyEvent`,
+which drops the one person a deny names and everything for a deny on a role,
+since a deny on a role binds everyone holding it.
 
 A machine client's grants are its own, read from
 `GET /api/v1/oauth-clients/:id/grants`. Pass `principal_type: "service"` with
 the client's `client_id` as `identity_id`; the list reads and `invalidate` take
 `{ principalType: "service" }`. The two kinds are cached apart, so a client
 never answers from a person's grants. An assignment webhook naming a machine
-client carries its `client_id` in `data.metadata.client_id`, the id to
-invalidate:
+client carries its `client_id` in `data.metadata.client_id`, the id it is
+cached under; `applyEvent` reads it from there. By hand:
 
 ```ts
 await authorizer.evaluate({
@@ -430,10 +468,52 @@ authorizer, as `canopy.identities.accessibleNodes(id, { permission })`.
 
 `canopy.permissions.evaluate` remains for a decision with no staleness at all.
 
-`authorizer.invalidate(identityId)` drops one identity's cached grants, so
-the next check reads them fresh. It reaches only this process: with several
-instances behind a load balancer, each keeps its own cache until its TTL runs
-out or it is told to invalidate too.
+#### Revoking before the window lapses
+
+`authorizer.applyEvent(delivery)` takes a webhook delivery and drops what
+it makes stale, and answers what it dropped:
+
+- A change naming whose access moved (an assignment, an Environment or
+  organization membership, an identity's status, a deny on one person, a
+  machine client disabled or deleted) drops those subjects' grants and keeps
+  everyone else's, and the hierarchy, warm.
+- A change whose reach it cannot name (a role, a permission, a node, the
+  hierarchy schema, an organization created or deleted, a deny on a role, a
+  directory group mapped) drops everything.
+- A change that moves no one's access (a profile edit, a sign-in policy, a
+  session revoked) drops nothing. An event this version does not know drops
+  everything, since guessing it harmless is the unsafe direction.
+
+A check already reading from Canopy when the change lands answers from what
+it read, but what it read is not kept, so the next check sees the change.
+
+`authorizer.replayChanges({ cursor })` reads `GET /api/v1/changes` from
+`cursor` to the newest change, applies each one the same way, and answers the
+cursor to keep for next time. Run it at startup to catch up on what a process
+missed while it was down, or on an interval in place of webhooks:
+
+```ts
+let cursor: string | null = await loadCursor();
+
+setInterval(async () => {
+  ({ cursor } = await authorizer.replayChanges({ cursor }));
+  await saveCursor(cursor);
+}, 15_000);
+```
+
+With no cursor it starts at the oldest change Canopy still retains, so the
+first replay walks that window once.
+
+A webhook reaches one process. With several instances behind a load
+balancer, `applyEvent` drops the cache of the one that received it, and the
+others keep theirs until their own TTL runs out. Either fan the delivery out
+to every instance over your own pub/sub, or have every instance run
+`replayChanges` on an interval shorter than `ttlMs`. Otherwise the TTL stays
+the fleet-wide revocation guarantee.
+
+`authorizer.invalidate(identityId)` remains for a change your own backend
+makes and knows about: it drops one identity's cached grants, and with no
+argument everything.
 
 A failed check (Canopy unreachable, a credential that cannot read the
 hierarchy, an identity not in the Environment, or a Canopy serving an

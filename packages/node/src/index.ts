@@ -36,7 +36,14 @@ export type {
   LocalDecision,
   LocalDecisionEvent,
   LocalDenialReason,
+  ReplayChangesOptions,
+  ReplayChangesResult,
 } from "./authorizer.js";
+export type {
+  AppliedChange,
+  AuthorizationChange,
+  InvalidatedSubject,
+} from "./invalidation.js";
 
 export { paginate, Paginator } from "./pagination.js";
 export type { PageFetcher, PageParams, PaginateOptions } from "./pagination.js";
@@ -85,12 +92,18 @@ export type { PermissionItem } from "./resources/permissions.js";
 export { Roles } from "./resources/roles.js";
 export type { RoleItem } from "./resources/roles.js";
 
-export { isWebhookEvent } from "./webhooks.js";
+export {
+  isWebhookEvent,
+  verifyWebhookSignature,
+  WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS,
+} from "./webhooks.js";
 export type {
+  VerifyWebhookSignatureInput,
   WebhookDelivery,
   WebhookEvent,
   WebhookEventData,
   WebhookEventName,
+  WebhookHeaders,
 } from "./webhooks.js";
 
 export { withConcurrency } from "./schema.js";
