@@ -1,5 +1,20 @@
 # @canopy-io/node
 
+## 0.17.0
+
+### Minor Changes
+
+- 3b4bc7f: Generated types follow the API as Canopy now publishes it. The spec has 199 operations.
+  
+  - Access previews are stored: the node move and delete, role permission and organization node previews answer an `id` and `expires_at` with their counts and no longer carry `people`. The people are read from `GET /api/v1/access-previews/{previewId}/people`, or as CSV from `.../people.csv`, by the principal that made the preview. Code that read `people` from a preview's type reads the new route instead.
+  - Identities can be created with a password hash: `password_hash` and `password_hash_algorithm` on create and bulk create. The request schemas are now `ApiCreateIdentityDto` and `ApiBulkCreateIdentitiesDto` in `components["schemas"]`, so a reference to `CreateIdentityDto` or `BulkCreateIdentitiesDto` takes the new name.
+- 5de853f: Webhooks reach the `LocalAuthorizer` cache, so a revocation lands on the next local check instead of waiting out `ttlMs`.
+  
+  - `verifyWebhookSignature({ headers, rawBody, secret })` checks a delivery's `X-Canopy-Signature`: HMAC-SHA256 over `{id}.{timestamp}.{raw body}`, compared in constant time on Web Crypto, so it runs in edge workers as well as Node. It accepts either signature while a rotation's window is open, takes several secrets while you roll one out, and refuses a timestamp more than five minutes from the clock (`toleranceSeconds`). It resolves `false`, never rejects.
+  - `authorizer.applyEvent(delivery)` drops what a webhook delivery or change-feed entry makes stale and answers what it dropped: the subjects an assignment, membership, identity-status, single-person deny or machine-client change names; everything for a role, permission, node, schema, organization creation or deletion, role deny or directory group mapping; nothing for a change that moves no one's access. An event this version does not know drops everything.
+  - `authorizer.replayChanges({ cursor })` reads `GET /api/v1/changes` to the newest change, applies each, and answers the cursor to resume from: for catching up after a restart, or polled on every instance in place of webhooks.
+  - `invalidate` now also discards a read already in flight, so a check that began before a change cannot put the access it revoked back in the cache for a whole window.
+
 ## 0.16.0
 
 ### Minor Changes
