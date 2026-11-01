@@ -8,6 +8,8 @@ Requires NestJS 10 or 11. `@canopy-io/node` comes with it.
 
 ## Register the module
 
+Register it once, in the root module, with `isGlobal: true`. Guarded controllers usually live in feature modules, and the guards there resolve the module's providers only when it is global; without it the application refuses to start.
+
 `verify` is required: the module builds a `TokenVerifier` at startup. Name the Environment (`environmentId`), or `issuer` on a custom auth domain or self-hosted instance. For Hosted Login, add `audience`, your OAuth `client_id`; for the Direct API, leave it out.
 
 ```ts
@@ -22,6 +24,8 @@ interface AuthedRequest {
 @Module({
   imports: [
     CanopyModule.forRoot<AuthedRequest>({
+      // Guards in every feature module resolve from this one registration.
+      isGlobal: true,
       apiKey: process.env.CANOPY_API_KEY,
       verify: {
         environmentId: process.env.CANOPY_ENVIRONMENT_ID ?? "",
@@ -51,6 +55,7 @@ interface AuthedRequest {
 @Module({
   imports: [
     CanopyModule.forRootAsync<AuthedRequest>({
+      isGlobal: true,
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
