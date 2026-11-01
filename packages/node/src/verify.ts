@@ -1,4 +1,5 @@
 import { CanopyTokenError } from "./errors.js";
+import { hostedOrigin } from "./origin.js";
 import { withoutTrailingSlashes } from "./strings.js";
 
 /**
@@ -27,9 +28,6 @@ import { withoutTrailingSlashes } from "./strings.js";
  * requires an API key or an access token, and a backend that only checks
  * logins holds neither.
  */
-
-/** Canopy's hosted origin. Matches the client's default base URL. */
-const HOSTED_ORIGIN = "https://auth.canopy-io.com";
 
 /** How long a fetched key set is reused before being refreshed. */
 const DEFAULT_JWKS_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -89,7 +87,7 @@ function resolveIssuer(options: TokenVerifierOptions): string {
   }
 
   if (environmentId) {
-    return `${HOSTED_ORIGIN}/environments/${environmentId}`;
+    return `${hostedOrigin()}/environments/${environmentId}`;
   }
 
   throw new TypeError(
@@ -102,8 +100,9 @@ export interface TokenVerifierOptions {
   /**
    * The Environment whose tokens are accepted. Every Environment is its own
    * issuer with its own signing keys, at
-   * `https://auth.canopy-io.com/environments/<id>`, so on hosted Canopy this is
-   * all verification needs. A token from any other Environment fails.
+   * `https://auth.canopy-io.com/environments/<id>` (or under `CANOPY_BASE_URL`
+   * when that environment variable is set), so on hosted Canopy this is all
+   * verification needs. A token from any other Environment fails.
    *
    * Set exactly one of `environmentId` and `issuer`; the constructor throws
    * with neither or both.

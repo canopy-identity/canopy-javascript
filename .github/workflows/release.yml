@@ -163,3 +163,28 @@ jobs:
           git merge --no-ff "$RELEASE_SHA" \
             -m "chore(release): sync version packages into development"
           git push origin development
+
+      # The published packages are proven against a live Canopy by the skill
+      # harness in the canopy repository (its `apps/_sandbox-skill`), which
+      # runs the skill's code blocks with the versions just published. A
+      # repository_dispatch starts that run as soon as npm has them. Needs a
+      # fine-grained token for canopy-identity/canopy with Actions: write,
+      # kept as CANOPY_DISPATCH_TOKEN; without it the step is skipped and the
+      # harness's weekly schedule picks the versions up instead.
+      - name: Run the skill harness in canopy against the published packages
+        if: steps.pending.outputs.found == 'true'
+        env:
+          CANOPY_DISPATCH_TOKEN: ${{ secrets.CANOPY_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$CANOPY_DISPATCH_TOKEN" ]; then
+            echo "CANOPY_DISPATCH_TOKEN is not set; the harness's schedule will cover this release."
+            exit 0
+          fi
+
+          versions="$(git tag --points-at HEAD | tr '\n' ' ')"
+
+          curl -fsS -X POST "https://api.github.com/repos/canopy-identity/canopy/dispatches" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $CANOPY_DISPATCH_TOKEN" \
+            -d "{\"event_type\":\"sdk-published\",\"client_payload\":{\"versions\":\"$versions\"}}"
+          echo "Dispatched sdk-published to canopy-identity/canopy for $versions"
