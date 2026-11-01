@@ -408,7 +408,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Force-reset an identity's MFA — admin recovery action
+         * Force-reset an identity's MFA, as an admin recovery action
          * @description Force-resets an identity's MFA enrollment (server-to-server admin), clearing all enrolled factors across the Account so the identity must re-enroll on next sign-in. Gated by an Environment-scoped membership check and audited. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
          */
         post: operations["ApiIdentitiesController_resetIdentityMfa"];
@@ -5059,6 +5059,11 @@ export interface components {
             metadata: Record<string, unknown>;
             /** Format: date-time */
             created_at: string;
+            /**
+             * @description The channel the change came in through when it was not a direct call: `mcp` for a write an AI assistant made through the account MCP server, as the actor. NULL for a direct call.
+             * @enum {string|null}
+             */
+            channel?: "mcp" | null;
             /** @description Snapshot label of the actor at write time (email for users / identities, label otherwise). NULL on rows written before the Slice 2 deploy. */
             actor_label?: string | null;
             /** @description Snapshot label of the affected resource at write time. NULL on rows written before the Slice 2 deploy. */
@@ -5145,6 +5150,11 @@ export interface components {
             severity?: "info" | "notice" | "warning" | "critical";
             /** @enum {string} */
             outcome?: "success" | "failure" | "denied";
+            /**
+             * @description Only rows written through this channel: `mcp` for changes an AI assistant made through the account MCP server.
+             * @enum {string}
+             */
+            channel?: "mcp";
             /** Format: uuid */
             actor_id?: string;
             /** @description Free-form actor-type filter (e.g. `user`, `identity`). */
@@ -5187,6 +5197,11 @@ export interface components {
             metadata: Record<string, unknown>;
             /** Format: date-time */
             created_at: string;
+            /**
+             * @description The channel the change came in through when it was not a direct call: `mcp` for a write an AI assistant made through the account MCP server, as the actor. NULL for a direct call.
+             * @enum {string|null}
+             */
+            channel?: "mcp" | null;
             /** @description Snapshot label of the actor at write time (email for users / identities, label otherwise). NULL on rows written before the Slice 2 deploy. */
             actor_label?: string | null;
             /** @description Snapshot label of the affected resource at write time. NULL on rows written before the Slice 2 deploy. */
@@ -5594,7 +5609,7 @@ export interface components {
              */
             access_mode: "scoped" | "full_access";
             /** @description Permission scopes this key is authorized for, each one the platform offers (`GET .../api-keys/scopes`). Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
-            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "deny.view" | "deny.manage" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage" | "branding.view" | "branding.manage")[];
+            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "deny.view" | "deny.manage" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage" | "audit.view" | "branding.view" | "branding.manage")[];
             /** @description Expiration date (ISO 8601). Omit for no expiration. */
             expires_at?: string;
         };
@@ -26279,6 +26294,8 @@ export interface operations {
                 category?: "auth" | "identity" | "admin_user" | "tenancy" | "hierarchy" | "organization" | "rbac" | "authorization" | "api_keys" | "oauth" | "webhooks" | "invites" | "mfa" | "audit" | "billing" | "sso" | "unknown";
                 severity?: "info" | "notice" | "warning" | "critical";
                 outcome?: "success" | "failure" | "denied";
+                /** @description Only rows written through this channel: `mcp` for changes an AI assistant made through the account MCP server. */
+                channel?: "mcp";
                 actor_id?: string;
                 /** @description Free-form actor-type filter (e.g. `user`, `identity`). */
                 actor_type?: string;
