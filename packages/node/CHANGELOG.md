@@ -1,5 +1,15 @@
 # @canopy-io/node
 
+## 0.18.0
+
+### Minor Changes
+
+- 4a092d0: `CANOPY_BASE_URL` sets the Canopy origin for the whole process: `Canopy` and `CanopyClient` call it instead of the hosted API, and `TokenVerifier` resolves `environmentId` to an issuer under it. A self-hosted instance, a proxy or a test stack sets the one variable and keeps the code it would write for hosted Canopy. An explicit `baseUrl` or `issuer` still wins. Read through `globalThis`, so browsers, Workers and Deno are unaffected.
+
+### Patch Changes
+
+- 056f64d: Generated types follow the API as Canopy now publishes it: an audit event carries `channel` (`"mcp"` for a change an AI assistant made through the account MCP server, `null` for a direct call), the audit event list takes a `channel` filter, and the API key scope list matches the current catalogue.
+
 ## 0.17.0
 
 ### Minor Changes
