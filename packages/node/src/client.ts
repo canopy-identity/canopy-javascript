@@ -3,6 +3,7 @@ import {
   CanopyError,
   type CanopyErrorBody,
 } from "./errors.js";
+import { hostedOrigin } from "./origin.js";
 import { withoutTrailingSlashes } from "./strings.js";
 
 /**
@@ -73,7 +74,11 @@ export interface CanopyClientOptions {
   apiKey?: string;
   /** Identity or portal JWT, sent as `Authorization: Bearer`. */
   accessToken?: string;
-  /** Defaults to Canopy's hosted API. Set this for a self-hosted instance. */
+  /**
+   * Defaults to Canopy's hosted API, or to `CANOPY_BASE_URL` when that
+   * environment variable is set. Set this, or the variable, for a self-hosted
+   * instance.
+   */
   baseUrl?: string;
   /** Per-attempt deadline. Defaults to 30s; 0 disables. */
   timeoutMs?: number;
@@ -163,7 +168,6 @@ export type CallOptions = Pick<
   "signal" | "timeoutMs" | "maxRetries" | "maxBackoffMs" | "headers"
 >;
 
-const DEFAULT_BASE_URL = "https://auth.canopy-io.com";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_RETRIES = 2;
 const DEFAULT_MAX_BACKOFF_MS = 30_000;
@@ -198,7 +202,7 @@ export class CanopyClient {
       );
     }
 
-    this.baseUrl = withoutTrailingSlashes(options.baseUrl ?? DEFAULT_BASE_URL);
+    this.baseUrl = withoutTrailingSlashes(options.baseUrl ?? hostedOrigin());
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;

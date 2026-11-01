@@ -45,7 +45,7 @@ In a backend proxy, forward the end user's address and user agent as `X-Canopy-C
 
 ## Finding the issuer and Environment id
 
-Each Environment is its own issuer: `https://<api origin>/environments/<environment_id>`, or `https://<custom auth domain>` once one is active. The Console shows the issuer, discovery and JWKS URLs under Authentication → Signing keys, and every OAuth client response includes `issuer`. Pass `environmentId` to `TokenVerifier` for the default issuer, or `issuer` for a custom domain or a self-hosted instance.
+Each Environment is its own issuer: `https://<api origin>/environments/<environment_id>`, or `https://<custom auth domain>` once one is active. The Console shows the issuer, discovery and JWKS URLs under Authentication → Signing keys, and every OAuth client response includes `issuer`. Pass `environmentId` to `TokenVerifier` for the default issuer, or `issuer` for a custom domain or a self-hosted instance. A self-hosted instance can instead set `CANOPY_BASE_URL` for the process: the client calls it and `environmentId` resolves under it, so the code stays what it is on hosted Canopy.
 
 ## Credentials, in one place
 

@@ -32,7 +32,7 @@ Then the authorization model: is the Environment **flat**, a **hierarchy**, or d
 ## Rules that are never optional
 
 1. **Verify every token; never decode one.** Use `TokenVerifier` (or `CanopyTokenGuard`). A decoded but unverified token is an open door.
-2. **Name the issuer.** Every Environment is its own issuer: pass `environmentId`, or `issuer` on a custom auth domain or self-hosted instance. The verifier refuses to start with neither.
+2. **Name the issuer.** Every Environment is its own issuer: pass `environmentId`, or `issuer` on a custom auth domain or self-hosted instance (a self-hosted instance can instead set `CANOPY_BASE_URL` for the process). The verifier refuses to start with neither.
 3. **Set `audience` to match the sign-in shape.** A Hosted Login access token carries `aud`, your OAuth `client_id`: pass `audience` so a token minted for another client is refused. A Direct API token carries none: leave `audience` unset. The verifier refuses a token whose `aud` it was not told to check, so the wrong setting fails every request rather than letting one through. The verifier accepts identity tokens only; add `allowedTypes` only for a backend that must accept Canopy's own administrator tokens. A machine client's `client_credentials` token (`type: "service"`) is admitted per route, never verifier-wide: `verify(token, { alsoAllow: ["service"] })`, or `@AllowServiceTokens()` in NestJS. Its `aud` names the API, so set `serviceAudience` to the audience the API answers to.
 4. **Authorize locally.** Use `CanopyGuard` or `LocalAuthorizer`, which answer from cached grant roots and the hierarchy. Do not call `canopy.permissions.evaluate` on every request; keep it for the rare decision that must have no staleness.
 5. **Fail closed, and keep the failures apart.** `403` means denied. `503` means Canopy could not be reached and nothing was decided: never turn it into a `403`, and never into an allow. `500` means the integration is broken (bad API key, missing scope). Outside NestJS, `tokenErrorStatus` and `authorizationErrorStatus` give the status for a failed verification or check.
@@ -57,3 +57,7 @@ Then the authorization model: is the Environment **flat**, a **hierarchy**, or d
 - **Package READMEs:** `@canopy-io/node` and `@canopy-io/nestjs` on npm.
 
 Never guess an endpoint path, a claim name or an error code. Look it up, or ask the user.
+
+## How this skill is checked
+
+Every TypeScript block in the references compiles against the packages it ships with (`npm run check:skill` in this repository), and the Canopy repository assembles the blocks of `nestjs.md`, `express.md` and `node.md` into running applications against a live Canopy on every pull request and release, asserting the statuses they claim. A block that stops being true fails there before it ships.

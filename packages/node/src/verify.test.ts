@@ -820,6 +820,33 @@ describe("TokenVerifier — which issuer", () => {
     );
   });
 
+  it("reads the Environment's issuer under CANOPY_BASE_URL when that is set", async () => {
+    const environmentId = "0b8f6f2e-4c1d-4e7a-9f3b-6d2a1c5e8b47";
+    const issuer = `http://localhost:3333/environments/${environmentId}`;
+    const { fetch } = jwksFetch([signer]);
+    const previous = process.env["CANOPY_BASE_URL"];
+
+    process.env["CANOPY_BASE_URL"] = "http://localhost:3333/";
+
+    try {
+      const verifier = new TokenVerifier({ environmentId, fetch });
+      const claims = await verifier.verify(
+        await signer.sign(validClaims({ iss: issuer })),
+      );
+
+      expect(claims.iss).toBe(issuer);
+      expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(
+        `${issuer}/.well-known/jwks.json`,
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env["CANOPY_BASE_URL"];
+      } else {
+        process.env["CANOPY_BASE_URL"] = previous;
+      }
+    }
+  });
+
   it("refuses a token from another Environment", async () => {
     const { fetch } = jwksFetch([signer]);
     const verifier = new TokenVerifier({
