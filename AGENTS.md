@@ -13,4 +13,4 @@ Use the Canopy agent skill in [`plugins/canopy/skills/canopy/`](plugins/canopy/s
 - `src/generated/types.ts` is generated from the published OpenAPI document; never edit it by hand (`npm run generate`).
 - `@canopy-io/node` has zero runtime dependencies, and CI enforces it.
 - Every change to a published package carries a changeset (`npm run changeset`).
-- When the SDK's behaviour or options change, update the skill in the same pull request: its code blocks must keep compiling, and its rules must stay true.
+- When the SDK's behaviour or options change, update the skill in the same pull request: its code blocks must keep compiling, and its rules must stay true. The Canopy repository also runs the blocks of `nestjs.md`, `express.md` and `node.md` against a live Canopy (`apps/_sandbox-skill` there, on every pull request and release, and after each publish here), so a block whose claimed status changes needs that harness's expectations changed with it.

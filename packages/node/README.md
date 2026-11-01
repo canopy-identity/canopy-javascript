@@ -169,6 +169,11 @@ On a custom auth domain or a self-hosted instance, set `issuer` instead
 throws with neither. Getting it wrong fails closed: tokens are rejected, never
 mistakenly accepted.
 
+A self-hosted instance can instead set `CANOPY_BASE_URL` once for the process:
+the client calls it and `environmentId` resolves to an issuer under it, so the
+code stays what it is on hosted Canopy. An explicit `baseUrl` or `issuer` still
+wins.
+
 With an Environment's **organizations** container on, an identity token also
 names the organization the session is acting in and the roles held at that
 organization's node, by name and by id. Read them through `orgContext` rather
