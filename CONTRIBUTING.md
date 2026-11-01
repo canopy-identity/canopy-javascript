@@ -98,6 +98,12 @@ Four things to confirm; the job succeeding is not the same as any of them.
 - `development` carries a `chore(release): sync version packages into
 development` commit and its `package.json` versions match `main`.
 
+Then, after a minor release or any release that changed the skill, run the
+agent evaluation in the Canopy repository against what was published:
+`npm run eval` in `apps/_sandbox-eval`, with its `summary.md` posted on OPS-213.
+An assistant integrates Canopy from the published skill and SDK alone, and the
+app it writes is graded by real requests (`docs/AI_SURFACES.md` there).
+
 If the release job fails partway it is safe to re-run: `changeset publish`
 skips versions npm already has, and the Release step leaves an existing
 release alone. If the sync into `development` is the step that failed, someone
