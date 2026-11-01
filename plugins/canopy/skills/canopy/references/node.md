@@ -95,8 +95,10 @@ export async function authenticate(
   try {
     return await verifier.verify(token);
   } catch (error) {
-    // 401 for the token's own faults (expired, bad signature, wrong issuer),
-    // 503 when the keys could not be read. error.code is for your logs.
+    // The token's own faults (expired, bad signature, wrong issuer) are a 401:
+    // no claims. Anything else is rethrown for the caller to answer with
+    // tokenErrorStatus(error).status, 503 when the keys could not be read.
+    // error.code is for your logs.
     if (tokenErrorStatus(error).status === 401) {
       return null;
     }
@@ -105,6 +107,8 @@ export async function authenticate(
   }
 }
 ```
+
+- **Answer what `authenticate` throws.** Catch it where you answer the request and send `tokenErrorStatus(error).status`. An uncaught throw becomes a `500` in Express, Next.js route handlers and most frameworks, which reports a Canopy outage as a broken integration.
 
 - On a custom auth domain or self-hosted instance, pass `issuer` (for example `https://auth.acme.com`) instead of `environmentId`.
 - Pre-auth tokens (issued before an administrator picks an Account) are refused by default. Leave it that way.
