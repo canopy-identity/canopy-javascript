@@ -34,6 +34,7 @@ import { CanopyModule } from "@canopy-io/nestjs";
 @Module({
   imports: [
     CanopyModule.forRoot<AuthedRequest>({
+      isGlobal: true,
       apiKey: process.env.CANOPY_API_KEY,
       verify: { environmentId: process.env.CANOPY_ENVIRONMENT_ID },
       resolveIdentity: (request) => request.user?.sub,
@@ -44,6 +45,8 @@ import { CanopyModule } from "@canopy-io/nestjs";
 export class AppModule {}
 ```
 
+Register it once, in the root module. `isGlobal: true` makes its providers visible to the guards in your feature modules, where guarded controllers usually live; without it, a guard outside the registering module cannot resolve its token verifier and the application refuses to start. It defaults to `false`, as `@nestjs/config` does.
+
 `verify` names the Environment whose tokens the module accepts (`environmentId`, or `issuer` on a custom auth domain or a self-hosted instance; a self-hosted instance can instead set `CANOPY_BASE_URL` for the process, which `environmentId` and the client both follow). It is required: the module builds its token verifier at startup.
 
 The two resolvers are how the guard learns _who_ is asking and _where_. Where those live is your application's business — a claim on a verified token, a route parameter, a tenant on the session — so you supply them rather than the library guessing. Pass your own request type to `forRoot` and both resolvers are typed against it.
@@ -52,6 +55,7 @@ When the key comes from something injectable, use `forRootAsync`:
 
 ```ts
 CanopyModule.forRootAsync({
+  isGlobal: true,
   imports: [ConfigModule],
   inject: [ConfigService],
   useFactory: (config: ConfigService) => ({
