@@ -13,6 +13,8 @@ The application renders its own form and calls Canopy's identity endpoints. The 
 - Email one-time codes (`/login/email-otp/start` and `/verify`) and self-signup (`/register`) exist but are off until the Environment turns them on.
 - Read sign-in options and the password policy from `GET /v1/identity/auth/config?publishable_key=…` rather than hard-coding them.
 - SSO from a Direct API app: `POST /v1/identity/auth/sso/resolve`, send the browser to the returned start URL, and exchange the `sso_token` it comes back with at `POST /v1/identity/auth/sso/authenticate`.
+- Social sign-in from a Direct API app: the enabled providers are `social_providers` on `GET /v1/identity/auth/config` (each with a `slug`, its `kind` and a `display_name`), so the page shows exactly those buttons. A button sends the browser to `GET /v1/identity/auth/social/<slug>/start` with `publishable_key`, `return_url` and a `state` you keep; `return_url` must match one of the Environment's **Redirect URLs** exactly. The browser comes back with `sso_token` and your `state`, or `error` and your `state`: check `state`, then exchange the token at `POST /v1/identity/auth/sso/authenticate` as after SSO. The session's `amr` is `["fed", "google"]`, or `["fed", "oidc:<name>"]` for a custom provider.
+- Linked providers on an account screen: `GET /v1/identity/auth/social-links` lists the identity's linked accounts. `POST /v1/identity/auth/social-links/<slug>/start` with `{ return_url, state, current_password }` answers `{ authorization_url }` for the browser; it comes back with `linked=<slug>` or `error=<code>`. `DELETE /v1/identity/auth/social-links/<id>` unlinks one. Both re-verify the person: the current password when the identity has one, plus `x-mfa-step-up-token` from `POST /v1/identity/auth/mfa/step-up` when it has a second factor or no password (an identity with neither gets a code by `POST /v1/identity/auth/mfa/step-up/email`).
 
 ### Hosted Login (OAuth 2.0 and OIDC)
 
@@ -23,6 +25,7 @@ Canopy renders sign-in, MFA and SSO. The application is a confidential OAuth cli
 - The token response is plain OAuth: `access_token`, `id_token` and an opaque `refresh_token`. Both JWTs carry `aud`, your `client_id`: verify the access token's issuer, audience and `type`.
 - Refresh with `grant_type=refresh_token` at `/oauth/token`. Sign out with both `/oauth/revoke` and the `end_session_endpoint` (with `id_token_hint`).
 - A standard OIDC library (for example `openid-client`) drives the flow; read endpoints from the issuer's discovery document rather than building URLs.
+- Social providers the Environment enables appear as buttons on the hosted sign-in and sign-up pages, and the person links or unlinks them on the hosted security page. The application builds nothing for them; their tokens carry `amr` `["fed", "<provider>"]`.
 
 ## Where the refresh token lives
 

@@ -14,6 +14,14 @@ A Hosted Login access token carries `aud`, your OAuth `client_id`; a Direct API 
 
 Each Environment is its own issuer. A verifier for the wrong Environment rejects every token, and code that skips the issuer check accepts tokens from other Environments. Pass `environmentId`, or `issuer` for a custom auth domain.
 
+## A provider's OAuth flow built beside Canopy
+
+Signing people in with Google through `passport`, NextAuth or the provider's own SDK, then matching the email to a Canopy identity, leaves the application holding no Canopy token and duplicates what Canopy does: verifying the provider's answer, trusting only an email the provider verified, linking, and applying the organization's sign-in policy and MFA. Enable the provider for the Environment in the Console instead, and use the hosted button or the Direct API start URL ([choosing.md](choosing.md)).
+
+## A social sign-in's refusal treated as a crash
+
+A Direct API social sign-in returns to `return_url` with `error` when Canopy refuses it, and `POST /v1/identity/auth/sso/authenticate` can still refuse the session. Show the reason on the sign-in page; do not retry, and do not fall back to creating the account yourself. The codes: `social.no_identity` (no account with that email and self-signup is off, or the account is not a member of this Environment), `social.email_unverified` (the provider did not verify the email, so it can neither link nor create an account), `social.identity_sso_managed` (the account signs in through its organization's SSO), `auth.account_deactivated`, `social.provider_not_enabled`, `social.sign_in_invalid` (the provider's answer failed verification) and `social.provider_unavailable`. An organization whose policy does not allow the provider refuses at `sso/authenticate` with `403 organization.sign_in_method_not_allowed`, or `403 organization.sso_required` when it requires SSO. Always check the `state` you sent before reading anything else on the return URL.
+
 ## Calling `evaluate` on every request
 
 `canopy.permissions.evaluate` in a hot path puts Canopy in every request: latency, rate limits, and an outage that takes the application down with it. Use `CanopyGuard` or `LocalAuthorizer`. Keep `evaluate` for a single decision that must have no staleness.

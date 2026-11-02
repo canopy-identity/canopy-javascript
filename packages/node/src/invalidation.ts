@@ -50,6 +50,9 @@ const NO_ACCESS_CHANGE = new Set([
   "organization.policy.updated",
   "organization.sso_connection.bound",
   "organization.sso_connection.unbound",
+  // How an identity signs in, not what it may do.
+  "identity.social_link.added",
+  "identity.social_link.removed",
   // A pushed group grants nothing until it is mapped, which is its own event.
   "scim.group.created",
 ]);
