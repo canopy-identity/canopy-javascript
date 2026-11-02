@@ -42,6 +42,7 @@ Then the authorization model: is the Environment **flat**, a **hierarchy**, or d
 8. **Verify webhook signatures over the raw body** with `verifyWebhookSignature`, never a hand-written check, then pass the delivery to `authorizer.applyEvent` so a revocation does not wait out the cache. See [references/node.md](references/node.md).
 9. **Do not log token values**, and do not invent password rules: read `password_policy` from `GET /v1/identity/auth/config`.
 10. **Take organization and node context from a verified token or your own data**, never from a header or body the caller controls.
+11. **Bind a redirect sign-in's `state` to the browser that started it.** For a social or SSO sign-in through the Direct API, keep the `state` in an httpOnly cookie (or that browser's own session) and compare on return; a server-side list of pending states lets an attacker sign someone else in as themselves.
 
 ## Where to go next
 
