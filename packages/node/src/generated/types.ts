@@ -239,7 +239,7 @@ export interface paths {
         };
         /**
          * Get an identity
-         * @description Returns a single identity by id, scoped to the current Environment. The response carries profile metadata only (id, email, name, `external_id`, `is_active`, `created_at`); use the detail endpoint for role assignments. Returns `404` when the id does not resolve to an identity with membership in this Environment.
+         * @description Returns a single identity by id, scoped to the current Environment. The response carries profile metadata (id, email, name, `external_id`, `is_active`, `created_at`) and `social_links`, the social provider accounts the identity signs in with (read-only; the identity links and unlinks them on its security page); use the detail endpoint for role assignments. Returns `404` when the id does not resolve to an identity with membership in this Environment.
          */
         get: operations["ApiIdentitiesController_getIdentity"];
         put?: never;
@@ -267,7 +267,7 @@ export interface paths {
         };
         /**
          * Get identity detail with role assignments
-         * @description Returns an enriched view of a single identity in the current Environment: profile fields plus `email_verified`, `metadata`, and the identity's role assignments resolved to role and node names. Also returns `can_manage`, reflecting whether the calling principal holds `identity.manage` in this Application. Returns `404` when the identity has no membership in this Environment.
+         * @description Returns an enriched view of a single identity in the current Environment: profile fields plus `email_verified`, `metadata`, the identity's role assignments resolved to role and node names, and `social_links`, the social provider accounts it signs in with. Also returns `can_manage`, reflecting whether the calling principal holds `identity.manage` in this Application. Returns `404` when the identity has no membership in this Environment.
          */
         get: operations["ApiIdentitiesController_getIdentityDetail"];
         put?: never;
@@ -3283,6 +3283,40 @@ export interface components {
         ApiBulkCreateIdentitiesDto: {
             identities: components["schemas"]["ApiCreateIdentityDto"][];
         };
+        IdentitySocialLinkResponseDto: {
+            id: string;
+            /** @description The provider's name as the sign-in page shows it, or, when the provider has been removed, the host the account signed in at. */
+            label: string;
+            /** @description The slug of the provider it signs in through, or null when the provider has been removed. */
+            slug?: string | null;
+            /**
+             * @description The provider's kind, `oidc` for a custom OpenID Connect provider, or null when the provider has been removed.
+             * @enum {string|null}
+             */
+            kind?: "google" | "github" | "microsoft" | "apple" | "oidc" | null;
+            /** @description The email the provider reported when the account was linked. It need not match the identity's. */
+            email?: string | null;
+            /** Format: date-time */
+            linked_at: string;
+            /**
+             * Format: date-time
+             * @description The last time the identity signed in with this account.
+             */
+            last_used_at?: string | null;
+        };
+        IdentityWithSocialLinksResponseDto: {
+            id: string;
+            email: string;
+            first_name: string;
+            last_name: string;
+            avatar_url?: string | null;
+            external_id?: string | null;
+            is_active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** @description The social provider accounts the identity signs in with, oldest first. Linked and unlinked by the identity on its security page. */
+            social_links: components["schemas"]["IdentitySocialLinkResponseDto"][];
+        };
         IdentityDetailResponseDto: {
             id: string;
             email: string;
@@ -3295,6 +3329,7 @@ export interface components {
             is_active: boolean;
             email_verified: boolean;
             roles: components["schemas"]["IdentityRoleDto"][];
+            social_links: components["schemas"]["IdentitySocialLinkResponseDto"][];
             can_manage: boolean;
             /** Format: date-time */
             created_at: string;
@@ -3344,6 +3379,14 @@ export interface components {
              */
             webauthn_rp_id: string | null;
         };
+        MfaRequiredEnvironmentResponseDto: {
+            /** Format: uuid */
+            environment_id: string;
+            /** @example production */
+            environment_slug: string;
+            /** @example ledger */
+            application_slug: string;
+        };
         AccountIdentityMfaResponseDto: {
             factors: components["schemas"]["MfaFactorResponseDto"][];
             /** @description Generation number of the active recovery-code batch. 0 means no batch has ever been issued; 1+ tracks regenerations. */
@@ -3355,6 +3398,8 @@ export interface components {
              * @description Timestamp of the most recent admin force-reset. `null` if MFA has never been reset for this identity.
              */
             mfa_admin_reset_at?: string | null;
+            /** @description The Environments where the identity's next sign-in asks for a second factor: the Environment requires MFA, or an organization the identity belongs to there does. Empty when MFA is required nowhere they sign in, so after a reset they sign in without one. On the public API it lists the key's own Environment at most. */
+            mfa_required_in: components["schemas"]["MfaRequiredEnvironmentResponseDto"][];
         };
         IdentityAuthStateResponseDto: {
             /** @description Master kill-switch — false means the identity cannot sign in. */
@@ -4046,9 +4091,17 @@ export interface components {
             mfa_factor_allowlist: ("totp" | "webauthn" | "email_otp")[];
             /** @enum {string} */
             mfa_after_sso: "exempt" | "require";
-            /** @description The sign-in methods on offer: on the Environment, the ones it has turned on; on the effective policy, those narrowed by the organization, and `["sso"]` alone while it requires SSO. */
-            allowed_sign_in_methods: ("password" | "email_otp" | "sso")[];
+            /** @description The sign-in methods on offer: on the Environment, the ones it has turned on; on the effective policy, those narrowed by the organization, and `["sso"]` alone while it requires SSO. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+            allowed_sign_in_methods: string[];
             require_sso: boolean;
+        };
+        PolicySocialProviderDto: {
+            /** @description The sign-in method the provider adds: its kind, or `oidc:<slug>` for a custom provider. */
+            method: string;
+            /** @enum {string} */
+            kind: "google" | "github" | "microsoft" | "apple" | "oidc";
+            /** @description The provider's name as the sign-in page shows it. */
+            label: string;
         };
         OrganizationPolicyResponseDto: {
             /** @description The organization this policy belongs to. */
@@ -4057,8 +4110,8 @@ export interface components {
             mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[] | null;
             /** @enum {string|null} */
             mfa_after_sso?: "exempt" | "require" | null;
-            /** @description The methods the organization keeps of the Environment's, or null to inherit them all. */
-            allowed_sign_in_methods?: ("password" | "email_otp" | "sso")[] | null;
+            /** @description The methods the organization keeps of the Environment's, or null to inherit them all. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+            allowed_sign_in_methods?: string[] | null;
             require_sso: boolean;
             /**
              * @description Whether the Environment's staff (identities holding a role at the Environment root) may enter this organization. `allowed` until the organization refuses them.
@@ -4067,6 +4120,8 @@ export interface components {
             staff_entry: "allowed" | "refused";
             /** @description The Environment's own settings, the floor this organization's policy tightens from. */
             environment: components["schemas"]["EffectiveOrganizationPolicyDto"];
+            /** @description The Environment's enabled social providers, in the order they are offered, naming the methods they add to `allowed_sign_in_methods`. */
+            social_providers: components["schemas"]["PolicySocialProviderDto"][];
             /** @description The policy the organization's members sign in under. */
             effective: components["schemas"]["EffectiveOrganizationPolicyDto"];
             /** @description Optimistic-concurrency version. 0 until the organization sets a policy of its own. */
@@ -4088,8 +4143,8 @@ export interface components {
              * @enum {string|null}
              */
             mfa_after_sso?: "exempt" | "require" | null;
-            /** @description The sign-in methods this organization's members may use. A non-empty subset of the methods the Environment offers (`password` unless the Environment turned it off, `email_otp` where the Environment turned it on, and `sso`); a method the Environment does not offer is refused with `organization.policy_loosens`. `null` inherits the Environment's. While `require_sso` is on, SSO is the only method whatever this says. */
-            allowed_sign_in_methods?: ("password" | "email_otp" | "sso")[] | null;
+            /** @description The sign-in methods this organization's members may use. A non-empty subset of the methods the Environment offers (`password` unless the Environment turned it off, `email_otp` where the Environment turned it on, each social provider it enabled, and `sso`); a method the Environment does not offer is refused with `organization.policy_loosens`. `null` inherits the Environment's. While `require_sso` is on, SSO is the only method whatever this says. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+            allowed_sign_in_methods?: string[] | null;
             /** @description Members must sign in through SSO. Password and email-code logins are refused for the organization's members and for any email whose domain routes to a connection bound to this organization. */
             require_sso?: boolean;
             /**
@@ -5772,6 +5827,32 @@ export interface components {
                 };
             };
         };
+        /** @description A delivery of the `identity.social_link.added` webhook event. */
+        WebhookIdentitySocialLinkAddedEvent: {
+            /** @enum {string} */
+            event: "identity.social_link.added";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description The sign-in method the link adds: google, github, microsoft, apple, or oidc:<name> for a custom provider. */
+                    method: string;
+                };
+            };
+        };
+        /** @description A delivery of the `identity.social_link.removed` webhook event. */
+        WebhookIdentitySocialLinkRemovedEvent: {
+            /** @enum {string} */
+            event: "identity.social_link.removed";
+            data: components["schemas"]["ChangeEventDataDto"] & {
+                /** @enum {string} */
+                resource_type: "identity";
+                metadata: {
+                    /** @description The sign-in method the identity no longer has: google, github, microsoft, apple, or oidc:<name> for a custom provider. */
+                    method: string;
+                };
+            };
+        };
         /** @description A delivery of the `identity.env_membership.added` webhook event. */
         WebhookIdentityEnvMembershipAddedEvent: {
             /** @enum {string} */
@@ -6939,8 +7020,8 @@ export interface components {
                      * @enum {string|null}
                      */
                     mfa_after_sso: "exempt" | "require" | null;
-                    /** @description The sign-in methods members may use, or null to inherit the Environment's. */
-                    allowed_sign_in_methods: ("password" | "email_otp" | "sso")[] | null;
+                    /** @description The sign-in methods members may use, or null to inherit the Environment's. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+                    allowed_sign_in_methods: string[] | null;
                     /** @description Whether members must sign in with SSO. */
                     require_sso: boolean;
                     /**
@@ -8680,7 +8761,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
-                        data: components["schemas"]["IdentityResponseDto"];
+                        data: components["schemas"]["IdentityWithSocialLinksResponseDto"];
                     };
                 };
             };
@@ -9640,7 +9721,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Returns the identity's enrolled factors (TOTP and WebAuthn rows with redacted secrets), the current recovery-code generation count + remaining count, and the most-recent admin-reset timestamp. */
+            /** @description Returns the identity's enrolled factors (TOTP and WebAuthn rows with redacted secrets), the current recovery-code generation count + remaining count, the most-recent admin-reset timestamp, and the Environments where their next sign-in asks for a second factor. */
             200: {
                 headers: {
                     [name: string]: unknown;

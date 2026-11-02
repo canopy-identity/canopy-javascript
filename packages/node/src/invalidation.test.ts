@@ -176,6 +176,8 @@ describe("invalidationFor", () => {
     "oauth_client.secret_rotated",
     "organization.updated",
     "organization.policy.updated",
+    "identity.social_link.added",
+    "identity.social_link.removed",
     "scim.group.created",
   ])("drops nothing for %s", (event) => {
     expect(invalidationFor(change(event))).toBe("none");
