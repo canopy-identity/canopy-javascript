@@ -36,6 +36,9 @@ describe("webhook event types", () => {
     expectTypeOf<"session.all_revoked">().toMatchTypeOf<WebhookEventName>();
     // The directory's own activity, subscribable from this release on.
     expectTypeOf<"scim.group.member_added">().toMatchTypeOf<WebhookEventName>();
+    // Linking or unlinking a social provider account, from this release on.
+    expectTypeOf<"identity.social_link.added">().toMatchTypeOf<WebhookEventName>();
+    expectTypeOf<"identity.social_link.removed">().toMatchTypeOf<WebhookEventName>();
     expectTypeOf<"not.an.event">().not.toMatchTypeOf<WebhookEventName>();
   });
 
