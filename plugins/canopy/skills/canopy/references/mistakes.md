@@ -26,6 +26,14 @@ A social sign-in's `state` kept in a server-side set or map of pending states, a
 
 A Direct API social sign-in returns to `return_url` with `error` when Canopy refuses it, and `POST /v1/identity/auth/sso/authenticate` can still refuse the session. Show the reason on the sign-in page; do not retry, and do not fall back to creating the account yourself. The codes: `social.no_identity` (no account with that email and self-signup is off, or the account is not a member of this Environment), `social.email_unverified` (the provider did not verify the email, so it can neither link nor create an account), `social.identity_sso_managed` (the account signs in through its organization's SSO), `auth.account_deactivated`, `social.provider_not_enabled`, `social.sign_in_invalid` (the provider's answer failed verification) and `social.provider_unavailable`. An organization whose policy does not allow the provider refuses at `sso/authenticate` with `403 organization.sign_in_method_not_allowed`, or `403 organization.sso_required` when it requires SSO. Always check the `state` you sent before reading anything else on the return URL.
 
+## A WebAuthn flow built beside Canopy
+
+Registering passkeys and verifying assertions in the application (with `@simplewebauthn/server` or any other library), then looking the person up in Canopy, leaves the application holding no Canopy session and storing credentials of its own. Canopy already keeps the passkey as the identity's second factor and verifies it: run only the browser ceremony against Canopy's options (`/login/passkey/options` and `/verify`, [choosing.md](choosing.md)), or let the hosted page do it.
+
+## A passkey sign-in's refusal treated as a crash
+
+`POST /v1/identity/auth/login/passkey/options` and `/verify` refuse by code. Show the reason and offer the other ways in; never retry with the same `passkey_token`, and treat a dismissed browser prompt (`NotAllowedError`) as nothing to report. The codes: `403 auth.passkey_login_disabled` (the Environment has passkey sign-in off: read `passkey_login_enabled` from `GET /v1/identity/auth/config` and show no button), `401 auth.passkey_sign_in_expired` (the token was spent, expired after five minutes, or belongs to another Environment: start again from `options`), `401 auth.passkey_user_verification_required` (the authenticator did not check it was the person, so it cannot sign in alone), and `401 auth.invalid_credentials` (a passkey Canopy does not know, one bound to another relying party, or a signature that did not verify). An organization whose policy does not allow passkeys refuses with `403 organization.sign_in_method_not_allowed`.
+
 ## Calling `evaluate` on every request
 
 `canopy.permissions.evaluate` in a hot path puts Canopy in every request: latency, rate limits, and an outage that takes the application down with it. Use `CanopyGuard` or `LocalAuthorizer`. Keep `evaluate` for a single decision that must have no staleness.
