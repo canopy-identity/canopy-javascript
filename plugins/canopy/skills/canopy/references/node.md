@@ -112,7 +112,7 @@ export async function authenticate(
 
 - On a custom auth domain or self-hosted instance, pass `issuer` (for example `https://auth.acme.com`) instead of `environmentId`.
 - Pre-auth tokens (issued before an administrator picks an Account) are refused by default. Leave it that way.
-- `claims.amr` says how the session was proven (`pwd`, `otp`, `sso`, `fed` with the provider for a social sign-in such as `["fed", "google"]`, plus `mfa` after a second factor). Require `claims.amr?.includes("mfa")` before a sensitive action if the product needs it.
+- `claims.amr` says how the session was proven (`pwd`, `otp`, `sso`, `fed` with the provider for a social sign-in such as `["fed", "google"]`, `hwk` for a passkey sign-in, which carries `mfa` with it as `["hwk", "mfa"]`, plus `mfa` after a second factor). Require `claims.amr?.includes("mfa")` before a sensitive action if the product needs it.
 - With organizations on, read the organization through `orgContext(claims)`, which returns `{ orgId, orgRoles, orgRoleIds, staff }` or `null`, rather than off the raw claims. `orgRoles` is empty for a member holding no role at the organization node; authorize by evaluating, not by the list. `staff` is true for the developer's own staff (a role at the Environment root, `org_scope: "all"` on the token) inside a customer's organization: show it, since the organization sees each entry in its staff activity.
 
 ## Machine clients

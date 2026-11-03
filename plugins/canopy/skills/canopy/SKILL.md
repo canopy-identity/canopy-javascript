@@ -23,6 +23,7 @@ Before writing any sign-in code, settle two questions with the user. Getting the
    - **Direct API:** the application renders its own form and calls `/v1/identity/auth/*` with a publishable key (`pk_…`).
    - **Hosted Login:** Canopy renders it; the application is an OAuth 2.0 / OIDC client (authorization code with PKCE).
    - Social sign-in (Google, GitHub, Microsoft, Apple, or an OpenID Connect provider) works on both: the Environment enables each provider in the Console, Hosted Login shows it as a button, and a Direct API app sends the browser to Canopy's start URL. Never build a provider's OAuth flow beside Canopy.
+   - Passkey sign-in works on both too, where the Environment turns it on: Hosted Login shows **Sign in with a passkey**, and a Direct API app runs the browser ceremony against Canopy's `login/passkey/options` and `/verify`. The passkey is both factors. Never register or verify passkeys in the application beside Canopy.
 2. **Where does the refresh token live?** Decided by the publishable key's type and by the domains involved:
    - browser app on the same site as Canopy: nothing to do;
    - browser app on its own domain: a **custom auth domain** (recommended), or a **backend proxy** (BFF) when DNS is out of reach;

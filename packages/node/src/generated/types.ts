@@ -4091,7 +4091,7 @@ export interface components {
             mfa_factor_allowlist: ("totp" | "webauthn" | "email_otp")[];
             /** @enum {string} */
             mfa_after_sso: "exempt" | "require";
-            /** @description The sign-in methods on offer: on the Environment, the ones it has turned on; on the effective policy, those narrowed by the organization, and `["sso"]` alone while it requires SSO. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+            /** @description The sign-in methods on offer: on the Environment, the ones it has turned on; on the effective policy, those narrowed by the organization, and `["sso"]` alone while it requires SSO. Each is `password`, `email_otp`, `passkey`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
             allowed_sign_in_methods: string[];
             require_sso: boolean;
         };
@@ -4110,7 +4110,7 @@ export interface components {
             mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[] | null;
             /** @enum {string|null} */
             mfa_after_sso?: "exempt" | "require" | null;
-            /** @description The methods the organization keeps of the Environment's, or null to inherit them all. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+            /** @description The methods the organization keeps of the Environment's, or null to inherit them all. Each is `password`, `email_otp`, `passkey`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
             allowed_sign_in_methods?: string[] | null;
             require_sso: boolean;
             /**
@@ -4143,7 +4143,7 @@ export interface components {
              * @enum {string|null}
              */
             mfa_after_sso?: "exempt" | "require" | null;
-            /** @description The sign-in methods this organization's members may use. A non-empty subset of the methods the Environment offers (`password` unless the Environment turned it off, `email_otp` where the Environment turned it on, each social provider it enabled, and `sso`); a method the Environment does not offer is refused with `organization.policy_loosens`. `null` inherits the Environment's. While `require_sso` is on, SSO is the only method whatever this says. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+            /** @description The sign-in methods this organization's members may use. A non-empty subset of the methods the Environment offers (`password` unless the Environment turned it off, `email_otp` and `passkey` where the Environment turned them on, each social provider it enabled, and `sso`); a method the Environment does not offer is refused with `organization.policy_loosens`. `null` inherits the Environment's. While `require_sso` is on, SSO is the only method whatever this says. Each is `password`, `email_otp`, `passkey`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
             allowed_sign_in_methods?: string[] | null;
             /** @description Members must sign in through SSO. Password and email-code logins are refused for the organization's members and for any email whose domain routes to a connection bound to this organization. */
             require_sso?: boolean;
@@ -7020,7 +7020,7 @@ export interface components {
                      * @enum {string|null}
                      */
                     mfa_after_sso: "exempt" | "require" | null;
-                    /** @description The sign-in methods members may use, or null to inherit the Environment's. Each is `password`, `email_otp`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
+                    /** @description The sign-in methods members may use, or null to inherit the Environment's. Each is `password`, `email_otp`, `passkey`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
                     allowed_sign_in_methods: string[] | null;
                     /** @description Whether members must sign in with SSO. */
                     require_sso: boolean;
