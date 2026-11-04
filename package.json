@@ -16,7 +16,7 @@
   ],
   "scripts": {
     "prepare": "husky",
-    "build": "npm run build --workspace @canopy-io/node && npm run build --workspace @canopy-io/nestjs",
+    "build": "npm run build --workspace @canopy-io/node && npm run build --workspace @canopy-io/nestjs && npm run build --workspace @canopy-io/browser",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
@@ -24,7 +24,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "generate": "npm run generate --workspaces --if-present",
-    "check:packaging": "attw --pack packages/node && attw --pack packages/nestjs",
+    "check:packaging": "attw --pack packages/node && attw --pack packages/nestjs && attw --pack packages/browser",
     "generate:check": "npm run generate:check --workspaces --if-present",
     "check:skill": "node scripts/check-skill-snippets.mjs",
     "verify": "npm run build && npm run lint && npm run typecheck && npm run generate:check && npm run check:skill && npm run test",

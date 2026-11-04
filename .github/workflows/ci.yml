@@ -65,19 +65,23 @@ jobs:
       # are exempt — they exist to depend on their framework — so this asserts
       # per package rather than across the workspace, and fails loudly if the
       # package it is meant to guard ever stops being found.
-      - name: No runtime dependencies in @canopy-io/node
+      # @canopy-io/browser is held to the same rule: it ships into every
+      # customer's page, where a dependency is also bytes on every load.
+      - name: No runtime dependencies in @canopy-io/node or @canopy-io/browser
         run: |
           node - <<'JS'
           const { readFileSync } = require("node:fs");
-          const pkg = JSON.parse(readFileSync("packages/node/package.json", "utf8"));
-          if (pkg.name !== "@canopy-io/node") {
-            console.error(`expected @canopy-io/node at packages/node, found ${pkg.name}`);
-            process.exit(1);
+          for (const [dir, name] of [["node", "@canopy-io/node"], ["browser", "@canopy-io/browser"]]) {
+            const pkg = JSON.parse(readFileSync(`packages/${dir}/package.json`, "utf8"));
+            if (pkg.name !== name) {
+              console.error(`expected ${name} at packages/${dir}, found ${pkg.name}`);
+              process.exit(1);
+            }
+            const deps = Object.keys(pkg.dependencies ?? {});
+            if (deps.length > 0) {
+              console.error(`${name}: runtime dependencies present: ${deps.join(", ")}`);
+              process.exit(1);
+            }
+            console.log(`confirmed: ${name} has zero runtime dependencies`);
           }
-          const deps = Object.keys(pkg.dependencies ?? {});
-          if (deps.length > 0) {
-            console.error(`runtime dependencies present: ${deps.join(", ")}`);
-            process.exit(1);
-          }
-          console.log("confirmed: zero runtime dependencies");
           JS
