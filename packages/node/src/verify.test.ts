@@ -138,6 +138,23 @@ describe("TokenVerifier — accepting a genuine token", () => {
     expect(claims.environment_id).toBe("env_1");
   });
 
+  it("reads the Environment's custom claims typed, and says when they overflowed", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({ issuer: ISSUER, fetch });
+
+    const claims = await verifier.verify<{ plan?: "free" | "pro" }>(
+      await signer.sign(
+        validClaims({ plan: "pro", custom_claims_overflow: true }),
+      ),
+    );
+
+    // A declaration of what the Environment maps, not a check: the value
+    // arrives as the API stored it, and the overflow flag beside it.
+    expect(claims.plan).toBe("pro");
+    expect(claims.custom_claims_overflow).toBe(true);
+    expect(claims.sub).toBe("idn_123");
+  });
+
   it("fetches the key set once across many verifications", async () => {
     const { fetch, calls } = jwksFetch([signer]);
     const verifier = new TokenVerifier({ issuer: ISSUER, fetch });

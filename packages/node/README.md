@@ -216,6 +216,14 @@ Tokens also carry `amr`, how the session was proven (`pwd`, `otp` or `sso`,
 plus `mfa` once a second factor was verified), so a backend can insist on
 `claims.amr?.includes("mfa")` before a sensitive action.
 
+An Environment can map custom claims onto the token (a `plan` copied from the
+identity's or organization's metadata). Name them to `verify` to read them
+typed, each optional: `verifier.verify<{ plan?: "free" | "pro" }>(token)`. A
+value that is not stored is left off the token, and so is one that did not fit
+the token's size limit, which `claims.custom_claims_overflow` reports; treat an
+absent claim as not set, and read the value from the API when the token says
+it overflowed.
+
 The organizations themselves are wrapped on the client: provision a tenant,
 manage its members and invitations, tighten its sign-in policy, bind its
 identity provider, and set up its directory sync.

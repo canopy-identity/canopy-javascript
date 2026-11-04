@@ -174,6 +174,22 @@ Verification is local: one fetch of the key set, then a signature check per
 request with no network at all. If Canopy cannot be reached when the keys are
 due for a refresh, the guard keeps verifying with the keys it holds.
 
+The attached claims are `CanopyTokenClaims`, plus whatever custom claims the
+Environment maps onto the token. `CanopyTokenRequest<TCustom>` types a request
+the guard has run on with those named, each optional, so a handler reads
+`request.canopyToken?.plan` typed. A custom claim that is not stored, or did
+not fit the token (`custom_claims_overflow`), is absent: treat that as not
+set, never as a pass.
+
+```ts
+@Get("quarterly")
+quarterly(@Req() request: CanopyTokenRequest<{ plan?: "free" | "pro" }>) {
+  if (request.canopyToken?.plan !== "pro") {
+    throw new ForbiddenException();
+  }
+}
+```
+
 Only identity tokens are accepted, the people who sign in to your application.
 A token Canopy signed for one of its own administrators or staff answers `401`
 unless you add its type to `verify.allowedTypes`.

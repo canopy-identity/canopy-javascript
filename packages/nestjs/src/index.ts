@@ -13,6 +13,7 @@ export { CanopyModule } from "./canopy.module.js";
 export { AllowServiceTokens } from "./allow-service-tokens.decorator.js";
 export { CanopyGuard } from "./canopy.guard.js";
 export { CanopyTokenGuard } from "./canopy-token.guard.js";
+export type { CanopyTokenRequest } from "./canopy-token.guard.js";
 export { InjectCanopy } from "./inject-canopy.decorator.js";
 export { RequirePermission } from "./require-permission.decorator.js";
 export type {

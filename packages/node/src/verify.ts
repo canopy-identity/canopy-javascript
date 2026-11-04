@@ -196,7 +196,10 @@ export interface TokenVerifierOptions {
  * The claims Canopy puts in an access token.
  *
  * Named claims are the ones the API guarantees; the index signature keeps
- * anything added later reachable without a version bump.
+ * anything added later reachable without a version bump. The Environment's
+ * custom claims (a `plan` copied from the identity's metadata, say) arrive
+ * through it too; name them to {@link TokenVerifier.verify} to read them
+ * typed.
  */
 export interface CanopyTokenClaims {
   /**
@@ -268,6 +271,14 @@ export interface CanopyTokenClaims {
    * the session is inside an organization.
    */
   org_scope?: "all";
+  /**
+   * True when the Environment's custom claims did not all fit on this token:
+   * they are added in the mapping's order within a size limit, and the ones
+   * past it are left out. A missing custom claim is then "unknown", not
+   * "not set"; read it from the API (the identity's or organization's
+   * metadata) instead of treating the token as complete.
+   */
+  custom_claims_overflow?: boolean;
   [claim: string]: unknown;
 }
 
@@ -441,11 +452,17 @@ export class TokenVerifier {
    *
    * Order matters: the signature is checked before any claim is believed, so
    * nothing downstream ever reads an unverified payload.
+   *
+   * `TCustom` names the Environment's custom claims, so they read typed off
+   * the result: `verify<{ plan?: "free" | "pro" }>(token)`. It is a
+   * declaration, not a check: a custom claim is absent when its value is not
+   * stored, or when it did not fit (`custom_claims_overflow`), so keep each
+   * one optional.
    */
-  async verify(
+  async verify<TCustom extends object = object>(
     token: string,
     options: VerifyCallOptions = {},
-  ): Promise<CanopyTokenClaims> {
+  ): Promise<CanopyTokenClaims & TCustom> {
     const parts = token.split(".");
 
     if (parts.length !== 3) {
@@ -504,7 +521,7 @@ export class TokenVerifier {
     const claims = decodeJsonSegment(
       encodedPayload,
       "payload",
-    ) as CanopyTokenClaims;
+    ) as CanopyTokenClaims & TCustom;
 
     this.assertClaims(claims, options);
 

@@ -208,6 +208,20 @@ describe("handleRedirect", () => {
     expect(await h.client.getAccessToken()).toBe("access-1");
   });
 
+  it("reads the Environment's custom claims off the ID token, typed", async () => {
+    const h = harness((_body, nonce) =>
+      tokens({ id_token: idToken({ nonce, plan: "pro", amr: ["pwd"] }) }),
+    );
+    const { url } = await callback(h);
+
+    await h.client.handleRedirect(url);
+
+    const claims = h.client.getClaims<{ plan?: "free" | "pro" }>();
+
+    expect(claims?.plan).toBe("pro");
+    expect(claims?.amr).toEqual(["pwd"]);
+  });
+
   it("takes the response parameters out of the URL", async () => {
     const h = harness();
     const { url } = await callback(h);
