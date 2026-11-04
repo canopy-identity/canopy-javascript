@@ -143,7 +143,7 @@ export class CanopyBrowserClient {
       );
     }
 
-    this.#issuer = options.issuer.replace(/\/+$/, "");
+    this.#issuer = withoutTrailingSlashes(options.issuer);
     this.#clientId = options.clientId;
     this.#redirectUri = options.redirectUri;
     this.#scopes = options.scopes ?? DEFAULT_SCOPES;
@@ -512,6 +512,21 @@ export class CanopyBrowserClient {
 
     return raw ? (JSON.parse(raw) as Pending) : undefined;
   }
+}
+
+/**
+ * The issuer with any trailing slashes removed, so `…/env-1/` and `…/env-1`
+ * name the same issuer. A loop rather than a regular expression: the value
+ * is the caller's, and an anchored `/+$` backtracks on a long run of slashes.
+ */
+function withoutTrailingSlashes(value: string): string {
+  let end = value.length;
+
+  while (end > 0 && value[end - 1] === "/") {
+    end -= 1;
+  }
+
+  return value.slice(0, end);
 }
 
 function hasResponse(url: string): boolean {
