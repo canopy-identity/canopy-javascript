@@ -64,7 +64,19 @@ A `cnpy_…` API key or an OAuth client secret in front-end code, or in an envir
 
 ## Mishandling the refresh token
 
-Storing a `web` refresh token in `localStorage` (it is an httpOnly cookie for a reason), parsing it, or keeping an old one after a refresh. Replaying a rotated refresh token revokes every session the identity holds. A backend proxy overwrites its stored token on every refresh.
+Storing a `web` refresh token in `localStorage` (it is an httpOnly cookie for a reason), parsing it, or keeping an old one after a refresh. Replaying a rotated refresh token through the Direct API revokes every session the identity holds; through Hosted Login it ends that sign-in's session. A backend proxy overwrites its stored token on every refresh.
+
+## A public client's tokens in `localStorage`
+
+A public client has no secret, which is not permission to keep its tokens where any script on the page can read them. Keep them in memory (`@canopy-io/browser` does), and get new ones after a reload with `prompt=none` ([spa.md](spa.md)). `sessionStorage` holds only the PKCE verifier for the round trip.
+
+## The wrong client type
+
+An app with a backend registered as a public client puts tokens in the browser for no reason; a single-page app with no backend registered as a confidential one ships the secret to the browser, which makes it public anyway. Pick by where the code exchange runs. A public client that sends a secret is refused with `invalid_client`, and the type cannot change after registration: register a new client.
+
+## A silent sign-in that retries
+
+`prompt=none` answered with `login_required` or `interaction_required` means the person has to sign in. Show the sign-in button; retrying silently loops. Sign out through both `/oauth/revoke` and the end-session endpoint, or the next silent attempt signs the person straight back in.
 
 ## Webhooks verified over re-serialized JSON
 
