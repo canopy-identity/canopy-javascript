@@ -317,9 +317,16 @@ export class CanopyBrowserClient {
     return this.#refreshing;
   }
 
-  /** The signed-in person's ID token claims, or `null`. */
-  getClaims(): IdTokenClaims | null {
-    return this.#session?.claims ?? null;
+  /**
+   * The signed-in person's ID token claims, or `null`. `TCustom` names the
+   * Environment's custom claims marked for the ID token, each optional:
+   * `getClaims<{ plan?: string }>()?.plan`.
+   */
+  getClaims<TCustom extends object = object>():
+    (IdTokenClaims & TCustom) | null {
+    return (
+      (this.#session?.claims as (IdTokenClaims & TCustom) | undefined) ?? null
+    );
   }
 
   /**

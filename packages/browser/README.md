@@ -49,7 +49,7 @@ const token = await canopy.getAccessToken();
 - `start()` finishes a sign-in Canopy has just answered. With nothing in memory (a first visit, a reload) it asks Canopy with `prompt=none`, which returns with tokens while the person's Canopy session lasts and with `login_required` otherwise. Show the sign-in button on `signed-out`, and on `error` (`result.error.needsSignIn` tells the expected answers from a fault).
 - `signIn({ prompt, organization, loginHint, returnTo })` sends the browser to the hosted sign-in. `returnTo` comes back on the result.
 - `getAccessToken()` returns a current access token, refreshed first when it is within a minute of expiring, or `null` once the session has ended. Concurrent calls share one refresh.
-- `getClaims()` returns the ID token's claims: `sub`, and `email` or `name` with those scopes.
+- `getClaims()` returns the ID token's claims: `sub`, and `email` or `name` with those scopes. The Environment's custom claims marked for the ID token are there too; name them to read them typed, each optional: `getClaims<{ plan?: string }>()?.plan`. Show them; never authorize from the ID token.
 - `signOut()` revokes the refresh token and sends the browser to Canopy's end-session endpoint, so the next `start()` does not sign the person back in.
 
 Your API verifies the access token as it would any Hosted Login token, with `audience` set to the public `client_id` (`TokenVerifier` in `@canopy-io/node`). This package does not verify signatures: it checks the ID token's issuer, audience, nonce and expiry, as OpenID Connect asks of a token received straight from the token endpoint.

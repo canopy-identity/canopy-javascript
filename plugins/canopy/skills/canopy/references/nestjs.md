@@ -145,6 +145,38 @@ export class ImportsController {
 
 - Put `@AllowServiceTokens()` only on routes built for machines. Read `request.canopyToken.type` in the handler when people and machines should be treated differently.
 
+### Reading a custom claim
+
+An Environment can map facts of its own onto the token (Console: Tenant → Authentication → Custom claims): a `plan` from the identity's metadata, say. `CanopyTokenRequest<TCustom>` types the request `CanopyTokenGuard` attached the claims to, with the custom claims named and optional: one that is not stored, or did not fit (`custom_claims_overflow`), is absent, which is "not set", never a pass.
+
+```ts
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
+import { CanopyTokenGuard, type CanopyTokenRequest } from "@canopy-io/nestjs";
+
+interface PlanClaims {
+  plan?: "free" | "pro";
+}
+
+@Controller("exports")
+@UseGuards(CanopyTokenGuard)
+export class ExportsController {
+  @Get("quarterly")
+  quarterly(@Req() request: CanopyTokenRequest<PlanClaims>) {
+    if (request.canopyToken?.plan !== "pro") {
+      throw new ForbiddenException("The quarterly export needs the Pro plan.");
+    }
+
+    return { rows: [] };
+  }
+}
+```
+
 ## What each status means
 
 `CanopyGuard` never lets an undecided request through:

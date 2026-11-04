@@ -23,6 +23,24 @@ import {
 } from "./tokens.js";
 
 /**
+ * A request `CanopyTokenGuard` has run on: the verified claims under
+ * `canopyToken` (or the module's `attachTokenAs`). `TCustom` names the
+ * Environment's custom claims, each optional, so a handler reads them typed:
+ *
+ * ```ts
+ * @Get("export")
+ * export(@Req() request: CanopyTokenRequest<{ plan?: "free" | "pro" }>) {
+ *   if (request.canopyToken?.plan !== "pro") {
+ *     throw new ForbiddenException();
+ *   }
+ * }
+ * ```
+ */
+export interface CanopyTokenRequest<TCustom extends object = object> {
+  canopyToken?: CanopyTokenClaims & TCustom;
+}
+
+/**
  * Verifies the bearer token and attaches its claims to the request.
  *
  * This is the authentication half, and it is opt-in on purpose. `CanopyGuard`

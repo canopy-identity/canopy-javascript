@@ -1246,7 +1246,7 @@ export interface paths {
         post: operations["ApiOrganizationsController_createOrganization"];
         /**
          * Delete every organization
-         * @description Deletes every live organization in the Environment the way the single delete does: memberships and every assignment beneath each organization are removed, pending invitations bound to the organization or its tree are revoked, and each organization is soft-deleted with its subtree. Member identities are untouched. This is the step before switching the container off. Responds `204 No Content`, requires the `hierarchy.manage` permission, and emits `organization.deleted_all` with the counts.
+         * @description Deletes every live organization in the Environment the way the single delete does: memberships and every assignment beneath each organization are removed, pending invitations bound to the organization or its tree are revoked, and each organization is soft-deleted with its subtree. Member identities are untouched. This is the step before switching the container off, so unlike the other organization routes it does not require the organizations plan feature: an account that has moved to a plan without it can still empty the container and switch it off. Responds `204 No Content`, requires the `hierarchy.manage` permission, and emits `organization.deleted_all` with the counts.
          */
         delete: operations["ApiOrganizationsController_deleteAllOrganizations"];
         options?: never;
@@ -2728,6 +2728,30 @@ export interface paths {
          * @description Sets the Environment's branding. Every field is optional and stands on its own: send only what you want to change, send `null` to clear a field (the primary color then returns to the default blue). The product name shows in the browser tab, as the logo's alt text and in place of a missing logo; the logo shows at the top and the favicon in the tab; the primary color drives buttons and links, and the hover, link and focus shades are derived from it; the background color paints the page behind the card; the support, terms and privacy links show as "Need help?", "Terms" and "Privacy" under every hosted page. Returns `400` (`validation`) for a malformed value. Emits `environment.branding_updated`.
          */
         patch: operations["ApiBrandingController_updateBranding"];
+        trace?: never;
+    };
+    "/api/v1/token-claims": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an Environment's custom token claims
+         * @description Returns the custom claims the Environment adds to its identity tokens: for each, the claim's name, the stored fact it is read from (`source`) and the tokens it goes on (`access`, `id`), in the order they are added, with the Environment's `version` to send back as `If-Match`. An empty list means no custom claims.
+         */
+        get: operations["ApiTokenClaimsController_getTokenClaims"];
+        /**
+         * Replace an Environment's custom token claims
+         * @description Replaces the custom claims the Environment adds to its identity tokens with the list sent; an empty list removes them all. Each entry names the claim, its `source` (`identity.metadata.<path>`, `organization.metadata.<path>`, or a built-in identity or organization field) and the tokens it goes on. At most 20 entries. Every access token minted after the save carries them, Hosted Login and the Direct API alike, and the ID token those marked `id`; a session picks the change up at its next refresh. A value missing for the person is left out of the token. Send the Environment's `version` in `If-Match` to refuse a stale save: a mismatch answers `409 version_mismatch`, and without the header the check is skipped. Emits `environment.token_claims_updated` with the list before and after.
+         */
+        put: operations["ApiTokenClaimsController_replaceTokenClaims"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/webhooks": {
@@ -5396,6 +5420,56 @@ export interface components {
             /** @description Absolute https URL of the customer's privacy policy, linked as "Privacy" in the hosted pages' footer. Null hides it. */
             privacy_url?: string | null;
         };
+        TokenClaimEntryResponseDto: {
+            /**
+             * @description The claim's name on the token: letters, digits, `_`, `-`, `.`, `:` and `/`, at most 64 characters. A name the JWT or OpenID Connect standards define, or one Canopy sets (`type`, the `*_id` and `*_slug` claims, `permissions`, anything starting `org_` or `mcp_`), is refused.
+             * @example plan
+             */
+            claim: string;
+            /**
+             * @description Where the value comes from: `identity.metadata.<path>` or `organization.metadata.<path>` (dotted keys, at most 5), or one of `identity.email`, `identity.email_verified`, `identity.first_name`, `identity.last_name`, `identity.external_id`, `organization.name`, `organization.slug`, `organization.external_id`. An `organization.*` source reads the organization the session acts in.
+             * @example identity.metadata.plan
+             */
+            source: string;
+            /**
+             * @description The tokens the claim goes on: `access`, `id`, or both. The ID token is issued by Hosted Login only.
+             * @example [
+             *       "access",
+             *       "id"
+             *     ]
+             */
+            tokens: ("access" | "id")[];
+        };
+        TokenClaimsResponseDto: {
+            /** @description The Environment's version. Send it as `If-Match` on the next `PUT` to refuse a stale save; any change to the Environment advances it. */
+            version: number;
+            /** @description The mapping, in the order claims are added to a token. Empty when the Environment adds none. */
+            claims: components["schemas"]["TokenClaimEntryResponseDto"][];
+        };
+        TokenClaimEntryDto: {
+            /**
+             * @description The claim's name on the token: letters, digits, `_`, `-`, `.`, `:` and `/`, at most 64 characters. A name the JWT or OpenID Connect standards define, or one Canopy sets (`type`, the `*_id` and `*_slug` claims, `permissions`, anything starting `org_` or `mcp_`), is refused.
+             * @example plan
+             */
+            claim: string;
+            /**
+             * @description Where the value comes from: `identity.metadata.<path>` or `organization.metadata.<path>` (dotted keys, at most 5), or one of `identity.email`, `identity.email_verified`, `identity.first_name`, `identity.last_name`, `identity.external_id`, `organization.name`, `organization.slug`, `organization.external_id`. An `organization.*` source reads the organization the session acts in.
+             * @example identity.metadata.plan
+             */
+            source: string;
+            /**
+             * @description The tokens the claim goes on: `access`, `id`, or both. The ID token is issued by Hosted Login only.
+             * @example [
+             *       "access",
+             *       "id"
+             *     ]
+             */
+            tokens: ("access" | "id")[];
+        };
+        ReplaceTokenClaimsDto: {
+            /** @description The whole mapping, in the order claims are added to a token, at most 20 entries. An empty list removes every custom claim. */
+            claims: components["schemas"]["TokenClaimEntryDto"][];
+        };
         WebhookCreatedResponseDto: {
             id: string;
             /** @enum {string} */
@@ -5689,7 +5763,7 @@ export interface components {
              */
             access_mode: "scoped" | "full_access";
             /** @description Permission scopes this key is authorized for, each one the platform offers (`GET .../api-keys/scopes`). Required and must be non-empty when `access_mode` is `scoped`. Must be omitted when `access_mode` is `full_access`. */
-            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "deny.view" | "deny.manage" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage" | "audit.view" | "branding.view" | "branding.manage")[];
+            scopes?: ("hierarchy.view" | "hierarchy.manage" | "rbac.view_roles" | "rbac.manage_roles" | "rbac.view_assignments" | "rbac.manage_assignments" | "permissions.evaluate" | "deny.view" | "deny.manage" | "identity.view" | "identity.manage" | "api_key.view" | "api_key.manage" | "webhook.view" | "webhook.manage" | "oauth_client.view" | "oauth_client.manage" | "audit.view" | "branding.view" | "branding.manage" | "token_claims.view" | "token_claims.manage")[];
             /** @description Expiration date (ISO 8601). Omit for no expiration. */
             expires_at?: string;
         };
@@ -15897,7 +15971,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller may not manage this organization, or an organization administrator signed in as an identity sets `metadata` or `external_id`, which only the developer's backend or a Console administrator sets (`organization.developer_field`). Also a caller without the permissions the route needs */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -15908,10 +15982,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller may not manage this organization, or an organization administrator signed in as an identity sets `metadata` or `external_id`, which only the developer's backend or a Console administrator sets (`organization.developer_field`). Also a caller without the permissions the route needs",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}",
+                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -27484,6 +27558,204 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiTokenClaimsController_getTokenClaims: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The custom claims mapping */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TokenClaimsResponseDto"];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header; send one */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header; send one",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/token-claims",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/token-claims",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/token-claims",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiTokenClaimsController_replaceTokenClaims: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. */
+                "If-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceTokenClaimsDto"];
+            };
+        };
+        responses: {
+            /** @description The custom claims mapping, as saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TokenClaimsResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation, or an entry is refused: a name the JWT or OpenID Connect standards or Canopy already set (`token_claims.reserved_name`), a source outside the allowed fields (`token_claims.source_invalid`), or a name twice on the same token (`token_claims.duplicate_name`), with `error.data` naming the entry's `index` and its `field`; or the request sent both an `X-API-Key` and an `Authorization` header */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": null,
+                     *         "message": "The request failed validation, or an entry is refused: a name the JWT or OpenID Connect standards or Canopy already set (`token_claims.reserved_name`), a source outside the allowed fields (`token_claims.source_invalid`), or a name twice on the same token (`token_claims.duplicate_name`), with `error.data` naming the entry's `index` and its `field`; or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/token-claims",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": null,
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/token-claims",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": null,
+                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/token-claims",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The Environment changed since the version named in `If-Match` was read (`version_mismatch`); the current mapping is in `error.data.current` */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The Environment changed since the version named in `If-Match` was read (`version_mismatch`); the current mapping is in `error.data.current`",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/token-claims",
+                     *         "method": "PUT"
                      *       }
                      *     }
                      */
