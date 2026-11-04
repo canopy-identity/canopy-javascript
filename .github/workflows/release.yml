@@ -8,13 +8,18 @@ name: Release
 #
 # Loop guard: the version commit carries "[skip ci]", so pushing it back to
 # main does not re-trigger this workflow.
+#
+# A release that failed after its publish step (a refused package, a stuck
+# runner) is run again from the Actions tab with "Run workflow" on main:
+# `changeset publish` skips the versions npm already has.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 # Never run two releases at once; never cancel an in-flight publish.
 concurrency:
-  group: release
+  group: npm-publish
   cancel-in-progress: false
 
 permissions:
@@ -23,7 +28,12 @@ permissions:
 
 jobs:
   release:
+    # A manual run publishes from main only, as a push does.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # A publish takes about two minutes. A hung runner otherwise holds the job,
+    # and the concurrency group with it, for GitHub's default of six hours.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
