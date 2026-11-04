@@ -2837,7 +2837,7 @@ export interface paths {
         put?: never;
         /**
          * Register a new OAuth client
-         * @description Registers a new confidential OAuth client in the current Environment with the given `name`, `redirect_uris`, and optional `scopes` (defaulting to `openid profile email`), each one of `openid`, `profile`, `email`, `org` and `permissions`; any other value is refused with `400` (`oauth.client_scope_unknown`). With `client_kind: machine` it registers a machine client instead: a principal of its own that holds roles (see the assignments routes) and obtains tokens for itself, with an optional `organization_node_id` (the one organization it acts in), optional `allowed_audiences` and the `permissions` scope, the `client_credentials` grant only and no redirect URIs; it counts toward the plan's machine-credential allowance (`409 plan_limit_exceeded`). Generates the `client_id` and a `client_secret` that is bcrypt-hashed at rest; the raw secret is returned in this response only and is never retrievable again. Responds `201 Created`.
+         * @description Registers a new OAuth client in the current Environment with the given `name`, `redirect_uris`, and optional `scopes` (defaulting to `openid profile email`), each one of `openid`, `profile`, `email`, `org` and `permissions`; any other value is refused with `400` (`oauth.client_scope_unknown`). `client_type` is `confidential` (when omitted: a backend holds the secret) or `public` (a single-page or mobile app that cannot keep one: no secret is minted, `client_secret` in the response is null, the client authenticates at the token endpoint with `client_id` alone, and it may also register a private-use scheme redirect such as `com.example.app:/callback` or a loopback address whose port is ignored). The type is fixed at registration. A machine client is always confidential (`400 oauth.machine_client_public_invalid`). With `client_kind: machine` it registers a machine client instead: a principal of its own that holds roles (see the assignments routes) and obtains tokens for itself, with an optional `organization_node_id` (the one organization it acts in), optional `allowed_audiences` and the `permissions` scope, the `client_credentials` grant only and no redirect URIs; it counts toward the plan's machine-credential allowance (`409 plan_limit_exceeded`). Generates the `client_id` and a `client_secret` that is bcrypt-hashed at rest; the raw secret is returned in this response only and is never retrievable again. Responds `201 Created`.
          */
         post: operations["ApiOAuthClientsController_create"];
         delete?: never;
@@ -2905,7 +2905,7 @@ export interface paths {
         put?: never;
         /**
          * Rotate an OAuth client's secret
-         * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret. The replaced secret keeps working for 24 hours (`previous_secret_expires_at` says until when) so the systems using it can move over; send `expire_previous: "now"` to stop it at once, for a secret that has leaked. Rotating again inside the overlap replaces the secret still in its overlap. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment.
+         * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret. The replaced secret keeps working for 24 hours (`previous_secret_expires_at` says until when) so the systems using it can move over; send `expire_previous: "now"` to stop it at once, for a secret that has leaked. Rotating again inside the overlap replaces the secret still in its overlap. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment, and `409` (`oauth.client_public_has_no_secret`) for a public client, which has no secret.
          */
         post: operations["ApiOAuthClientsController_rotateSecret"];
         delete?: never;
@@ -5480,6 +5480,16 @@ export interface components {
              * @enum {string}
              */
             client_kind: "web" | "machine";
+            /**
+             * @description `confidential`: a backend holds its secret. `public`: a single-page or mobile app with no secret, authenticating with `client_id` alone. Fixed at registration.
+             * @enum {string}
+             */
+            client_type: "confidential" | "public";
+            /**
+             * @description How the client authenticates at the token and revocation endpoints, as discovery names it: `client_secret_basic` (or `client_secret_post`, accepted alike) for a confidential client, `none` for a public one.
+             * @enum {string}
+             */
+            token_endpoint_auth_method: "client_secret_basic" | "none";
             /** @description The organization a machine client acts in: its tokens name it and its roles sit inside it. Null for a client that acts across the Environment, and for a web client. */
             organization_node_id?: string | null;
             /** @description That organization's name; null when the client has none. */
@@ -5526,8 +5536,8 @@ export interface components {
              * @example https://auth.yourapp.com
              */
             issuer: string;
-            /** @description Client secret — shown only once */
-            client_secret: string;
+            /** @description Client secret — shown only once. Null for a public client, which has none. */
+            client_secret: string | null;
         };
         CreateOAuthClientDto: {
             name: string;
@@ -5536,6 +5546,11 @@ export interface components {
              * @enum {string}
              */
             client_kind?: "web" | "machine";
+            /**
+             * @description `confidential` (when omitted): a backend holds the client secret and presents it at the token endpoint. `public`: a single-page or mobile app that cannot keep a secret, so none is minted; it authenticates with `client_id` alone (`none`) and PKCE, and may register a private-use scheme or loopback redirect. Fixed at registration. A machine client is always confidential.
+             * @enum {string}
+             */
+            client_type?: "confidential" | "public";
             /** @description Machine clients only: the organization the client acts in. Its tokens name it and it may hold roles only inside it. Omitted, the client acts across the Environment. */
             organization_node_id?: string;
             /**
@@ -5566,6 +5581,16 @@ export interface components {
              * @enum {string}
              */
             client_kind: "web" | "machine";
+            /**
+             * @description `confidential`: a backend holds its secret. `public`: a single-page or mobile app with no secret, authenticating with `client_id` alone. Fixed at registration.
+             * @enum {string}
+             */
+            client_type: "confidential" | "public";
+            /**
+             * @description How the client authenticates at the token and revocation endpoints, as discovery names it: `client_secret_basic` (or `client_secret_post`, accepted alike) for a confidential client, `none` for a public one.
+             * @enum {string}
+             */
+            token_endpoint_auth_method: "client_secret_basic" | "none";
             /** @description The organization a machine client acts in: its tokens name it and its roles sit inside it. Null for a client that acts across the Environment, and for a web client. */
             organization_node_id?: string | null;
             /** @description That organization's name; null when the client has none. */
@@ -6179,6 +6204,11 @@ export interface components {
                 metadata: {
                     /** @description The client's `client_id`. */
                     client_id: string;
+                    /**
+                     * @description `confidential` when a backend holds its secret, `public` when it is a single-page or mobile app with none.
+                     * @enum {string}
+                     */
+                    client_type: "confidential" | "public";
                     /** @description Whether the client is enabled. A disabled client obtains no new tokens. */
                     is_active: boolean;
                 };
@@ -28300,7 +28330,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -28311,7 +28341,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "POST"
@@ -28738,7 +28768,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -28749,7 +28779,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`) or takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`), or a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "PATCH"
@@ -28946,6 +28976,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The client is public and has no secret to rotate (`oauth.client_public_has_no_secret`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The client is public and has no secret to rotate (`oauth.client_public_has_no_secret`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
                      *         "method": "POST"

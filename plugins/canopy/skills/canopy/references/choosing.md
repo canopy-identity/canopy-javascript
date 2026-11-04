@@ -19,10 +19,16 @@ The application renders its own form and calls Canopy's identity endpoints. The 
 
 ### Hosted Login (OAuth 2.0 and OIDC)
 
-Canopy renders sign-in, MFA and SSO. The application is a confidential OAuth client.
+Canopy renders sign-in, MFA and SSO. The application is an OAuth client, of one of two types chosen at registration and never changed:
 
-- Register a client in the Console: a `client_id`, a secret shown once, exact-match HTTPS redirect URIs, and scopes.
-- Redirect to `/oauth/authorize` with PKCE (S256), `state` and optionally `nonce`. Canopy redirects back with a `code`; the backend exchanges it at `/oauth/token` with the client secret.
+- **Confidential** (the default): a backend holds the client secret and exchanges the code. Use it whenever the app has a server, including a single-page app with a backend for frontend.
+- **Public**: a single-page app with no backend, or a mobile or desktop app. No secret: it sends its `client_id` alone (`token_endpoint_auth_method: none`), and PKCE binds the code to the browser. It may hold only the `authorization_code` and `refresh_token` grants. Its session ends a fixed time after sign-in (30 days by default) however often it refreshes. A browser app uses `@canopy-io/browser` ([spa.md](spa.md)) and adds its origin to the Environment's **Allowed web origins**; a native app opens the system browser and registers a custom-scheme (`com.example.app:/callback`) or loopback redirect URI.
+
+For either:
+
+- Register a client in the Console: a `client_id`, for a confidential client a secret shown once, exact-match redirect URIs, and scopes.
+- Redirect to `/oauth/authorize` with PKCE (S256), `state` and optionally `nonce`. Canopy redirects back with a `code`; a confidential client's backend exchanges it at `/oauth/token` with the client secret, a public client with its `client_id` and the PKCE verifier.
+- A browser still signed in to Canopy gets a code back with no form. `prompt=login` always shows the form; `prompt=none` shows no page and answers `login_required` or `interaction_required` when it cannot sign in silently.
 - The token response is plain OAuth: `access_token`, `id_token` and an opaque `refresh_token`. Both JWTs carry `aud`, your `client_id`: verify the access token's issuer, audience and `type`.
 - Refresh with `grant_type=refresh_token` at `/oauth/token`. Sign out with both `/oauth/revoke` and the `end_session_endpoint` (with `id_token_hint`).
 - A standard OIDC library (for example `openid-client`) drives the flow; read endpoints from the issuer's discovery document rather than building URLs.
@@ -57,5 +63,5 @@ Each Environment is its own issuer: `https://<api origin>/environments/<environm
 | Value                                                 | Where it may live                                                                                      |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `cnpy_…` API key                                      | Server only. One credential per request: sending an API key and a bearer token together answers `400`. |
-| OAuth client secret                                   | Server only                                                                                            |
+| OAuth client secret (a confidential client's)         | Server only                                                                                            |
 | `pk_…` publishable key, OAuth `client_id`, issuer URL | Anywhere, including browser bundles                                                                    |

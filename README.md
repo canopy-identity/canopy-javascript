@@ -6,16 +6,17 @@ This repository is the whole family. Each package is published independently to 
 
 ## Packages
 
-| Package                                    | What it is                                                                                                           |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| **[`@canopy-io/node`](packages/node)**     | The server client. Calls the API, verifies access tokens, and has zero runtime dependencies.                         |
-| **[`@canopy-io/nestjs`](packages/nestjs)** | The NestJS integration. Wraps the client in a module and turns an authorization check into a decorator on the route. |
+| Package                                      | What it is                                                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[`@canopy-io/node`](packages/node)**       | The server client. Calls the API, verifies access tokens, and has zero runtime dependencies.                                                |
+| **[`@canopy-io/nestjs`](packages/nestjs)**   | The NestJS integration. Wraps the client in a module and turns an authorization check into a decorator on the route.                        |
+| **[`@canopy-io/browser`](packages/browser)** | The browser client. Signs a single-page app in through Canopy's hosted login as a public OAuth client, with PKCE and tokens kept in memory. |
 
 `@canopy-io/nestjs` depends on `@canopy-io/node` and installs it for you. A NestJS application needs only the integration package; anything else needs the client.
 
 ## What they have in common
 
-Everything here is TypeScript, ships both ESM and CommonJS, and requires Node 18 or later.
+Everything here is TypeScript and ships both ESM and CommonJS. The server packages require Node 18 or later; `@canopy-io/browser` runs in any browser with the Web Crypto API.
 
 Every request and response type is generated from the same [OpenAPI document](https://canopy-io.com/openapi/api.json) that renders Canopy's API reference, and CI fails when the committed types no longer match it — so a package cannot silently describe an API that has moved on.
 
