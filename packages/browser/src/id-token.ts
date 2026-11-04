@@ -1,7 +1,11 @@
 import { CanopyAuthError } from "./errors.js";
 import { base64UrlDecode } from "./pkce.js";
 
-/** The claims of a Canopy ID token. Present claims depend on the scopes asked for. */
+/**
+ * The claims of a Canopy ID token. Present claims depend on the scopes asked
+ * for. The Environment's custom claims marked for the ID token arrive through
+ * the index signature; name them to `getClaims<TCustom>()` to read them typed.
+ */
 export interface IdTokenClaims {
   /** The identity's id: the stable user identifier. */
   sub: string;
@@ -10,7 +14,11 @@ export interface IdTokenClaims {
   exp: number;
   iat: number;
   nonce?: string;
-  sid?: string;
+  /**
+   * How the sign-in was proven: `pwd`, `otp`, `sso`, `hwk` for a passkey,
+   * plus `mfa` once a second factor was verified.
+   */
+  amr?: string[];
   /** With the `email` scope. */
   email?: string;
   email_verified?: boolean;
@@ -26,6 +34,13 @@ export interface IdTokenClaims {
   org_id?: string;
   org_roles?: string[];
   org_role_ids?: string[];
+  /** `"all"` for the developer's own staff, who may enter any organization. */
+  org_scope?: "all";
+  /**
+   * True when the Environment's custom claims did not all fit on this token;
+   * a missing one is then unknown rather than unset.
+   */
+  custom_claims_overflow?: boolean;
   [claim: string]: unknown;
 }
 

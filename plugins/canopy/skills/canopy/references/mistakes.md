@@ -82,6 +82,14 @@ An app with a backend registered as a public client puts tokens in the browser f
 
 `JSON.stringify(req.body)` is not the body that was signed. Keep the raw bytes for the HMAC, compare in constant time, and compare each value of `X-Canopy-Signature` separately, so the second value during a secret rotation still matches.
 
+## A custom claim read as complete when the token says it overflowed
+
+The custom claims an Environment maps onto a token are added in order within a size limit; the ones past it are left off and the token carries `custom_claims_overflow: true`. Code that reads `claims.plan` and treats its absence as "no plan" then denies a Pro customer whose claim did not fit. Keep every custom claim optional, treat an absent one as "not set", and when `custom_claims_overflow` is true read the value from the API (the identity's or organization's metadata) instead of the token.
+
+## A token used as a database
+
+Mapping a dozen metadata keys onto the access token to save a request puts a few kilobytes in every `Authorization` header and runs into the claims' size limit, where the later claims are silently left off. Map the few facts a request must decide on (`plan`, a tenant's tier), keep names you cannot change (the reserved ones are refused on save), and read the rest from the API when a request needs it.
+
 ## A scoped API key without the read scopes
 
 The guard and `LocalAuthorizer` read grant roots (`identity.view`) and the hierarchy (`hierarchy.view`). Missing either one shows up as `500`s on guarded routes. Add the scopes; do not catch the error.

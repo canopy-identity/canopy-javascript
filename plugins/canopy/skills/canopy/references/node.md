@@ -113,6 +113,27 @@ export async function authenticate(
 - On a custom auth domain or self-hosted instance, pass `issuer` (for example `https://auth.acme.com`) instead of `environmentId`.
 - Pre-auth tokens (issued before an administrator picks an Account) are refused by default. Leave it that way.
 - `claims.amr` says how the session was proven (`pwd`, `otp`, `sso`, `fed` with the provider for a social sign-in such as `["fed", "google"]`, `hwk` for a passkey sign-in, which carries `mfa` with it as `["hwk", "mfa"]`, plus `mfa` after a second factor). Require `claims.amr?.includes("mfa")` before a sensitive action if the product needs it.
+- **Custom claims.** An Environment can map facts of its own onto the token (Console: Tenant → Authentication → Custom claims, or `PUT /api/v1/token-claims`): a `plan` copied from the identity's or organization's metadata, say. Name them to `verify` to read them typed; each is optional, because a value that is not stored is left off the token, and so is one that did not fit the token's size limit, which `claims.custom_claims_overflow` reports. Treat an absent claim as "not set", and when `custom_claims_overflow` is true read the value from the API instead of trusting the token to be complete.
+
+```ts
+import { TokenVerifier } from "@canopy-io/node";
+
+declare const verifier: TokenVerifier;
+declare const token: string;
+
+// The Environment maps `plan` from identity metadata onto the access token.
+interface PlanClaims {
+  plan?: "free" | "pro";
+}
+
+export async function canExport(): Promise<boolean> {
+  const claims = await verifier.verify<PlanClaims>(token);
+
+  // Absent means not set, or not fitted: never a free pass.
+  return claims.plan === "pro";
+}
+```
+
 - With organizations on, read the organization through `orgContext(claims)`, which returns `{ orgId, orgRoles, orgRoleIds, staff }` or `null`, rather than off the raw claims. `orgRoles` is empty for a member holding no role at the organization node; authorize by evaluating, not by the list. `staff` is true for the developer's own staff (a role at the Environment root, `org_scope: "all"` on the token) inside a customer's organization: show it, since the organization sees each entry in its staff activity.
 
 ## Machine clients

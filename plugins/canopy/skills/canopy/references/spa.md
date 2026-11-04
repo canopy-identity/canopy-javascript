@@ -54,6 +54,8 @@ export async function callApi(path: string): Promise<Response> {
 }
 ```
 
+`getClaims<TCustom>()` also reads the Environment's custom claims marked for the ID token, typed and each optional (`canopy.getClaims<{ plan?: string }>()?.plan`): a value that is not stored, or did not fit (`custom_claims_overflow`), is absent. Show them; never authorize from them in the browser.
+
 Your API verifies that access token like any Hosted Login token: `TokenVerifier` with `audience` set to the public `client_id` ([node.md](node.md)). The browser package never verifies signatures; it checks the ID token's issuer, audience and nonce, which is what OpenID Connect asks of a token received straight from the token endpoint.
 
 ## What the package does, so the app does not
