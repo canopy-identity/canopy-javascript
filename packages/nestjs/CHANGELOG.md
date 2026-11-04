@@ -1,5 +1,16 @@
 # @canopy-io/nestjs
 
+## 0.8.0
+
+### Minor Changes
+
+- 1326269: `CanopyTokenRequest<TCustom>` types a request `CanopyTokenGuard` has run on: `request.canopyToken` is `CanopyTokenClaims & TCustom`, so a handler reads the Environment's custom claims typed.
+
+### Patch Changes
+
+- Updated dependencies [1326269]
+  - @canopy-io/node@0.20.0
+
 ## 0.7.6
 
 ### Patch Changes
