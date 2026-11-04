@@ -439,6 +439,15 @@ describe("errors", () => {
     });
   });
 
+  it("treats an issuer with trailing slashes as the same issuer", async () => {
+    const h = harness(undefined, { issuer: `${ISSUER}///` });
+
+    await h.client.signIn();
+
+    expect(h.calls[0]?.url).toBe(`${ISSUER}/.well-known/openid-configuration`);
+    expect(h.navigations).toHaveLength(1);
+  });
+
   it("refuses to build without an issuer, client id and redirect URI", () => {
     expect(() =>
       createCanopyBrowserClient({
