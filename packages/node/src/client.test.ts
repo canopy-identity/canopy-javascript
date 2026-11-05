@@ -739,6 +739,52 @@ describe("per-request headers", () => {
   });
 });
 
+describe("the Environment an account key acts in", () => {
+  function headersOf(call: { init: RequestInit } | undefined) {
+    return (call?.init.headers ?? {}) as Record<string, string>;
+  }
+
+  it("sends no X-Canopy-Environment unless one is named", async () => {
+    const { fetch, calls } = stubFetch([json({ data: {} })]);
+
+    await client(fetch).request("GET", "/api/v1/roles");
+
+    expect(headersOf(calls[0])).not.toHaveProperty("X-Canopy-Environment");
+  });
+
+  it("sends the client-wide environmentId on every request", async () => {
+    const { fetch, calls } = stubFetch([
+      json({ data: {} }),
+      json({ data: {} }),
+    ]);
+    const scoped = client(fetch, { environmentId: "env_staging" });
+
+    await scoped.request("GET", "/api/v1/roles");
+    await scoped.request("GET", "/api/v1/auth-settings");
+
+    expect(headersOf(calls[0])["X-Canopy-Environment"]).toBe("env_staging");
+    expect(headersOf(calls[1])["X-Canopy-Environment"]).toBe("env_staging");
+  });
+
+  it("lets one call name another Environment, or none", async () => {
+    const { fetch, calls } = stubFetch([
+      json({ data: {} }),
+      json({ data: {} }),
+    ]);
+    const scoped = client(fetch, { environmentId: "env_staging" });
+
+    await scoped.request("GET", "/api/v1/roles", {
+      environmentId: "env_production",
+    });
+    await scoped.request("GET", "/api/v1/applications", {
+      environmentId: null,
+    });
+
+    expect(headersOf(calls[0])["X-Canopy-Environment"]).toBe("env_production");
+    expect(headersOf(calls[1])).not.toHaveProperty("X-Canopy-Environment");
+  });
+});
+
 describe("isCursorPagination", () => {
   it("tells the two identical-looking envelopes apart", () => {
     expect(isCursorPagination({ next_cursor: "abc" })).toBe(true);
