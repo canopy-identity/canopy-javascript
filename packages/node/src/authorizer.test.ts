@@ -955,6 +955,92 @@ describe("LocalAuthorizer — machine clients", () => {
   });
 });
 
+describe("LocalAuthorizer — a machine client acting for an identity", () => {
+  /** The identity's grants everywhere; the client's from `clientGrants`. */
+  function acting(clientGrants: unknown) {
+    const harness = makeAuthorizer();
+
+    harness.request.mockImplementation((...args: never[]) => {
+      const path = (args as unknown[])[1] as string;
+
+      return Promise.resolve(
+        path.startsWith("/api/v1/oauth-clients/") ? clientGrants : GRANTS,
+      );
+    });
+
+    return harness;
+  }
+
+  const delegated = (nodeId: string) => ({
+    ...check(nodeId),
+    acting_client_id: "client-1",
+  });
+
+  it("allows only what the identity and the client both hold", async () => {
+    const { authorizer, request } = acting(GRANTS);
+
+    expect(await authorizer.evaluate(delegated("frontend"))).toEqual({
+      allowed: true,
+      reason: null,
+    });
+    expect(request.mock.calls.map((call) => call[1])).toEqual(
+      expect.arrayContaining([
+        "/api/v1/identities/id-1/grants",
+        "/api/v1/oauth-clients/client-1/grants",
+      ]),
+    );
+  });
+
+  it("refuses what the identity holds and the client does not", async () => {
+    const { authorizer } = acting({
+      model_version: 1,
+      items: [{ permission: "reports.view", node_id: "sales" }],
+      pagination: meta(1, 1),
+    });
+
+    expect(await authorizer.evaluate(delegated("frontend"))).toEqual({
+      allowed: false,
+      reason: "acting_client_not_granted",
+    });
+  });
+
+  it("reports the identity's own refusal without asking the client", async () => {
+    const { authorizer, request } = acting(GRANTS);
+
+    expect(await authorizer.evaluate(delegated("sales"))).toEqual({
+      allowed: false,
+      reason: "outside_grants",
+    });
+    expect(
+      request.mock.calls.some((call) =>
+        String(call[1]).startsWith("/api/v1/oauth-clients/"),
+      ),
+    ).toBe(false);
+  });
+
+  it("names a deny that binds the client", async () => {
+    const { authorizer } = acting(
+      withDenies(
+        [{ permission: "reports.view", node_id: "engineering" }],
+        [{ permission: "reports.view", node_id: "frontend" }],
+      ),
+    );
+
+    expect(await authorizer.evaluate(delegated("frontend"))).toEqual({
+      allowed: false,
+      reason: "denied",
+    });
+  });
+
+  it("refuses an empty acting client", async () => {
+    const { authorizer } = acting(GRANTS);
+
+    expect(
+      await authorizer.evaluate({ ...check("frontend"), acting_client_id: "" }),
+    ).toEqual({ allowed: false, reason: "acting_client_not_granted" });
+  });
+});
+
 /** A version 2 grants page: the rows, with the subject's deny roots beside them. */
 function withDenies(
   items: { permission: string; node_id: string }[],

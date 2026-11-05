@@ -145,6 +145,34 @@ export class ImportsController {
 
 - Put `@AllowServiceTokens()` only on routes built for machines. Read `request.canopyToken.type` in the handler when people and machines should be treated differently.
 
+### Routes an agent calls for a person
+
+A machine client acting for a person presents a `delegated` token (see [node.md](node.md), "Acting for a person"). `CanopyTokenGuard` refuses it unless the route or controller carries `@AllowDelegatedTokens()`, held to `verify.serviceAudience` like a service token. There `CanopyGuard` evaluates the person (`resolveIdentity` still reads `sub`) and the client in `act.sub` at the same node, and allows only when both hold the permission.
+
+```ts
+import { Controller, Get, UseGuards } from "@nestjs/common";
+import {
+  AllowDelegatedTokens,
+  CanopyGuard,
+  CanopyTokenGuard,
+  RequirePermission,
+} from "@canopy-io/nestjs";
+
+@Controller("deals")
+@UseGuards(CanopyTokenGuard, CanopyGuard)
+export class DealsController {
+  // A person, or an agent acting for one: both must hold deals.read here.
+  @Get()
+  @AllowDelegatedTokens()
+  @RequirePermission("deals.read", { scope: "org" })
+  list() {
+    return [];
+  }
+}
+```
+
+- Put `@AllowDelegatedTokens()` only where an agent may act for someone. Read `request.canopyToken.act?.sub` to record which client acted.
+
 ### Reading a custom claim
 
 An Environment can map facts of its own onto the token (Console: Tenant → Authentication → Custom claims): a `plan` from the identity's metadata, say. `CanopyTokenRequest<TCustom>` types the request `CanopyTokenGuard` attached the claims to, with the custom claims named and optional: one that is not stored, or did not fit (`custom_claims_overflow`), is absent, which is "not set", never a pass.

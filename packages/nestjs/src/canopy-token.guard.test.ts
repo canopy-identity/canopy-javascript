@@ -14,6 +14,10 @@ import {
 
 import { CanopyTokenGuard } from "./canopy-token.guard.js";
 import type { CanopyModuleOptions } from "./options.js";
+import {
+  CANOPY_ALLOW_DELEGATED_TOKENS,
+  CANOPY_ALLOW_SERVICE_TOKENS,
+} from "./tokens.js";
 
 /**
  * The question behind every test here: can a request reach the handler
@@ -47,12 +51,12 @@ function contextFor(request: FakeRequest): ExecutionContext {
 function setup(
   verify: () => Promise<CanopyTokenClaims>,
   options: Partial<CanopyModuleOptions<unknown>> = {},
-  allowServiceTokens?: boolean,
+  admitted: string[] = [],
 ) {
   const verifyMock = vi.fn(verify);
   const verifier = { verify: verifyMock } as unknown as TokenVerifier;
   const reflector = {
-    getAllAndOverride: () => allowServiceTokens,
+    getAllAndOverride: (key: string) => admitted.includes(key) || undefined,
   } as unknown as Reflector;
 
   const guard = new CanopyTokenGuard(reflector, verifier, {
@@ -117,17 +121,44 @@ describe("CanopyTokenGuard — a verified token", () => {
  */
 describe("CanopyTokenGuard — service tokens", () => {
   it("widens the verifier to service tokens where the route admits them", async () => {
-    const { guard, verifyMock } = setup(
-      () => Promise.resolve(CLAIMS),
-      {},
-      true,
-    );
+    const { guard, verifyMock } = setup(() => Promise.resolve(CLAIMS), {}, [
+      CANOPY_ALLOW_SERVICE_TOKENS,
+    ]);
 
     await guard.canActivate(
       contextFor({ headers: { authorization: "Bearer t" } }),
     );
 
     expect(verifyMock).toHaveBeenCalledWith("t", { alsoAllow: ["service"] });
+  });
+
+  it("widens the verifier to delegated tokens where the route admits them", async () => {
+    const { guard, verifyMock } = setup(() => Promise.resolve(CLAIMS), {}, [
+      CANOPY_ALLOW_DELEGATED_TOKENS,
+    ]);
+
+    await guard.canActivate(
+      contextFor({ headers: { authorization: "Bearer t" } }),
+    );
+
+    expect(verifyMock).toHaveBeenCalledWith("t", {
+      alsoAllow: ["delegated"],
+    });
+  });
+
+  it("widens to both where the route admits both", async () => {
+    const { guard, verifyMock } = setup(() => Promise.resolve(CLAIMS), {}, [
+      CANOPY_ALLOW_SERVICE_TOKENS,
+      CANOPY_ALLOW_DELEGATED_TOKENS,
+    ]);
+
+    await guard.canActivate(
+      contextFor({ headers: { authorization: "Bearer t" } }),
+    );
+
+    expect(verifyMock).toHaveBeenCalledWith("t", {
+      alsoAllow: ["service", "delegated"],
+    });
   });
 
   it("leaves the verifier's accepted types alone everywhere else", async () => {

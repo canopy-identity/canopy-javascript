@@ -234,6 +234,67 @@ export async function mayImportOrders(
 - Never take the principal type from the request: read it off the verified claims.
 - Without `serviceAudience` a service token is refused (`token.audience_unverified`); one minted for another API answers `token.audience_mismatch`.
 
+### Acting for a person
+
+A machine client with **Allow token exchange** on can act for a signed-in person: it exchanges the person's access token for a `delegated` one, which names the person (`sub`) and the client (`act.sub`) and reaches only what both hold. The agent's side:
+
+```ts
+import { exchangeToken } from "@canopy-io/node";
+
+export async function tokenForPerson(
+  personAccessToken: string,
+): Promise<string> {
+  const { accessToken } = await exchangeToken({
+    clientId: process.env.AGENT_CLIENT_ID ?? "",
+    clientSecret: process.env.AGENT_CLIENT_SECRET ?? "",
+    subjectToken: personAccessToken,
+    audience: "https://api.example.com",
+  });
+
+  return accessToken;
+}
+```
+
+The API's side: admit `delegated` only on the routes an agent may call for someone, and ask for both with `acting_client_id`:
+
+```ts
+import {
+  Canopy,
+  delegation,
+  LocalAuthorizer,
+  TokenVerifier,
+} from "@canopy-io/node";
+
+const verifier = new TokenVerifier({
+  environmentId: process.env.CANOPY_ENVIRONMENT_ID,
+  // A delegated token names the API, as a service token does.
+  serviceAudience: "https://api.example.com",
+});
+const canopy = new Canopy({ apiKey: process.env.CANOPY_API_KEY });
+const authorizer = new LocalAuthorizer(canopy.client);
+
+export async function mayReadDeal(
+  token: string,
+  dealNodeId: string,
+): Promise<boolean> {
+  const claims = await verifier.verify(token, { alsoAllow: ["delegated"] });
+  const acting = delegation(claims);
+
+  const { allowed } = await authorizer.evaluate({
+    identity_id: claims.sub,
+    permission: "deals.read",
+    node_id: dealNodeId,
+    ...(acting ? { acting_client_id: acting.actingClientId } : {}),
+  });
+
+  return allowed;
+}
+```
+
+- The answer allows only when the person and the client both hold the permission at the node; the client's refusal is `acting_client_not_granted`. The API's evaluate takes the same `acting_client_id`.
+- The token has no refresh token and lasts the machine-token lifetime or the person's remaining time, whichever is shorter: exchange again when it expires. Once the person signs out, the exchange answers `oauth.invalid_grant`.
+- Canopy's own API refuses a delegated token: it is for the app's API only.
+
 ## Authorizing in-process
 
 `LocalAuthorizer` asks Canopy "where may this identity act" once, then answers each check in-process by walking up the hierarchy. Keep one instance per process.

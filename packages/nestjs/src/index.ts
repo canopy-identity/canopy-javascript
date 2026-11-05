@@ -10,6 +10,7 @@
  */
 
 export { CanopyModule } from "./canopy.module.js";
+export { AllowDelegatedTokens } from "./allow-delegated-tokens.decorator.js";
 export { AllowServiceTokens } from "./allow-service-tokens.decorator.js";
 export { CanopyGuard } from "./canopy.guard.js";
 export { CanopyTokenGuard } from "./canopy-token.guard.js";

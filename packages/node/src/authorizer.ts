@@ -103,6 +103,9 @@ const CHANGES_PAGE_SIZE = 200;
  * - `denied`: a deny refuses the permission, at the node or above it, or,
  *   for `app_wide`, over every grant in effect. No grant beneath a deny
  *   undoes it.
+ * - `acting_client_not_granted`: the identity holds the permission, but the
+ *   machine client acting for it (`acting_client_id`) does not. A delegated
+ *   token reaches only what both hold.
  */
 export type LocalDenialReason =
   | "permission_not_held"
@@ -110,7 +113,8 @@ export type LocalDenialReason =
   | "expired"
   | "not_yet_effective"
   | "node_missing"
-  | "denied";
+  | "denied"
+  | "acting_client_not_granted";
 
 /** The answer to a check: the verdict, and why when it is no. */
 export interface LocalDecision {
@@ -204,6 +208,13 @@ export interface LocalAuthorizationQuery {
    * the verified token's `type` claim, never off the request.
    */
   principal_type?: PrincipalType;
+  /**
+   * The machine client acting for the identity, from a verified `delegated`
+   * token's `act.sub` (its `client_id`; see `delegation()`). When set, the
+   * check allows only when the identity and the client both hold the
+   * permission there. Read it off the verified token, never off the request.
+   */
+  acting_client_id?: string;
   permission: string;
   /** Defaults to `node`, which is the strict question. */
   scope?: "node" | "app_wide";
@@ -922,6 +933,41 @@ export class LocalAuthorizer {
   }
 
   private async decide(query: LocalAuthorizationQuery): Promise<LocalDecision> {
+    const decision = await this.decideFor(query);
+
+    if (!decision.allowed || query.acting_client_id === undefined) {
+      return decision;
+    }
+
+    // Named but empty: there is no client to ask, so nothing it holds counts.
+    if (query.acting_client_id === "") {
+      return { allowed: false, reason: "acting_client_not_granted" };
+    }
+
+    // A delegated token: the person allows, so the client acting for them
+    // must allow too. Its own refusal is reported as its own, unless a deny
+    // binds it, which names itself.
+    const its = await this.decideFor({
+      identity_id: query.acting_client_id,
+      principal_type: "service",
+      permission: query.permission,
+      ...(query.scope ? { scope: query.scope } : {}),
+      ...(query.node_id ? { node_id: query.node_id } : {}),
+    });
+
+    if (its.allowed) {
+      return its;
+    }
+
+    return {
+      allowed: false,
+      reason: its.reason === "denied" ? "denied" : "acting_client_not_granted",
+    };
+  }
+
+  private async decideFor(
+    query: LocalAuthorizationQuery,
+  ): Promise<LocalDecision> {
     const now = this.now();
     const holdings = await this.grantRootsFor(
       query.identity_id,

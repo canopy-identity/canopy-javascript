@@ -3681,7 +3681,7 @@ export interface paths {
         put?: never;
         /**
          * Create an operational-administrator role
-         * @description Creates an active custom administrator role (`is_system` false) with the given `scope` (`account` or `environment`), which cannot be changed later. Duplicate keys in `capabilities` are removed. Every key must be a catalog capability that a role may carry (owner-only keys are refused) and must match the role's `scope`, otherwise the request answers `400`. The name must be unique in the Account (`409`). Requires `admin_governance.manage`, and the creation is recorded in the audit log. An Account holds at most 50 administrator roles (`409`, `admin_role.limit`). An API key may only put in a role, or grant a role carrying, capabilities its own scopes cover; anything beyond answers `403` (`admin_role.capability_beyond_key`) naming them in `error.data.capabilities`. Two capabilities are beyond every key whatever it holds, because the person given one hands out authority without the key's bound: `admin_governance.manage` (any role) and `api_keys.manage` (a full-access Environment key).
+         * @description Creates an active custom administrator role (`is_system` false) with the given `scope` (`account` or `environment`), which cannot be changed later. Duplicate keys in `capabilities` are removed. Every key must be a catalog capability that a role may carry (owner-only keys are refused) and must match the role's `scope`, otherwise the request answers `400`. The name must be unique in the Account (`409`). Requires `admin_governance.manage`, and the creation is recorded in the audit log. An Account holds at most 50 administrator roles (`409`, `admin_role.limit`). An API key may only put in a role, or grant a role carrying, capabilities its own scopes cover; anything beyond answers `403` (`admin_role.capability_beyond_key`) naming them in `error.data.capabilities`. Two capabilities are beyond every key whatever it holds, because the person given one hands out authority without the key's bound: `admin_governance.manage` (any role) and `api_keys.manage` (a full-access Environment key). A developer's MCP client, when its approval names only some capabilities, is held to them the same way, and never hands out those two (`403`, `admin_role.capability_beyond_mcp_grant`).
          */
         post: operations["ApiAdminRolesController_create"];
         delete?: never;
@@ -3733,7 +3733,7 @@ export interface paths {
         head?: never;
         /**
          * Update an operational-administrator role
-         * @description Changes a custom role's `name`, `description` or `is_active`, or replaces its whole `capabilities` set. New capabilities are checked against the catalog and the role's existing `scope`, which cannot change. System roles answer `403`, and a name already used by another role in the Account answers `409`. Send the role's `version` in `If-Match` to refuse a stale edit: a mismatch answers `409` with the current role in `error.data.current`, and without the header the check is skipped. Requires `admin_governance.manage`, and the change is recorded in the audit log. An API key changes only a role within its own ceiling, and may only give it, capabilities its own scopes cover; anything beyond answers `403` (`admin_role.capability_beyond_key`) naming them in `error.data.capabilities`. Two capabilities are beyond every key whatever it holds, because the person given one hands out authority without the key's bound: `admin_governance.manage` (any role) and `api_keys.manage` (a full-access Environment key).
+         * @description Changes a custom role's `name`, `description` or `is_active`, or replaces its whole `capabilities` set. New capabilities are checked against the catalog and the role's existing `scope`, which cannot change. System roles answer `403`, and a name already used by another role in the Account answers `409`. Send the role's `version` in `If-Match` to refuse a stale edit: a mismatch answers `409` with the current role in `error.data.current`, and without the header the check is skipped. Requires `admin_governance.manage`, and the change is recorded in the audit log. An API key changes only a role within its own ceiling, and may only give it, capabilities its own scopes cover; anything beyond answers `403` (`admin_role.capability_beyond_key`) naming them in `error.data.capabilities`. Two capabilities are beyond every key whatever it holds, because the person given one hands out authority without the key's bound: `admin_governance.manage` (any role) and `api_keys.manage` (a full-access Environment key). A developer's MCP client, when its approval names only some capabilities, is held to them the same way, and never hands out those two (`403`, `admin_role.capability_beyond_mcp_grant`).
          */
         patch: operations["ApiAdminRolesController_update"];
         trace?: never;
@@ -3752,7 +3752,7 @@ export interface paths {
         get: operations["ApiAdminRolesController_listGrantableRoles"];
         /**
          * Set the identity roles an administrator role may grant in an Environment
-         * @description Replaces the full list of identity roles that this administrator role may grant in one Environment, and returns the stored IDs with duplicates removed. Sending an empty `roleIds` clears the list. Every ID must be a role in that Environment (`400`), and both the administrator role and the Environment must belong to the Account (`404`). Requires `admin_governance.manage`, and the change is recorded in the audit log with the roles added and removed. An API key changes this only on a role within its own ceiling (`403`, `admin_role.capability_beyond_key`).
+         * @description Replaces the full list of identity roles that this administrator role may grant in one Environment, and returns the stored IDs with duplicates removed. Sending an empty `roleIds` clears the list. Every ID must be a role in that Environment (`400`), and both the administrator role and the Environment must belong to the Account (`404`). Requires `admin_governance.manage`, and the change is recorded in the audit log with the roles added and removed. An API key changes this only on a role within its own ceiling (`403`, `admin_role.capability_beyond_key`), and a bounded MCP client only on one within its approval (`admin_role.capability_beyond_mcp_grant`).
          */
         put: operations["ApiAdminRolesController_setGrantableRoles"];
         post?: never;
@@ -3777,7 +3777,7 @@ export interface paths {
         put?: never;
         /**
          * Grant an operational administrator
-         * @description Grants an administrator role to a user who must be an active member of the Account (`400` otherwise). The grant must match the role's scope: an `account` role needs `scopeType` `account` with no `environmentId` or `nodeId`, and an `environment` role needs an `environmentId` with `scopeType` `environment`, or `node` plus a `nodeId` in that Environment. Answers `404` when the role, Environment or node is not in the Account, `400` when `effectiveFrom` is not before `effectiveTo`, and `409` when the same grant is already live in an overlapping window. Requires `admin_governance.manage`, and the grant is recorded in the audit log. An API key may only put in a role, or grant a role carrying, capabilities its own scopes cover; anything beyond answers `403` (`admin_role.capability_beyond_key`) naming them in `error.data.capabilities`. Two capabilities are beyond every key whatever it holds, because the person given one hands out authority without the key's bound: `admin_governance.manage` (any role) and `api_keys.manage` (a full-access Environment key).
+         * @description Grants an administrator role to a user who must be an active member of the Account (`400` otherwise). The grant must match the role's scope: an `account` role needs `scopeType` `account` with no `environmentId` or `nodeId`, and an `environment` role needs an `environmentId` with `scopeType` `environment`, or `node` plus a `nodeId` in that Environment. Answers `404` when the role, Environment or node is not in the Account, `400` when `effectiveFrom` is not before `effectiveTo`, and `409` when the same grant is already live in an overlapping window. Requires `admin_governance.manage`, and the grant is recorded in the audit log. An API key may only put in a role, or grant a role carrying, capabilities its own scopes cover; anything beyond answers `403` (`admin_role.capability_beyond_key`) naming them in `error.data.capabilities`. Two capabilities are beyond every key whatever it holds, because the person given one hands out authority without the key's bound: `admin_governance.manage` (any role) and `api_keys.manage` (a full-access Environment key). A developer's MCP client, when its approval names only some capabilities, is held to them the same way, and never hands out those two (`403`, `admin_role.capability_beyond_mcp_grant`).
          */
         post: operations["ApiAdminAssignmentsController_create"];
         delete?: never;
@@ -4029,7 +4029,7 @@ export interface paths {
         head?: never;
         /**
          * Update OAuth client
-         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). The secret is not rotated here.
+         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`; for a machine client `allowed_audiences` and `token_exchange`, which adds or removes the token-exchange grant in its `grant_types`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). The secret is not rotated here.
          */
         patch: operations["ApiOAuthClientsController_update"];
         trace?: never;
@@ -4556,10 +4556,12 @@ export interface components {
             effective_node_id?: string | null;
             /** @description Ids of the roles whose assignments produced a node-scoped allow. Always empty for `scope_evaluated: "app_wide"`, whose answer is not tied to a node, and for a deny. */
             granting_roles: string[];
-            /** @description Why the check was refused: `NO_ROLE_ASSIGNMENT`, `PERMISSION_NOT_GRANTED`, `NODE_SCOPE_VIOLATION`, `ROLE_EXPIRED`, `IDENTITY_INACTIVE`, `IDENTITY_NOT_ENV_MEMBER`, `ORGANIZATION_MEMBERSHIP_INACTIVE` (assignments sit on the lineage inside an organization the identity's membership in is deactivated, so none count), or `DENIED` (a deny at the node or above it refuses the permission, whatever grants allow). Null on an allow. */
+            /** @description Why the check was refused: `NO_ROLE_ASSIGNMENT`, `PERMISSION_NOT_GRANTED`, `NODE_SCOPE_VIOLATION`, `ROLE_EXPIRED`, `IDENTITY_INACTIVE`, `IDENTITY_NOT_ENV_MEMBER`, `ORGANIZATION_MEMBERSHIP_INACTIVE` (assignments sit on the lineage inside an organization the identity's membership in is deactivated, so none count), `DENIED` (a deny at the node or above it refuses the permission, whatever grants allow), `ACTING_CLIENT_INACTIVE` (`acting_client_id` names no active machine client of this Environment) or `ACTING_CLIENT_NOT_GRANTED` (the identity holds the permission there but the acting client does not). Null on an allow. */
             denial_reason?: string | null;
             /** @description The deny that refused, when `denial_reason` is `DENIED`; null otherwise. */
             deny_id?: string | null;
+            /** @description Whether the acting client holds the permission there, when the check named `acting_client_id`; null otherwise. `allowed` is true only when the identity and the client both allow. */
+            acting_client_allowed?: boolean | null;
         };
         EvaluatePermissionDto: {
             /** @description Identity ID (from the `identities` table — the end user being evaluated, not an admin). */
@@ -4572,6 +4574,8 @@ export interface components {
             scope: "node" | "app_wide";
             /** @description Required when `scope` is `node`; must be omitted when `scope` is `app_wide`. */
             node_id?: string;
+            /** @description The `client_id` of the machine client acting for the identity, from a delegated token's `act.sub`. When set, the check allows only when the identity and the client both hold the permission there; `acting_client_allowed` carries the client's half. */
+            acting_client_id?: string;
         };
         EvaluateCheckDto: {
             /** @description Identity ID (from the `identities` table — the end user being evaluated, not an admin). */
@@ -4584,6 +4588,8 @@ export interface components {
             scope: "node" | "app_wide";
             /** @description Required when `scope` is `node`; must be omitted when `scope` is `app_wide`. */
             node_id?: string;
+            /** @description The `client_id` of the machine client acting for the identity, from a delegated token's `act.sub`. When set, the check allows only when the identity and the client both hold the permission there; `acting_client_allowed` carries the client's half. */
+            acting_client_id?: string;
         };
         BulkEvaluatePermissionDto: {
             /** @description Between 1 and 100 checks. More is refused with a 400. */
@@ -6557,6 +6563,12 @@ export interface components {
              * @enum {string|null}
              */
             channel?: "mcp" | null;
+            /** @description The MCP client a developer approved, when it made the change for the actor through the account MCP server. NULL otherwise, including a change made through MCP with an API key, which acts as the key. */
+            mcp_client_id?: string | null;
+            /** @description That client's name as it gave it when the change was made. Unverified. */
+            mcp_client_name?: string | null;
+            /** @description The developer's approval of that client the change was made under. */
+            mcp_grant_id?: string | null;
             /** @description Snapshot label of the actor at write time (email for users / identities, label otherwise). NULL on rows written before the Slice 2 deploy. */
             actor_label?: string | null;
             /** @description Snapshot label of the affected resource at write time. NULL on rows written before the Slice 2 deploy. */
@@ -6695,6 +6707,12 @@ export interface components {
              * @enum {string|null}
              */
             channel?: "mcp" | null;
+            /** @description The MCP client a developer approved, when it made the change for the actor through the account MCP server. NULL otherwise, including a change made through MCP with an API key, which acts as the key. */
+            mcp_client_id?: string | null;
+            /** @description That client's name as it gave it when the change was made. Unverified. */
+            mcp_client_name?: string | null;
+            /** @description The developer's approval of that client the change was made under. */
+            mcp_grant_id?: string | null;
             /** @description Snapshot label of the actor at write time (email for users / identities, label otherwise). NULL on rows written before the Slice 2 deploy. */
             actor_label?: string | null;
             /** @description Snapshot label of the affected resource at write time. NULL on rows written before the Slice 2 deploy. */
@@ -7984,6 +8002,8 @@ export interface components {
             is_active?: boolean;
             /** @description A machine client's audiences, replaced whole. A web client takes none (`400 oauth.web_client_audiences_invalid`). */
             allowed_audiences?: string[];
+            /** @description Machine clients only: whether the client may exchange a person's access token for one it acts for them with (`urn:ietf:params:oauth:grant-type:token-exchange`). Off until turned on. */
+            token_exchange?: boolean;
             /** @description Where Canopy delivers a signed logout token when a session this client issued tokens for ends. `null` stops the notifications. */
             backchannel_logout_uri?: string | null;
             invite_redirect_url?: string | null;
@@ -38002,7 +38022,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description An API key's scopes do not cover every capability the role carries (`admin_role.capability_beyond_key`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks */
+            /** @description An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -38013,7 +38033,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "An API key's scopes do not cover every capability the role carries (`admin_role.capability_beyond_key`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
+                     *         "message": "An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
                      *         "method": "POST"
@@ -38437,7 +38457,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The role is a system administrator role, which cannot be modified, or an API key's scopes do not cover every capability the role carries or would carry (`admin_role.capability_beyond_key`), or the caller lacks the permission this operation checks */
+            /** @description The role is a system administrator role, which cannot be modified, or an API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries or would carry (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`), or the caller lacks the permission this operation checks */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -38448,7 +38468,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The role is a system administrator role, which cannot be modified, or an API key's scopes do not cover every capability the role carries or would carry (`admin_role.capability_beyond_key`), or the caller lacks the permission this operation checks",
+                     *         "message": "The role is a system administrator role, which cannot be modified, or an API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries or would carry (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
                      *         "method": "PATCH"
@@ -38681,7 +38701,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description An API key's scopes do not cover every capability the role carries (`admin_role.capability_beyond_key`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks */
+            /** @description An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -38692,7 +38712,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "An API key's scopes do not cover every capability the role carries (`admin_role.capability_beyond_key`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
+                     *         "message": "An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}/grantable-roles",
                      *         "method": "PUT"
@@ -38894,7 +38914,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description An API key's scopes do not cover every capability the role carries (`admin_role.capability_beyond_key`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks */
+            /** @description An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -38905,7 +38925,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "An API key's scopes do not cover every capability the role carries (`admin_role.capability_beyond_key`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
+                     *         "message": "An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
                      *         "method": "POST"
@@ -40377,7 +40397,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -40388,7 +40408,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "POST"
@@ -40826,7 +40846,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -40837,7 +40857,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "PATCH"
@@ -41909,7 +41929,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key asking for more than it holds: `full_access`, or a scope outside its own (`api_key.access_exceeds_caller`) */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key asking for more than it holds: `full_access`, or a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities asking for `full_access` or a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -41920,7 +41940,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key asking for more than it holds: `full_access`, or a scope outside its own (`api_key.access_exceeds_caller`)",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key asking for more than it holds: `full_access`, or a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities asking for `full_access` or a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "POST"
@@ -42058,7 +42078,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`) */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -42069,7 +42089,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`)",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
                      *         "method": "DELETE"
@@ -42173,7 +42193,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`) */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -42184,7 +42204,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`)",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
                      *         "method": "PATCH"
@@ -42284,7 +42304,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`) */
+            /** @description The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -42295,7 +42315,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`)",
+                     *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}/rotate-secret",
                      *         "method": "POST"

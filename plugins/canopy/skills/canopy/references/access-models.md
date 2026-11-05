@@ -20,6 +20,10 @@ Nodes model the customer's structure (regions, departments, sites). Each resourc
 - Moving a node changes what inherited grants reach. The SDK revalidates the hierarchy on the same cadence as grants (60 seconds by default).
 - A list of resources is filtered by the nodes the identity may see, not by a check per row: `authorizer.accessibleNodes(identityId, permission)` for `WHERE node_id IN (...)`, or `authorizer.grantRoots(...)` against a closure table or materialised path when the tree is large. An `envWide` answer needs no filter.
 
+## Agents acting for a person
+
+The same model answers a machine client acting for a person with a `delegated` token, asked twice: the person's grants and the client's, at the same node, and the request passes only when both allow. Pass the token's `act.sub` as `acting_client_id` ([node.md](node.md)); in NestJS, `@AllowDelegatedTokens()` makes `CanopyGuard` do it ([nestjs.md](nestjs.md)). Inside an organization the token carries the person's `org_id`, and a client pinned to an organization acts only for people signed in to it.
+
 ## Organizations
 
 An optional container, on top of either model, for B2B tenancy: each customer is an organization, which is also a node. Membership is admission, a record of its own; a member's roles are assignments at the organization's node or beneath it, and may be none.

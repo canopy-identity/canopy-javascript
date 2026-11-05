@@ -57,6 +57,7 @@ const PRINCIPAL_TYPES = new Set([
   "user",
   "identity",
   "service",
+  "delegated",
   "api_key",
   "platform",
 ]);
@@ -130,12 +131,13 @@ export interface TokenVerifierOptions {
   audience?: string;
 
   /**
-   * The audience a machine client's `service` token must name: the
-   * identifier your API answers to (`https://api.example.com`), the one the
-   * client asked for with `audience` or the Environment's default audience.
+   * The audience a machine client's token must name, `service` or
+   * `delegated`: the identifier your API answers to
+   * (`https://api.example.com`), the one the client asked for with
+   * `audience` or the Environment's default audience.
    *
-   * A service token always carries `aud`, and it names the API rather than a
-   * client, so `audience` never applies to it. Admitting a service token
+   * A machine client's token always carries `aud`, and it names the API
+   * rather than a client, so `audience` never applies to it. Admitting one
    * without this throws `token.audience_unverified`, so a token minted for
    * another of your APIs is never accepted by accident.
    */
@@ -180,7 +182,8 @@ export interface TokenVerifierOptions {
    * `["identity"]`: the people who sign in to your application.
    *
    * Canopy also signs tokens for machine clients (`service`, obtained with
-   * the `client_credentials` grant), its own administrators (`user`), its
+   * the `client_credentials` grant, and `delegated`, a client acting for a
+   * person after a token exchange), its own administrators (`user`), its
    * staff (`platform`) and, for some flows, API keys (`api_key`), all with the
    * same keys and issuer. A backend that serves your end users should accept
    * none of them, so they are refused unless you name them here, or admit
@@ -204,16 +207,25 @@ export interface TokenVerifierOptions {
 export interface CanopyTokenClaims {
   /**
    * The principal this token acts as: an identity's id, or, on a `service`
-   * token, the machine client's `client_id`.
+   * token, the machine client's `client_id`. On a `delegated` token it is
+   * the person the client acts for; the client is `act.sub`.
    */
   sub: string;
-  /** Which kind of principal `sub` is. */
-  type: "user" | "identity" | "service" | "api_key" | "platform";
+  /** Which kind of principal `sub` is, or `delegated` for a client acting for one. */
+  type: "user" | "identity" | "service" | "delegated" | "api_key" | "platform";
   /**
-   * How a `service` token was obtained: always `client_credentials`. Absent
-   * on every other type.
+   * How a machine client's token was obtained: `client_credentials` on a
+   * `service` token, `token-exchange` on a `delegated` one. Absent on every
+   * other type.
    */
-  gty?: "client_credentials";
+  gty?: "client_credentials" | "token-exchange";
+  /**
+   * On a `delegated` token, the machine client acting for `sub`: its
+   * `client_id`. A delegated token reaches only what both hold, so authorize
+   * it with both (`acting_client_id` on an evaluate); read the pair through
+   * {@link delegation}.
+   */
+  act?: { sub: string };
   /** The OAuth client the token was issued to; on a `service` token, `sub`. */
   client_id?: string;
   iss: string;
@@ -356,6 +368,48 @@ export function orgContext(claims: CanopyTokenClaims): CanopyOrgContext | null {
     orgRoleIds: [...org_role_ids],
     staff: claims.org_scope === "all",
   };
+}
+
+/** Who a `delegated` token names: the person, and the client acting for them. */
+export interface CanopyDelegation {
+  /** The identity the client acts for: the token's `sub`. */
+  identityId: string;
+  /** The machine client acting for them: its `client_id`, the token's `act.sub`. */
+  actingClientId: string;
+}
+
+/**
+ * The two principals a verified `delegated` token names, or `null` for any
+ * other token.
+ *
+ * A machine client obtains a delegated token by exchanging a signed-in
+ * person's access token. It reaches only what both hold, so authorize it with
+ * both: pass `actingClientId` as `acting_client_id` to
+ * {@link LocalAuthorizer.evaluate} or to the API's evaluate.
+ *
+ * ```ts
+ * const claims = await verifier.verify(token, { alsoAllow: ["delegated"] });
+ * const acting = delegation(claims);
+ * const decision = await authorizer.evaluate({
+ *   identity_id: claims.sub,
+ *   permission: "deals.read",
+ *   node_id: dealNodeId,
+ *   ...(acting ? { acting_client_id: acting.actingClientId } : {}),
+ * });
+ * ```
+ */
+export function delegation(claims: CanopyTokenClaims): CanopyDelegation | null {
+  if (claims.type !== "delegated") {
+    return null;
+  }
+
+  const actingClientId = claims.act?.sub;
+
+  if (typeof actingClientId !== "string" || actingClientId === "") {
+    return null;
+  }
+
+  return { identityId: claims.sub, actingClientId };
 }
 
 interface JwksKey {
@@ -546,12 +600,26 @@ export class TokenVerifier {
       );
     }
 
-    // Same reasoning. `type` narrows to five values, and code branches on it;
-    // a sixth would flow through a `switch` as though it were one of them.
+    // Same reasoning. `type` narrows to six values, and code branches on it;
+    // a seventh would flow through a `switch` as though it were one of them.
     if (!PRINCIPAL_TYPES.has(claims.type)) {
       throw new CanopyTokenError(
         "token.malformed",
         `Token has an unrecognised \`type\` claim: ${JSON.stringify(claims.type)}.`,
+      );
+    }
+
+    // A delegated token is authorized as two principals, the person and the
+    // client acting for them. Without the client there is only half a
+    // question to ask, and answering the person's half alone would hand the
+    // client everything the person holds.
+    if (
+      claims.type === "delegated" &&
+      (typeof claims.act?.sub !== "string" || claims.act.sub === "")
+    ) {
+      throw new CanopyTokenError(
+        "token.malformed",
+        "Token is delegated but has no `act.sub` claim naming the client acting for its subject.",
       );
     }
 
@@ -621,8 +689,9 @@ export class TokenVerifier {
    * ignoring it would accept a token minted for a different client. So it
    * throws and names the option.
    *
-   * A service token names the API it was minted for, never a client, so it
-   * is held to `serviceAudience` alone, which it must name.
+   * A machine client's token (`service` or `delegated`) names the API it was
+   * minted for, never a client, so it is held to `serviceAudience` alone,
+   * which it must name.
    */
   private assertAudience(claims: CanopyTokenClaims): void {
     const audiences =
@@ -632,11 +701,11 @@ export class TokenVerifier {
           ? claims.aud
           : [claims.aud];
 
-    if (claims.type === "service") {
+    if (claims.type === "service" || claims.type === "delegated") {
       if (this.serviceAudience === undefined) {
         throw new CanopyTokenError(
           "token.audience_unverified",
-          "This is a machine client's service token, and the verifier has no `serviceAudience` configured. " +
+          `This is a machine client's ${claims.type} token, and the verifier has no \`serviceAudience\` configured. ` +
             "Set `serviceAudience` to the audience your API answers to.",
         );
       }
