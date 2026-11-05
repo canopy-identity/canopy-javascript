@@ -33,3 +33,9 @@ export const CANOPY_PERMISSION = "CANOPY_PERMISSION";
  * already accepts.
  */
 export const CANOPY_ALLOW_SERVICE_TOKENS = "CANOPY_ALLOW_SERVICE_TOKENS";
+
+/**
+ * Metadata key `@AllowDelegatedTokens()` writes: a route or controller that
+ * admits a `delegated` token, a machine client acting for a person.
+ */
+export const CANOPY_ALLOW_DELEGATED_TOKENS = "CANOPY_ALLOW_DELEGATED_TOKENS";

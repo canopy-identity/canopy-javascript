@@ -61,6 +61,15 @@ Two kinds of secret API key, both `cnpy_…`:
 - **An Environment key** belongs to one Environment and acts only there. A running backend holds this one: verifying tokens, authorizing, creating identities and assignments. Create it under **Access Control → Integrations → API Keys** for that Environment, with only the scopes the backend calls.
 - **An account key** belongs to the Account: it manages Applications and Environments, single sign-on, administrators and billing, and acts in any Environment a request names with `X-Canopy-Environment`. Hold one only in a provisioning script or a CI job, never in a running backend or a browser. Create it under **Tenant → Account API Keys**; it is always scoped, so give it the fewest scopes the script needs ([node.md](node.md)).
 
+## Which credential an agent holds
+
+A key names no person, so an agent running on one acts as the key, and nothing records who asked. Choose by what the agent calls and for whom:
+
+- **An agent inside the app, calling the app's own API**: a **machine client** (`client_kind: machine`) with its own roles, so the API authorizes it like any principal ([node.md](node.md)). Never a key: a key manages Canopy, and is never what the app's API checks.
+- **The same agent acting for a signed-in person**: the machine client, with **Allow token exchange** on, exchanges the person's access token for a `delegated` one (`exchangeToken` in `@canopy-io/node`). It names both (`sub` the person, `act.sub` the client), reaches only what both hold, and every exchange is in the audit log. Never hand the agent the person's own token: it would hold everything the person holds.
+- **An assistant working in Canopy for an administrator**: the account MCP server, signed in as that administrator, within their role and the capabilities they approve.
+- **An agent working in Canopy on its own** (a provisioning job): a key of its own, an Environment key unless its job spans Environments, with only the scopes it calls and an expiry.
+
 ## Finding the issuer and Environment id
 
 Each Environment is its own issuer: `https://<api origin>/environments/<environment_id>`, or `https://<custom auth domain>` once one is active. The Console shows the issuer, discovery and JWKS URLs under Authentication → Signing keys, and every OAuth client response includes `issuer`. Pass `environmentId` to `TokenVerifier` for the default issuer, or `issuer` for a custom domain or a self-hosted instance. A self-hosted instance can instead set `CANOPY_BASE_URL` for the process: the client calls it and `environmentId` resolves under it, so the code stays what it is on hosted Canopy.

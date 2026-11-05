@@ -46,6 +46,18 @@ An account key does not know which Environment to act in. Without `X-Canopy-Envi
 
 A key with `admin_governance.manage` composes and grants administrator roles. Canopy refuses a role or grant beyond the key's own scopes, and never lets a key hand out governance itself, but within those bounds the key decides who administers the Account. Give it only to a script whose job is administration; a script that provisions Environments needs `application.manage` and the settings scopes, not governance.
 
+## Giving an agent a full-access key
+
+A full-access key holds every permission in its Environment, and an agent acts as whatever it holds: one misread instruction can change roles, identities or settings nobody meant it to touch. Give an agent that works in Canopy a key of its own with only the scopes it calls and an expiry, so the audit log tells it apart from every other caller; an agent calling the app's own API holds a machine client, never a key ([choosing.md](choosing.md)).
+
+## Giving an agent an account key it does not need
+
+An account key reaches the whole Account and every Environment in it. An agent whose job is one Environment holds that Environment's key; an account key, always scoped, is only for an agent whose job spans Environments, and never with `admin_governance.manage` unless administering is its job ([choosing.md](choosing.md)).
+
+## An agent holding the person's own token
+
+An agent that acts for a signed-in person with that person's access token holds everything the person holds, and the API cannot tell the agent from the person. Register the agent as a machine client, turn on token exchange for it, and exchange the person's token for a `delegated` one (`exchangeToken`): it reaches only what both hold, names both, and is audited. The API admits it only on routes that allow `delegated` and authorizes it with `acting_client_id` ([node.md](node.md), [nestjs.md](nestjs.md)).
+
 ## Calling `evaluate` on every request
 
 `canopy.permissions.evaluate` in a hot path puts Canopy in every request: latency, rate limits, and an outage that takes the application down with it. Use `CanopyGuard` or `LocalAuthorizer`. Keep `evaluate` for a single decision that must have no staleness.

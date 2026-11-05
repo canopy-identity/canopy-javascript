@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isCanopyTokenError } from "./errors.js";
-import { type CanopyTokenClaims, orgContext, TokenVerifier } from "./verify.js";
+import {
+  type CanopyTokenClaims,
+  delegation,
+  orgContext,
+  TokenVerifier,
+} from "./verify.js";
 
 /**
  * These tests are mostly about tokens that must be REFUSED.
@@ -1000,6 +1005,102 @@ describe("TokenVerifier — principal types", () => {
         { alsoAllow: ["service"] },
       ),
     ).rejects.toMatchObject({ code: "token.audience_mismatch" });
+  });
+
+  /**
+   * A machine client acting for a person after a token exchange. It names
+   * the API like a service token does, and both the person and the client.
+   */
+  const delegatedClaims = (overrides: Record<string, unknown> = {}) =>
+    validClaims({
+      sub: "idn_person",
+      type: "delegated",
+      gty: "token-exchange",
+      client_id: "client_abc",
+      act: { sub: "client_abc" },
+      aud: API_AUDIENCE,
+      ...overrides,
+    });
+
+  it("accepts a delegated token only on the call that also allows it", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      serviceAudience: API_AUDIENCE,
+      fetch,
+    });
+    const token = await signer.sign(delegatedClaims());
+
+    const claims = await verifier.verify(token, { alsoAllow: ["delegated"] });
+
+    expect(claims).toMatchObject({
+      sub: "idn_person",
+      type: "delegated",
+      act: { sub: "client_abc" },
+    });
+    expect(delegation(claims)).toEqual({
+      identityId: "idn_person",
+      actingClientId: "client_abc",
+    });
+    await expect(verifier.verify(token)).rejects.toMatchObject({
+      code: "token.type_not_allowed",
+    });
+    await expect(
+      verifier.verify(token, { alsoAllow: ["service"] }),
+    ).rejects.toMatchObject({ code: "token.type_not_allowed" });
+  });
+
+  it("holds a delegated token to serviceAudience", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const unconfigured = new TokenVerifier({ issuer: ISSUER, fetch });
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      serviceAudience: API_AUDIENCE,
+      fetch,
+    });
+
+    await expect(
+      unconfigured.verify(await signer.sign(delegatedClaims()), {
+        alsoAllow: ["delegated"],
+      }),
+    ).rejects.toMatchObject({ code: "token.audience_unverified" });
+    await expect(
+      verifier.verify(
+        await signer.sign(
+          delegatedClaims({ aud: "https://reports.example.com" }),
+        ),
+        { alsoAllow: ["delegated"] },
+      ),
+    ).rejects.toMatchObject({ code: "token.audience_mismatch" });
+  });
+
+  it("refuses a delegated token that names no acting client", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      serviceAudience: API_AUDIENCE,
+      fetch,
+    });
+
+    for (const act of [undefined, {}, { sub: "" }]) {
+      await expect(
+        verifier.verify(await signer.sign(delegatedClaims({ act })), {
+          alsoAllow: ["delegated"],
+        }),
+      ).rejects.toMatchObject({ code: "token.malformed" });
+    }
+  });
+
+  it("names no delegation on any other token", () => {
+    expect(
+      delegation({
+        sub: "idn_1",
+        type: "identity",
+        iss: ISSUER,
+        exp: 0,
+        act: { sub: "client_abc" },
+      }),
+    ).toBeNull();
   });
 
   /**

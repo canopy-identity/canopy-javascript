@@ -144,6 +144,32 @@ if (claims.type === "service") {
 A machine client pinned to an organization carries that organization's claims,
 read through `orgContext` like a person's.
 
+A machine client with token exchange on can also **act for a signed-in
+person**. `exchangeToken` trades the person's access token for a `delegated`
+one: `sub` is the person, `act.sub` the client, `gty` is `token-exchange`, and
+it reaches only what both hold. Like a service token it names your API in
+`aud` and is held to `serviceAudience`; admit it per call with
+`alsoAllow: ["delegated"]`, and read both principals with `delegation`:
+
+```ts
+// The agent's side.
+const { accessToken } = await exchangeToken({
+  clientId: process.env.AGENT_CLIENT_ID!,
+  clientSecret: process.env.AGENT_CLIENT_SECRET!,
+  subjectToken: personAccessToken,
+  audience: "https://api.example.com",
+});
+
+// Your API's side.
+const claims = await verifier.verify(bearerToken, { alsoAllow: ["delegated"] });
+const acting = delegation(claims); // { identityId, actingClientId }
+```
+
+Authorize it with `acting_client_id` (below). Canopy's own API refuses a
+delegated token, and it has no refresh token: exchange again when it expires.
+A refusal throws `CanopyError` with the OAuth error as its code
+(`oauth.invalid_grant` once the person has signed out).
+
 If Canopy cannot be reached when the cached keys are due for a refresh, the
 verifier keeps verifying with the keys it holds; only a verifier that has never
 loaded a key set, or a token signed by a key it has never seen, answers
@@ -413,6 +439,19 @@ await authorizer.evaluate({
 });
 
 authorizer.invalidate(clientId, { principalType: "service" });
+```
+
+For a `delegated` token, ask about the person and pass the acting client: the
+check allows only when both hold the permission there, and refuses with
+`acting_client_not_granted` when the client does not.
+
+```ts
+await authorizer.evaluate({
+  identity_id: claims.sub,
+  permission: "deals.read",
+  node_id: nodeId,
+  ...(acting ? { acting_client_id: acting.actingClientId } : {}),
+});
 ```
 
 ```ts

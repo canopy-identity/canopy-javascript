@@ -17,6 +17,7 @@ import {
 
 import type { CanopyModuleOptions } from "./options.js";
 import {
+  CANOPY_ALLOW_DELEGATED_TOKENS,
   CANOPY_ALLOW_SERVICE_TOKENS,
   CANOPY_OPTIONS,
   CANOPY_TOKEN_VERIFIER,
@@ -69,7 +70,8 @@ export interface CanopyTokenRequest<TCustom extends object = object> {
  *
  * A machine client's `service` token is refused unless the route or its
  * controller carries `@AllowServiceTokens()`: a route built for people must
- * not admit a machine by accident.
+ * not admit a machine by accident. A `delegated` token, a machine client
+ * acting for a person, is refused unless it carries `@AllowDelegatedTokens()`.
  */
 @Injectable()
 export class CanopyTokenGuard implements CanActivate {
@@ -94,18 +96,22 @@ export class CanopyTokenGuard implements CanActivate {
       );
     }
 
-    const admitsServiceTokens =
-      this.reflector.getAllAndOverride<boolean | undefined>(
-        CANOPY_ALLOW_SERVICE_TOKENS,
-        [context.getHandler(), context.getClass()],
-      ) === true;
+    const admits = (key: string): boolean =>
+      this.reflector.getAllAndOverride<boolean | undefined>(key, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true;
+    const alsoAllow: CanopyTokenClaims["type"][] = [
+      ...(admits(CANOPY_ALLOW_SERVICE_TOKENS) ? ["service" as const] : []),
+      ...(admits(CANOPY_ALLOW_DELEGATED_TOKENS) ? ["delegated" as const] : []),
+    ];
 
     let claims: CanopyTokenClaims;
 
     try {
       claims = await this.verifier.verify(
         token,
-        admitsServiceTokens ? { alsoAllow: ["service"] } : {},
+        alsoAllow.length > 0 ? { alsoAllow } : {},
       );
     } catch (error) {
       // Not being able to verify is not the same as failing to verify. When
