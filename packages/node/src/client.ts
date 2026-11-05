@@ -75,6 +75,18 @@ export interface CanopyClientOptions {
   /** Identity or portal JWT, sent as `Authorization: Bearer`. */
   accessToken?: string;
   /**
+   * The Environment an account API key acts in, sent as
+   * `X-Canopy-Environment` on every request.
+   *
+   * An account key belongs to the Account, not one Environment, so a route
+   * that acts in an Environment needs to be told which; the Account's own
+   * routes (Applications, single sign-on, administration, billing) ignore it.
+   * Leave it out with an Environment key, which acts in its own: sent with
+   * one, it must name that same Environment or the API answers `400`.
+   * Override it for one call with `RequestOptions.environmentId`.
+   */
+  environmentId?: string;
+  /**
    * Defaults to Canopy's hosted API, or to `CANOPY_BASE_URL` when that
    * environment variable is set. Set this, or the variable, for a self-hosted
    * instance.
@@ -143,6 +155,12 @@ export interface RequestOptions {
    */
   headers?: Record<string, string>;
   /**
+   * The Environment this call acts in, overriding the client-wide
+   * `environmentId`: how one account key works across several Environments.
+   * `null` sends no `X-Canopy-Environment` for this call.
+   */
+  environmentId?: string | null;
+  /**
    * Declares this call safe to repeat, which allows retrying a 5xx.
    *
    * Needed because the generated types carry no idempotency marker, so the
@@ -165,7 +183,12 @@ export interface RequestOptions {
  */
 export type CallOptions = Pick<
   RequestOptions,
-  "signal" | "timeoutMs" | "maxRetries" | "maxBackoffMs" | "headers"
+  | "signal"
+  | "timeoutMs"
+  | "maxRetries"
+  | "maxBackoffMs"
+  | "headers"
+  | "environmentId"
 >;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -193,6 +216,7 @@ export class CanopyClient {
   private readonly maxBackoffMs: number;
   private readonly authHeaders: Record<string, string>;
   private readonly extraHeaders: Record<string, string>;
+  private readonly environmentId: string | undefined;
   private readonly fetchImpl: typeof globalThis.fetch;
 
   constructor(options: CanopyClientOptions = {}) {
@@ -207,6 +231,7 @@ export class CanopyClient {
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.maxBackoffMs = options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS;
     this.extraHeaders = options.headers ?? {};
+    this.environmentId = options.environmentId;
     this.fetchImpl = options.fetch ?? globalThis.fetch;
 
     if (typeof this.fetchImpl !== "function") {
@@ -421,6 +446,15 @@ export class CanopyClient {
 
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
+    }
+
+    const environmentId =
+      options.environmentId === undefined
+        ? this.environmentId
+        : options.environmentId;
+
+    if (environmentId) {
+      headers["X-Canopy-Environment"] = environmentId;
     }
 
     // Per-request headers beat the client-wide defaults, but the credential is

@@ -62,6 +62,60 @@ The client retries only what is safe to replay (idempotent methods on `5xx`, and
 
 Lists are paged: `{ items, pagination }`, 20 per page by default and at most 100 (`take`). Every list wrapper returns a `Paginator` (`for await`, `.all()`, `.first()`), including `identities.sessions` and `organizations.listDirectoryGroups`. A list read through `canopy.client.request`, such as `GET /api/v1/nodes`, answers one page; walk it with `paginate` rather than reading the first page as the whole. `permissions.evaluateBulk` takes 1 to 100 checks and refuses more with a `400`.
 
+## Provisioning with an account key
+
+A script that sets up Applications and Environments, single sign-on or administrators uses an **account key**, created under **Tenant → Account API Keys**: it belongs to the Account, is always scoped, and never has full access. A running backend uses an **Environment key** instead ([choosing.md](choosing.md)).
+
+An account key names the Environment it acts in, per request, with `X-Canopy-Environment`. Pass `environmentId` to the client to send it on every request, or on a single call to work across Environments (`null` sends none). The Account's own routes (`/api/v1/applications`, `/api/v1/environments/:id`, `/api/v1/sso`, `/api/v1/admin-roles`, `/api/v1/admin-assignments`, `/api/v1/administrators`, `/api/v1/billing`, `/api/v1/account`, `/api/v1/account-webhooks`) ignore it.
+
+```ts
+import { Canopy, type ResponseBody, withConcurrency } from "@canopy-io/node";
+
+// An account key, held by the provisioning script or CI job alone.
+const canopy = new Canopy({ apiKey: process.env.CANOPY_ACCOUNT_KEY });
+
+export async function provisionStaging(applicationId: string) {
+  // The Account's own route: no Environment named.
+  const created = await canopy.client.request<
+    ResponseBody<"ApiApplicationsController_createEnvironment">
+  >("POST", `/api/v1/applications/${applicationId}/environments`, {
+    body: { name: "Staging", slug: "staging" },
+  });
+  const environmentId = created.environment.id;
+
+  // The Environment's routes: name it on each call.
+  const settings = await canopy.client.request<
+    ResponseBody<"ApiAuthSettingsController_get">
+  >("GET", "/api/v1/auth-settings", { environmentId });
+
+  await canopy.client.request("PATCH", "/api/v1/auth-settings", {
+    environmentId,
+    body: { allow_self_signup: false },
+    // A save over someone else's newer change answers 409 instead of
+    // overwriting it.
+    ...withConcurrency({ ifMatch: `"${settings.version}"` }),
+  });
+
+  // The signing secret is in this response only: store it now.
+  return canopy.client.request<ResponseBody<"ApiWebhooksController_create">>(
+    "POST",
+    "/api/v1/webhooks",
+    {
+      environmentId,
+      body: {
+        url: "https://hooks.example.com/canopy",
+        event_types: ["role.created"],
+      },
+    },
+  );
+}
+```
+
+- Give the key only the scopes the script uses. The Account's own routes take account scopes (`application.manage`, `sso.manage`, `admin_governance.manage`, `billing.view` and the like), which only an account key can hold.
+- A key hands out nothing it does not hold: an administrator role or grant beyond its scopes answers `403 admin_role.capability_beyond_key`, and `admin_governance.manage` and `api_keys.manage` are beyond every key.
+- An Environment-level route called with an account key and no Environment answers `400 api_key.environment_required`; an Environment key on an Account route answers `403`.
+- An `If-Match` that is not a whole number answers `400 if_match.invalid`; leave the header out to skip the check.
+
 ## Verifying an access token
 
 One fetch of the signing keys, then every verification is local. Name the Environment, and name your client when the tokens come from Hosted Login: those carry `aud`, your OAuth `client_id`, and the verifier refuses a token whose `aud` it was not told to check. Direct API tokens carry none, so leave `audience` out for them.

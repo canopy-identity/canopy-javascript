@@ -34,6 +34,18 @@ Registering passkeys and verifying assertions in the application (with `@simplew
 
 `POST /v1/identity/auth/login/passkey/options` and `/verify` refuse by code. Show the reason and offer the other ways in; never retry with the same `passkey_token`, and treat a dismissed browser prompt (`NotAllowedError`) as nothing to report. The codes: `403 auth.passkey_login_disabled` (the Environment has passkey sign-in off: read `passkey_login_enabled` from `GET /v1/identity/auth/config` and show no button), `401 auth.passkey_sign_in_expired` (the token was spent, expired after five minutes, or belongs to another Environment: start again from `options`), `401 auth.passkey_user_verification_required` (the authenticator did not check it was the person, so it cannot sign in alone), and `401 auth.invalid_credentials` (a passkey Canopy does not know, one bound to another relying party, or a signature that did not verify). An organization whose policy does not allow passkeys refuses with `403 organization.sign_in_method_not_allowed`.
 
+## An account key in a running backend or a browser
+
+An account key acts on the whole Account and in every Environment of it. In a backend's environment variables it turns any leak of that service into control of the Account; in a browser it is public. A backend uses an Environment key for its own Environment; an account key lives only in a provisioning script or CI secret ([choosing.md](choosing.md)).
+
+## An Environment route called with an account key and no Environment
+
+An account key does not know which Environment to act in. Without `X-Canopy-Environment` every Environment-level route (roles, identities, auth settings, webhooks) answers `400 api_key.environment_required`. Set `environmentId` on the client, or on the call ([node.md](node.md)); the Account's own routes need none.
+
+## An account key holding `admin_governance.manage` it does not need
+
+A key with `admin_governance.manage` composes and grants administrator roles. Canopy refuses a role or grant beyond the key's own scopes, and never lets a key hand out governance itself, but within those bounds the key decides who administers the Account. Give it only to a script whose job is administration; a script that provisions Environments needs `application.manage` and the settings scopes, not governance.
+
 ## Calling `evaluate` on every request
 
 `canopy.permissions.evaluate` in a hot path puts Canopy in every request: latency, rate limits, and an outage that takes the application down with it. Use `CanopyGuard` or `LocalAuthorizer`. Keep `evaluate` for a single decision that must have no staleness.
