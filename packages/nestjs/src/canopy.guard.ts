@@ -156,11 +156,15 @@ export class CanopyGuard implements CanActivate {
     request: unknown,
     cancellation: Cancellation | undefined,
   ): Promise<Verdict> {
+    const actingClientId = this.actingClientOf(request);
     const query = {
       ...this.buildQuery(requirement, identityId, request),
       ...(this.isServiceToken(request)
         ? { principal_type: "service" as const }
         : {}),
+      ...(actingClientId === undefined
+        ? {}
+        : { acting_client_id: actingClientId }),
     };
 
     try {
@@ -287,6 +291,27 @@ export class CanopyGuard implements CanActivate {
     ];
 
     return (claims as { type?: unknown } | undefined)?.type === "service";
+  }
+
+  /**
+   * The machine client acting for the identity, when the verified token is
+   * `delegated`: its `act.sub`, so the check asks both. An empty string for a
+   * delegated token naming no client, which the authorizer refuses; the
+   * verifier refuses such a token first, so this is the second lock.
+   */
+  private actingClientOf(request: unknown): string | undefined {
+    const attachedAs = this.options.attachTokenAs ?? "canopyToken";
+    const claims = (request as Record<string, unknown> | null | undefined)?.[
+      attachedAs
+    ] as { type?: unknown; act?: { sub?: unknown } } | undefined;
+
+    if (claims?.type !== "delegated") {
+      return undefined;
+    }
+
+    const sub = claims.act?.sub;
+
+    return typeof sub === "string" ? sub : "";
   }
 
   /** A staff token (`org_scope: "all"`), read off the verified claims only. */

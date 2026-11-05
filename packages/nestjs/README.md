@@ -21,6 +21,7 @@ Requires NestJS 10 or 11 and Node 18 or later. `@canopy-io/node` comes with it.
 - **Three scopes.** `node` is the default and the strict question; `app_wide` asks only whether the identity holds the permission anywhere in the Environment; `org` asks the node question at the organization the caller's token is acting in.
 - **`CanopyTokenGuard`** verifies a Canopy-issued bearer token locally against the published signing keys and attaches the claims, for applications with no auth layer in front. Additive — skip it if you already run Passport or your own JWT middleware.
 - **`@AllowServiceTokens()`** admits a machine client's `client_credentials` token on the routes built for machines, authorized from the client's own grants; every other route keeps refusing it.
+- **`@AllowDelegatedTokens()`** admits a machine client acting for a person after a token exchange, authorized only where the person and the client both hold the permission.
 - **`@InjectCanopy()`** hands you the full `@canopy-io/node` client for everything the guard does not cover.
 - **Fails closed, with the status telling you which failure it was.** `403` for a denial, `503` for an undecidable one, `500` for a broken integration.
 - **A bounded check.** Its own evaluation timeout and retry count, separate from the client-wide ones, with the wait between attempts capped.
@@ -223,6 +224,21 @@ from the verified claims, never from anything the caller sends. The token's
 `sub` is the client's `client_id`, so `resolveIdentity: (request) =>
 request.canopyToken?.sub` serves both kinds. A machine client pinned to an
 organization carries its `org_id`, so `scope: "org"` works the same way.
+
+A machine client acting for a person presents a `delegated` token (see
+`exchangeToken` in `@canopy-io/node`), which answers `401` except on a route or
+controller carrying `@AllowDelegatedTokens()`. It is held to
+`verify.serviceAudience` too. There `CanopyGuard` evaluates the person
+(`resolveIdentity` still reads `sub`) and the client in `act.sub`, and allows
+only when both hold the permission:
+
+```ts
+@UseGuards(CanopyTokenGuard, CanopyGuard)
+@AllowDelegatedTokens()
+@RequirePermission("deals.read", { scope: "org" })
+@Get()
+list() {}
+```
 
 A rejected token is a 401 whatever the detail, with the specific code left on
 `error.cause` for your logs rather than handed to the caller — who has no use

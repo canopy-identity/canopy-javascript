@@ -25,6 +25,7 @@ interface FakeRequest {
   params?: { nodeId?: string; orgId?: string };
   /** What `CanopyTokenGuard` attaches, under its default property. */
   canopyToken?: {
+    act?: { sub?: unknown };
     org_id?: unknown;
     org_scope?: unknown;
     permissions?: unknown;
@@ -232,6 +233,44 @@ describe("the subject's kind", () => {
     });
   });
 
+  it("asks about the person and the acting client for a delegated token", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: NODE_REQUIREMENT,
+      request: {
+        user: { sub: "idn_1" },
+        params: { nodeId: "nod_1" },
+        canopyToken: { type: "delegated", act: { sub: "client_abc" } },
+      },
+    });
+
+    await guard.canActivate(context);
+
+    expect(evaluate.mock.calls[0]?.[0]).toEqual({
+      identity_id: "idn_1",
+      permission: "orders.refund",
+      scope: "node",
+      node_id: "nod_1",
+      acting_client_id: "client_abc",
+    });
+  });
+
+  it("names an empty acting client for a delegated token without one, so it is refused", async () => {
+    const { guard, context, evaluate } = harness({
+      requirement: NODE_REQUIREMENT,
+      request: {
+        user: { sub: "idn_1" },
+        params: { nodeId: "nod_1" },
+        canopyToken: { type: "delegated" },
+      },
+    });
+
+    await guard.canActivate(context).catch(() => undefined);
+
+    expect(evaluate.mock.calls[0]?.[0]).toMatchObject({
+      acting_client_id: "",
+    });
+  });
+
   it("asks about an identity's grants for any other token", async () => {
     const { guard, context, evaluate } = harness({
       requirement: NODE_REQUIREMENT,
@@ -245,6 +284,7 @@ describe("the subject's kind", () => {
     await guard.canActivate(context);
 
     expect(evaluate.mock.calls[0]?.[0]).not.toHaveProperty("principal_type");
+    expect(evaluate.mock.calls[0]?.[0]).not.toHaveProperty("acting_client_id");
   });
 
   it("reads the claims where the token guard was told to attach them", async () => {
