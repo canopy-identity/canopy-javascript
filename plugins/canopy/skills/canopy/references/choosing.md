@@ -54,6 +54,13 @@ Which to use for a browser app:
 
 In a backend proxy, forward the end user's address and user agent as `X-Canopy-Client-IP` and `X-Canopy-Client-User-Agent`, so sessions and rate limits describe the real user rather than the server.
 
+## Which API key goes where
+
+Two kinds of secret API key, both `cnpy_…`:
+
+- **An Environment key** belongs to one Environment and acts only there. A running backend holds this one: verifying tokens, authorizing, creating identities and assignments. Create it under **Access Control → Integrations → API Keys** for that Environment, with only the scopes the backend calls.
+- **An account key** belongs to the Account: it manages Applications and Environments, single sign-on, administrators and billing, and acts in any Environment a request names with `X-Canopy-Environment`. Hold one only in a provisioning script or a CI job, never in a running backend or a browser. Create it under **Tenant → Account API Keys**; it is always scoped, so give it the fewest scopes the script needs ([node.md](node.md)).
+
 ## Finding the issuer and Environment id
 
 Each Environment is its own issuer: `https://<api origin>/environments/<environment_id>`, or `https://<custom auth domain>` once one is active. The Console shows the issuer, discovery and JWKS URLs under Authentication → Signing keys, and every OAuth client response includes `issuer`. Pass `environmentId` to `TokenVerifier` for the default issuer, or `issuer` for a custom domain or a self-hosted instance. A self-hosted instance can instead set `CANOPY_BASE_URL` for the process: the client calls it and `environmentId` resolves under it, so the code stays what it is on hosted Canopy.

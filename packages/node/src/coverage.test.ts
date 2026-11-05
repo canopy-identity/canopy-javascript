@@ -23,7 +23,14 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 199 as of stored access previews: each preview answers an `id` and
+// 298 as of the management API: Applications and Environments with their
+// settings, single sign-on, the auth domain and SCIM, administrator roles,
+// grants and administrators, billing reads, the Account and account
+// webhooks, reached with an account key (`environmentId` names the
+// Environment for the routes that act in one). Unwrapped: each is one typed
+// `request`, and `withConcurrency` carries their `If-Match`, so the floor
+// does not move. Before that, 201.
+// Before that, 199 as of stored access previews: each preview answers an `id` and
 // `expires_at` in place of a `people` page, and the people are read from
 // the stored preview (`/api/v1/access-previews/:previewId/people` and
 // `people.csv`). Unwrapped like the previews, so the floor does not move.
@@ -73,7 +80,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 201;
+const EXPECTED_OPERATION_COUNT = 298;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
