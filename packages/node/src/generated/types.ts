@@ -1246,7 +1246,7 @@ export interface paths {
         post: operations["ApiOrganizationsController_createOrganization"];
         /**
          * Delete every organization
-         * @description Deletes every live organization in the Environment the way the single delete does: memberships and every assignment beneath each organization are removed, pending invitations bound to the organization or its tree are revoked, and each organization is soft-deleted with its subtree. Member identities are untouched. This is the step before switching the container off, so unlike the other organization routes it does not require the organizations plan feature: an account that has moved to a plan without it can still empty the container and switch it off. Responds `204 No Content`, requires the `hierarchy.manage` permission, and emits `organization.deleted_all` with the counts.
+         * @description Deletes every live organization in the Environment the way the single delete does: memberships and every assignment beneath each organization are removed, pending invitations bound to the organization or its tree are revoked, and each organization is soft-deleted with its subtree. Member identities are untouched. This is the step before switching the container off. Responds `204 No Content`, requires the `hierarchy.manage` permission, and emits `organization.deleted_all` with the counts.
          */
         delete: operations["ApiOrganizationsController_deleteAllOrganizations"];
         options?: never;
@@ -4414,8 +4414,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the purchasable Pro prices
-         * @description Returns `monthly` and `annual` Pro prices in the smallest currency unit, resolved from Stripe by lookup key, with `annual_savings_percent` derived from the pair rather than stated so it cannot disagree with them. Either price is null when no active Stripe price carries its lookup key; the dialog renders the cycle it has. Amounts come from Stripe so the dialog cannot advertise a price different from the charge.
+         * List the purchasable plan prices
+         * @description Returns `monthly` and `annual` prices for `starter` and `pro` in the smallest currency unit, resolved from Stripe by lookup key, with `annual_savings_percent` derived from the pair rather than stated so it cannot disagree with them. Either price is null when no active Stripe price carries its lookup key; the dialog renders the cycle it has. Amounts come from Stripe so the dialog cannot advertise a price different from the charge.
          */
         get: operations["ApiBillingController_getPlanPrices"];
         put?: never;
@@ -5377,6 +5377,10 @@ export interface components {
             has_hierarchy: boolean;
             /** @description Whether the organization may create its own integrations: the Environment's `organization_integrations_enabled` is on, it has a default audience, which every integration's token names, and `organization_integration_role_ids` names at least one role */
             integrations_enabled: boolean;
+            /** @description Whether the Account's plan includes single sign-on. Without it the organization's connection and domain routes answer `403 plan_feature_unavailable`. */
+            plan_includes_sso: boolean;
+            /** @description Whether the Account's plan includes directory sync. Without it the organization's directory routes answer `403 plan_feature_unavailable`. */
+            plan_includes_scim: boolean;
         };
         RoleResponseDto: {
             id: string;
@@ -8102,6 +8106,21 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        SubscriptionDiscountDto: {
+            /** @description The promotion code the discount came from. */
+            code: string | null;
+            /** @description Amount off each invoice, in the currency's minor unit. */
+            amount_off: number | null;
+            /** @description Percentage off each invoice. */
+            percent_off: number | null;
+            /** @description Currency of `amount_off`. */
+            currency: string | null;
+            /**
+             * Format: date-time
+             * @description When the discount ends; null if it does not end.
+             */
+            ends_at: string | null;
+        };
         SubscriptionResponseDto: {
             id: string;
             account_id: string;
@@ -8109,7 +8128,7 @@ export interface components {
              * @description Current subscription plan code.
              * @enum {string}
              */
-            plan_code: "free" | "pro" | "enterprise";
+            plan_code: "free" | "starter" | "pro" | "enterprise";
             /**
              * @description Lifecycle state. `active` is the happy path; `past_due` and `cancelled` should surface a banner / disable upgrade affordances in the dashboard.
              * @enum {string}
@@ -8133,6 +8152,15 @@ export interface components {
             /** @description True when the subscription is scheduled to cancel at `current_period_end`. Stripe webhook flips `status` to `cancelled` when the period closes. */
             cancel_at_period_end: boolean;
             /**
+             * @description The lower paid plan the subscription moves to at `current_period_end`, or null. Undone with `DELETE /billing/scheduled-downgrade`.
+             * @enum {string|null}
+             */
+            scheduled_plan_code?: "starter" | "pro" | null;
+            /** @description The promotion code the subscription was started with, kept after its discount ends. */
+            promotion_code?: string | null;
+            /** @description The discount the subscription carries now, read from Stripe. */
+            discount?: components["schemas"]["SubscriptionDiscountDto"] | null;
+            /**
              * Format: date-time
              * @description When the current trial started (UTC ISO).
              */
@@ -8144,9 +8172,14 @@ export interface components {
             trial_ends_at?: string | null;
             /**
              * Format: date-time
-             * @description Timestamp of the most recent payment attempt (success or failure), synced from Stripe webhooks. Drives the dunning banner's grace-period countdown.
+             * @description Timestamp of the most recent payment attempt (success or failure), synced from Stripe webhooks.
              */
             last_payment_attempt_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When paid features are revoked if the failed payment is not settled (UTC ISO), counted from when the subscription went past due. Null unless it is past due.
+             */
+            grace_ends_at?: string | null;
             /**
              * @description Count of consecutive failed payment attempts on the current open invoice. Resets to 0 on a successful charge. Renders the `N of 4 attempts` copy in the dunning banner.
              * @example 0
@@ -8160,16 +8193,18 @@ export interface components {
             interval?: string | null;
         };
         DimensionUsageDto: {
-            /** @description Plan-defined ceiling for this dimension. */
-            limit: number;
+            /** @description Plan-defined ceiling for this dimension. Null for no limit. */
+            limit: number | null;
             /** @description Current usage count toward the limit. */
             used: number;
-            /** @description Used / limit, capped at 1.0. 0 when limit is 0 (feature disabled). */
+            /** @description Used / limit, capped at 1.0. 0 when limit is 0 (feature disabled) or null (no limit). */
             percent: number;
         };
         UsageDimensionsDto: {
             /** @description Accepted dashboard seats + pending invites vs limit. */
             dashboard_seats?: components["schemas"]["DimensionUsageDto"];
+            /** @description Live organizations across the Account's Environments vs limit. */
+            organizations?: components["schemas"]["DimensionUsageDto"];
             /** @description Distinct identities that completed an authentication during the current UTC calendar month, counted from `mau_monthly_active_identities` — written on the authentication path itself, so the figure is current rather than waiting on a nightly job. */
             mau?: components["schemas"]["DimensionUsageDto"];
             /** @description API keys and machine clients that successfully authenticated during the current UTC calendar month. */
@@ -8184,8 +8219,6 @@ export interface components {
             scim?: boolean;
             /** @description External audit-log destinations. */
             audit_destinations?: boolean;
-            /** @description Tenant organizations (the organizations container). */
-            organizations?: boolean;
         };
         UsageSummaryResponseDto: {
             account_id: string;
@@ -8193,7 +8226,7 @@ export interface components {
              * @description The Account's current subscription plan. Drives the limit values returned per dimension.
              * @enum {string}
              */
-            current_plan: "free" | "pro" | "enterprise";
+            current_plan: "free" | "starter" | "pro" | "enterprise";
             dimensions: components["schemas"]["UsageDimensionsDto"];
             features: components["schemas"]["PlanFeaturesDto"];
         };
@@ -8206,13 +8239,19 @@ export interface components {
             /** @description ISO 4217 currency code (e.g. `usd`). */
             currency: string;
         };
-        PlanPricesResponseDto: {
-            /** @description Pro billed monthly. Null when no active price carries the `pro_monthly` lookup key. */
+        PlanCyclePricesDto: {
+            /** @description The plan billed monthly. Null when no active price carries the `<plan_code>_monthly` lookup key. */
             monthly?: components["schemas"]["PlanPriceDto"] | null;
-            /** @description Pro billed annually. Null when no active price carries the `pro_annual` lookup key. */
+            /** @description The plan billed annually. Null when no active price carries the `<plan_code>_annual` lookup key. */
             annual?: components["schemas"]["PlanPriceDto"] | null;
             /** @description What annual saves against twelve monthly payments, rounded to a whole percent — derived from the two prices above rather than stated, so it cannot disagree with them. Null when either price is missing. */
             annual_savings_percent?: number | null;
+        };
+        PlanPricesResponseDto: {
+            /** @description Starter's prices. */
+            starter: components["schemas"]["PlanCyclePricesDto"];
+            /** @description Pro's prices. */
+            pro: components["schemas"]["PlanCyclePricesDto"];
         };
         InvoiceResponseDto: {
             /** @description Stripe invoice id (`in_…`). */
@@ -19061,7 +19100,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the request turns `require_sso` on and the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19072,10 +19111,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the request turns `require_sso` on and the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/policy",
+                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -19318,7 +19357,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19329,10 +19368,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -19429,7 +19468,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19440,10 +19479,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/test",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -19541,7 +19580,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19552,9 +19591,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/test/{testId}",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -19652,7 +19691,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19663,9 +19702,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
+                     *         "path": "/api/v1/organizations/{id}/domains",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -19767,7 +19806,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19778,10 +19817,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/domains",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -19900,7 +19939,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -19911,10 +19950,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -20050,7 +20089,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -20061,10 +20100,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/domains/{domain}",
+                     *         "method": "DELETE"
                      *       }
                      *     }
                      */
@@ -20161,7 +20200,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -20172,9 +20211,9 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
+                     *         "path": "/api/v1/organizations/{id}/sso-connections",
                      *         "method": "GET"
                      *       }
                      *     }
@@ -20276,7 +20315,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -20287,10 +20326,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/sso-connections",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -20405,7 +20444,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -20416,10 +20455,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
-                     *         "path": "/api/v1/organizations",
-                     *         "method": "GET"
+                     *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
+                     *         "method": "DELETE"
                      *       }
                      *     }
                      */
@@ -21674,7 +21713,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -21685,7 +21724,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -21810,7 +21849,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -21821,7 +21860,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -21938,7 +21977,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -21949,7 +21988,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22074,7 +22113,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22085,7 +22124,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22206,7 +22245,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22217,7 +22256,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22338,7 +22377,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22349,7 +22388,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22474,7 +22513,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22485,7 +22524,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22606,7 +22645,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22617,7 +22656,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22738,7 +22777,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22749,7 +22788,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22849,7 +22888,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22860,7 +22899,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "GET"
@@ -22981,7 +23020,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -22992,7 +23031,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23092,7 +23131,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23103,7 +23142,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23220,7 +23259,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23231,7 +23270,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23331,7 +23370,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23342,7 +23381,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23446,7 +23485,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23457,7 +23496,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23583,7 +23622,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23594,7 +23633,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23712,7 +23751,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23723,7 +23762,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23823,7 +23862,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23834,7 +23873,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -23934,7 +23973,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23945,7 +23984,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
                      *         "method": "GET"
@@ -24049,7 +24088,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Only the application owner may change this list. An organization's own administrator can read it, not change it. */
+            /** @description Only the application owner may change this list. An organization's own administrator can read it, not change it, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -24060,7 +24099,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "Only the application owner may change this list. An organization's own administrator can read it, not change it.",
+                     *         "message": "Only the application owner may change this list. An organization's own administrator can read it, not change it, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
                      *         "method": "PUT"
@@ -26291,7 +26330,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -26302,7 +26341,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
                      *         "method": "GET"
@@ -26407,7 +26446,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -26418,7 +26457,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
                      *         "method": "GET"
@@ -26540,7 +26579,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa) */
+            /** @description The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -26551,7 +26590,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
+                     *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
                      *         "method": "GET"
@@ -33744,7 +33783,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The caller does not hold `hierarchy.manage`, or the request turns the container on and the account's plan does not include organizations (`plan_feature_unavailable`; turning it off is never plan-gated) */
+            /** @description The caller does not hold `hierarchy.manage` */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -33755,7 +33794,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": null,
-                     *         "message": "The caller does not hold `hierarchy.manage`, or the request turns the container on and the account's plan does not include organizations (`plan_feature_unavailable`; turning it off is never plan-gated)",
+                     *         "message": "The caller does not hold `hierarchy.manage`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/organizations",
                      *         "method": "PUT"
@@ -43684,7 +43723,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The plan's feature map alone (`sso`, `scim`, `audit_destinations`, `organizations`), honoring the effective grace-period plan and Enterprise overrides. Membership-gated rather than `billing.view`: every member's dashboard needs it to decide which surfaces to render. */
+            /** @description The plan's feature map alone (`sso`, `scim`, `audit_destinations`), honoring the effective grace-period plan and Enterprise overrides. Membership-gated rather than `billing.view`: every member's dashboard needs it to decide which surfaces to render. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -43769,7 +43808,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The Pro monthly and annual prices as Stripe holds them, plus the annual saving derived from the two. Read by the upgrade dialog, which offers both cycles to an Account that has no subscription yet and so has no per-account price to read. Enterprise is absent — those are contracted individually and never bought through this flow. */
+            /** @description The monthly and annual prices of Starter and Pro as Stripe holds them, plus the annual saving derived from each pair. Read by the upgrade dialog, which offers both cycles to an Account that has no subscription yet and so has no per-account price to read. Enterprise is absent — those are contracted individually and never bought through this flow. */
             200: {
                 headers: {
                     [name: string]: unknown;
