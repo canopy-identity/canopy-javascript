@@ -115,6 +115,7 @@ export async function provisionStaging(applicationId: string) {
 - A key hands out nothing it does not hold: an administrator role or grant beyond its scopes answers `403 admin_role.capability_beyond_key`, and `admin_governance.manage` and `api_keys.manage` are beyond every key.
 - An Environment-level route called with an account key and no Environment answers `400 api_key.environment_required`; an Environment key on an Account route answers `403`.
 - An `If-Match` that is not a whole number answers `400 if_match.invalid`; leave the header out to skip the check.
+- `canopy.identities.update(id, input, { ifMatch })` takes the identity's `version` the same way. A route the client does not wrap takes it through `withConcurrency`, as above: API keys, publishable keys, branding, the access model (the `version` `GET /api/v1/access-model` returns), an Environment import, SSO activation and disabling, and SCIM group mappings.
 
 ## Verifying an access token
 

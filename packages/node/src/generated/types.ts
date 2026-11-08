@@ -1065,7 +1065,7 @@ export interface paths {
         put?: never;
         /**
          * Grant a role at a node beneath the organization
-         * @description Grants `role_id` to `identity_id` at `node_id`, the organization node or one beneath it. The identity must be a member of the organization (`409 organization.membership_required` otherwise). Requires `rbac.manage_assignments` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, within the grant ceiling. Emits `assignment.created`.
+         * @description Grants `role_id` to `identity_id` at `node_id`, the organization node or one beneath it. The identity must be a member of the organization (`409 organization.membership_required` otherwise). Requires `rbac.manage_assignments` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it for a node beneath the organization (at the organization node it takes `canopy:organization.manage`), within the grant ceiling. Emits `assignment.created`.
          */
         post: operations["ApiOrganizationAccessController_createAssignment"];
         delete?: never;
@@ -1086,7 +1086,7 @@ export interface paths {
         post?: never;
         /**
          * Take a grant in the organization away
-         * @description Removes an assignment at the organization node or beneath it; the membership stays. Never bounded by the grant ceiling, but the last administrator's role at the organization node cannot be removed (`409 organization.last_admin`). Requires the same as creating one.
+         * @description Removes an assignment at the organization node or beneath it; the membership stays. Never bounded by the grant ceiling, but the last administrator's role at the organization node cannot be removed (`409 organization.last_admin`). Send the assignment's `version` as `If-Match` to refuse the removal if someone changed it first (`409 assignment.version_mismatch`). An integration's grant is removed through the integration's own routes. Requires the same as creating one.
          */
         delete: operations["ApiOrganizationAccessController_removeAssignment"];
         options?: never;
@@ -1550,7 +1550,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a member from an organization
-         * @description Removes the member from this organization: the membership is deactivated and every role assignment they hold at the organization's nodes goes with it, and nothing else; the identity and its memberships in other organizations are untouched. Returns `404` when the identity is not an active member and `409` when they are the last administrator. Responds `204 No Content`, requires the `rbac.manage_assignments` permission at the organization, and emits `organization.member.removed`.
+         * @description Removes the member from this organization: the membership is deactivated and every role assignment they hold at the organization's nodes goes with it, and nothing else; the identity and its memberships in other organizations are untouched. Returns `404` when the identity is not an active member and `409` when they are the last administrator. Responds `204 No Content`, requires `hierarchy.manage` at the organization or `canopy:organization.manage` at the organization node, and emits `organization.member.removed`.
          */
         delete: operations["ApiOrganizationsController_removeMember"];
         options?: never;
@@ -1593,7 +1593,7 @@ export interface paths {
         put?: never;
         /**
          * Invite a member into an organization
-         * @description Invites an email into the organization. `role_id` is held on acceptance at `node_id`, the organization node (the default) or an office or team beneath it, for the `effective_from` to `effective_to` window when given; with no `role_id` the invitation admits a member holding nothing, which only the organization node allows (`400 invite.malformed_assignment` beneath it). Acceptance creates what is missing in one transaction: the identity, its Environment membership, the organization membership and the role. For someone who already holds an active membership in this Environment the invitation is a request to join (`intent: grant`): accepting is their consent, proven by their password or their own sign-in. Requires the `identity.manage` permission, or `canopy:organization.manage` at the organization or `canopy:access.manage` at the place for the organization's own administrators, and emits `invite.created`.
+         * @description Invites an email into the organization. `role_id` is held on acceptance at `node_id`, the organization node (the default) or an office or team beneath it, for the `effective_from` to `effective_to` window when given; with no `role_id` the invitation admits a member holding nothing, which only the organization node allows (`400 invite.malformed_assignment` beneath it). Acceptance creates what is missing in one transaction: the identity, its Environment membership, the organization membership and the role. For someone who already holds an active membership in this Environment the invitation is a request to join (`intent: grant`): accepting is their consent, proven by their password or their own sign-in. Requires the `identity.manage` permission, or for the organization's own administrators `canopy:organization.manage` at the organization or `canopy:access.manage` at a place beneath it (an invitation to the organization node takes `canopy:organization.manage`), and emits `invite.created`.
          */
         post: operations["ApiOrganizationsController_createInvite"];
         delete?: never;
@@ -1611,7 +1611,7 @@ export interface paths {
         };
         /**
          * List the roles an organization may assign
-         * @description The active, assignable roles the organization can use, the Environment's and its own, for choosing a member's role or an invitation's and for the organization's roles page. Each carries `grantable`, whether the caller may grant it at the organization node under the grant ceiling (always true for the developer's key), and `holder_count`, how many people in the organization hold it at its node or beneath. System roles are left out, since they cannot be assigned. Requires `hierarchy.view`, or `canopy:organization.manage`, `canopy:access.manage` or `canopy:roles.manage` at the organization node. The response is an unpaginated `{ items }` array.
+         * @description The active, assignable roles the organization can use, the Environment's and its own, for choosing a member's role or an invitation's and for the organization's roles page. Each carries `grantable`, whether the caller may grant it at the organization node under the grant ceiling (always true for the developer's key; false for a holder of `canopy:access.manage` alone, whose grants are beneath the organization node), and `holder_count`, how many people in the organization hold it at its node or beneath. System roles are left out, since they cannot be assigned. Requires `hierarchy.view`, or `canopy:organization.manage`, `canopy:access.manage` or `canopy:roles.manage` at the organization node. The response is an unpaginated `{ items }` array.
          */
         get: operations["ApiOrganizationsController_listRoles"];
         put?: never;
@@ -1673,7 +1673,7 @@ export interface paths {
         head?: never;
         /**
          * Change an organization's SSO connection
-         * @description Changes the connection's configuration (any field of the create body except `type`) and, with `default_role_id`, the membership role. Refused with `409` (`organization.sso_connection_not_owned`) on a developer-managed connection. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
+         * @description Changes the connection's configuration (any field of the create body except `type`) and, with `default_role_id`, the membership role. The settings live on the connection and the role on the organization's binding, each with its own version: `If-Match` names the one the request changes, so a request changing both with `If-Match` is refused with `400`. Refused with `409` (`organization.sso_connection_not_owned`) on a developer-managed connection. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
          */
         patch: operations["ApiOrganizationSsoConnectionController_update"];
         trace?: never;
@@ -4670,6 +4670,8 @@ export interface components {
             is_active: boolean;
             /** Format: date-time */
             created_at: string;
+            /** @description Optimistic-lock version of the profile and status. Send it as `If-Match` when editing the profile to refuse a change made over a newer one. Signing in, codes, credentials and second factors leave it unchanged. */
+            version: number;
         };
         IdentityRoleDto: {
             /** @description ID of the user_role_assignments row connecting this identity, role, and node — needed to target this specific assignment for update/remove */
@@ -4756,6 +4758,8 @@ export interface components {
             is_active: boolean;
             /** Format: date-time */
             created_at: string;
+            /** @description Optimistic-lock version of the profile and status. Send it as `If-Match` when editing the profile to refuse a change made over a newer one. Signing in, codes, credentials and second factors leave it unchanged. */
+            version: number;
             /** @description The social provider accounts the identity signs in with, oldest first. Linked and unlinked by the identity on its security page. */
             social_links: components["schemas"]["IdentitySocialLinkResponseDto"][];
         };
@@ -4777,6 +4781,8 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description Optimistic-lock version of the profile and status. Send it as `If-Match` when editing the profile to refuse a change made over a newer one. Signing in, codes, credentials and second factors leave it unchanged. */
+            version: number;
         };
         UpdateIdentityDto: {
             first_name?: string;
@@ -5708,6 +5714,8 @@ export interface components {
             default_role?: components["schemas"]["OrganizationSsoRoleSummaryDto"] | null;
             /** Format: date-time */
             created_at: string;
+            /** @description The binding's optimistic-lock version. Send it as `If-Match` when changing the arrival role. */
+            version: number;
         };
         BindOrganizationSsoConnectionDto: {
             /** @description An end-user SSO connection already bound to the organization's Environment. */
@@ -5935,6 +5943,8 @@ export interface components {
             connection: components["schemas"]["SsoConnectionResponseDto"];
             /** @description The membership role a sign-in joins with. `null` until chosen; activation requires one. */
             default_role?: components["schemas"]["OrganizationSsoConnectionRoleDto"] | null;
+            /** @description The version of the organization's binding to the connection, which holds the arrival role. Send it as `If-Match` on an update that changes `default_role_id` alone; the connection's own `version` goes with any other change. */
+            binding_version: number;
             /** @description True when the organization set the connection up itself; false when the developer manages it from the Console, in which case its configuration, activation, and removal are refused here. */
             owned_by_organization: boolean;
             service_provider: components["schemas"]["ServiceProviderDetailsResponseDto"];
@@ -6310,6 +6320,8 @@ export interface components {
             member_count: number;
             /** Format: date-time */
             created_at: string;
+            /** @description Optimistic-lock version. Send it as `If-Match` when mapping the group or clearing its mapping, to refuse a change made over a newer one. */
+            version: number;
         };
         MapOrganizationScimGroupDto: {
             /** @description The role to grant members of this group. Must be one the application owner has made available to this organization. */
@@ -6684,7 +6696,7 @@ export interface components {
              * @description Narrow to rows for one Environment. Implies the Environment's parent Application. Omit to include all Environments.
              */
             environment_id?: string;
-            /** @description Full-text query against actor_label, resource_label (trigram), and metadata (GIN). */
+            /** @description Full-text query against action, actor_label, resource_label (trigram), and metadata (GIN). */
             q?: string;
             /**
              * @description Export wire format. `csv` for spreadsheet review (metadata folded into one JSON column); `ndjson` for SIEM ingestion (one JSON object per line, metadata nested). Defaults to `csv`.
@@ -6826,6 +6838,8 @@ export interface components {
             effective: components["schemas"]["EffectiveBrandingDto"];
             /** @description Whether the Account's plan removes the attribution mark. When false, the mark stays whatever the customer sets. */
             brand_removal_available: boolean;
+            /** @description The Environment's optimistic-lock version; send it back as `If-Match` on PATCH. Any change to the Environment moves it. */
+            version: number;
         };
         UpdateEnvironmentBrandingDto: {
             /** @description The product name hosted pages and the organization admin portal show: in the browser tab title, beside the logo when `logo_kind` is `icon`, as a full logo's alt text, and in place of a logo when none is set. Null clears it, and the pages then show no name. */
@@ -7331,6 +7345,8 @@ export interface components {
             name: string;
             /** Format: date-time */
             created_at: string;
+            /** @description Optimistic-lock version. Send it as `If-Match` on a rename to refuse one made over a newer change. */
+            version: number;
         };
         CreatePublishableKeyDto: {
             /**
@@ -7350,6 +7366,8 @@ export interface components {
             model: "flat" | "hierarchy";
             /** @description Whether the organizations container is on. Independent of `model`: flat and hierarchy both run inside it. */
             organizations_enabled: boolean;
+            /** @description The Environment's version. Send it as `If-Match` when changing the access model or the organizations container. */
+            version: number;
         };
         SetAccessModelDto: {
             /** @enum {string} */
@@ -8036,6 +8054,8 @@ export interface components {
             expires_at?: string | null;
             /** Format: date-time */
             created_at: string;
+            /** @description Optimistic-lock version. Send it as `If-Match` when activating or deactivating the key to refuse a change made over a newer one. */
+            version: number;
         };
         CreateApiKeyDto: {
             /** @description API key name */
@@ -8077,6 +8097,8 @@ export interface components {
             expires_at?: string | null;
             /** Format: date-time */
             created_at: string;
+            /** @description Optimistic-lock version. Send it as `If-Match` when activating or deactivating the key to refuse a change made over a newer one. */
+            version: number;
         };
         UpdateApiKeyDto: {
             /** @description Whether the key is active. Set `false` to deactivate (the key stops authenticating immediately, reversibly); set `true` to reactivate. */
@@ -11661,6 +11683,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -11686,7 +11710,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11697,7 +11721,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
                      *         "method": "PATCH"
@@ -11761,6 +11785,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "Identity not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The identity changed since the version sent in `If-Match` was read (`version_mismatch`, with the identity as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The identity changed since the version sent in `If-Match` was read (`version_mismatch`, with the identity as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
                      *         "method": "PATCH"
@@ -15908,7 +15953,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`) */
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -15919,7 +15964,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
                      *         "method": "GET"
@@ -16405,7 +16450,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`) */
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16416,7 +16461,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
                      *         "method": "GET"
@@ -16517,7 +16562,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`) */
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16528,7 +16573,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
                      *         "method": "GET"
@@ -16867,6 +16912,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -16885,7 +16932,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`) */
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -16896,7 +16943,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
                      *         "method": "GET"
@@ -16969,7 +17016,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The member is the organization's last administrator (`organization.last_admin`); make someone else one first */
+            /** @description The assignment changed since the version sent in `If-Match` was read (`assignment.version_mismatch`), or it is the last administrator's role at the organization node (`organization.last_admin`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -16980,7 +17027,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
+                     *         "message": "The assignment changed since the version sent in `If-Match` was read (`assignment.version_mismatch`), or it is the last administrator's role at the organization node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
                      *         "method": "DELETE"
@@ -22046,6 +22093,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the record the request changes: `binding_version` from the read for a change of `default_role_id` alone, the connection's `version` for any other change. The server rejects with 409 if that record has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -22071,7 +22120,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request changes both the connection's settings and `default_role_id` with an `If-Match`, which names one version (`organization.sso_connection_if_match_ambiguous`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22082,7 +22131,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request changes both the connection's settings and `default_role_id` with an `If-Match`, which names one version (`organization.sso_connection_if_match_ambiguous`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "PATCH"
@@ -22155,7 +22204,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the record the request changes moved on since the version sent in `If-Match` was read (`version_mismatch`): the connection, in `data.current`, or for a change of `default_role_id` alone the organization's binding, in `data.current` */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22166,7 +22215,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the record the request changes moved on since the version sent in `If-Match` was read (`version_mismatch`): the connection, in `data.current`, or for a change of `default_role_id` alone the organization's binding, in `data.current`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "PATCH"
@@ -22182,6 +22231,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -22203,7 +22254,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The organization id is malformed; the connection is missing the fields its protocol needs; the organization has no verified domain yet; no arrival role is chosen; or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The organization id is malformed; the connection is missing the fields its protocol needs; the organization has no verified domain yet; no arrival role is chosen; or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22214,7 +22265,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The organization id is malformed; the connection is missing the fields its protocol needs; the organization has no verified domain yet; no arrival role is chosen; or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The organization id is malformed; the connection is missing the fields its protocol needs; the organization has no verified domain yet; no arrival role is chosen; or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
                      *         "method": "POST"
@@ -22287,7 +22338,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22298,7 +22349,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
                      *         "method": "POST"
@@ -22314,6 +22365,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -22335,7 +22388,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22346,7 +22399,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
                      *         "method": "POST"
@@ -22419,7 +22472,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22430,7 +22483,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
                      *         "method": "POST"
@@ -22446,6 +22499,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -22471,7 +22526,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation or names neither a metadata URL nor a document; the connection is not SAML; or the metadata could not be fetched or read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation or names neither a metadata URL nor a document; the connection is not SAML; or the metadata could not be fetched or read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -22482,7 +22537,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation or names neither a metadata URL nor a document; the connection is not SAML; or the metadata could not be fetched or read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation or names neither a metadata URL nor a document; the connection is not SAML; or the metadata could not be fetched or read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/import-metadata",
                      *         "method": "POST"
@@ -22555,7 +22610,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22566,7 +22621,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/import-metadata",
                      *         "method": "POST"
@@ -26378,6 +26433,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -26404,7 +26461,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, or the role is a system role or not one this organization's directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation, or the role is a system role or not one this organization's directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -26415,7 +26472,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, or the role is a system role or not one this organization's directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation, or the role is a system role or not one this organization's directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
                      *         "method": "PUT"
@@ -26488,7 +26545,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Another pushed group already grants the organization's membership role; clear that group's mapping first */
+            /** @description Another pushed group already grants the organization's membership role; clear that group's mapping first. Or the group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group in `data.current`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -26499,7 +26556,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Another pushed group already grants the organization's membership role; clear that group's mapping first",
+                     *         "message": "Another pushed group already grants the organization's membership role; clear that group's mapping first. Or the group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
                      *         "method": "PUT"
@@ -26515,6 +26572,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -26537,7 +26596,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -26548,7 +26607,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
                      *         "method": "DELETE"
@@ -26612,6 +26671,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "The organization does not exist, it has no directory connection, or its directory has no pushed group with that id",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
                      *         "method": "DELETE"
@@ -29575,7 +29655,7 @@ export interface operations {
                 application_id?: string;
                 /** @description Narrow to rows for one Environment. Implies the Environment's parent Application. Omit to include all Environments. */
                 environment_id?: string;
-                /** @description Full-text query against actor_label, resource_label (trigram), and metadata (GIN). */
+                /** @description Full-text query against action, actor_label, resource_label (trigram), and metadata (GIN). */
                 q?: string;
                 /** @description Opaque base64url cursor returned by the previous response. Omit for the first page. */
                 cursor?: string;
@@ -30593,6 +30673,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -30616,7 +30698,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -30627,7 +30709,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
@@ -30673,6 +30755,27 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the branding as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the branding as it now stands in `data.current`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -32263,7 +32366,10 @@ export interface operations {
     ApiEnvironmentsController_import: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
+            };
             path: {
                 id: string;
             };
@@ -32286,7 +32392,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -32297,7 +32403,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
                      *         "method": "POST"
@@ -32361,6 +32467,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "The Account has no Environment with this `id`",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/environments/{id}/import",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
                      *         "method": "POST"
@@ -33423,6 +33550,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -33448,7 +33577,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -33459,7 +33588,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys/{id}",
                      *         "method": "PATCH"
@@ -33523,6 +33652,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "No live publishable key with that id exists in the request's Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/publishable-keys/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The key changed since the version sent in `If-Match` was read (`version_mismatch`, with the key as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The key changed since the version sent in `If-Match` was read (`version_mismatch`, with the key as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys/{id}",
                      *         "method": "PATCH"
@@ -33626,6 +33776,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -33649,7 +33801,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, or it asks for hierarchy to flat directly; call revert-to-flat instead; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation, or it asks for hierarchy to flat directly; call revert-to-flat instead; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -33660,7 +33812,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, or it asks for hierarchy to flat directly; call revert-to-flat instead; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation, or it asks for hierarchy to flat directly; call revert-to-flat instead; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
                      *         "method": "PUT"
@@ -33712,12 +33864,35 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-model",
+                     *         "method": "PUT"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiAccessModelController_setOrganizations: {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -33741,7 +33916,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, or enabling was refused because the hierarchy schema is not rooted at "canopy:organization"; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation, or enabling was refused because the hierarchy schema is not rooted at "canopy:organization"; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -33752,7 +33927,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, or enabling was refused because the hierarchy schema is not rooted at \"canopy:organization\"; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation, or enabling was refused because the hierarchy schema is not rooted at \"canopy:organization\"; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/organizations",
                      *         "method": "PUT"
@@ -33804,7 +33979,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Enable refused while nodes sit directly under the root or while an end-user SSO connection is the default of the Environment or of one of its OAuth clients; disable refused while organizations or a hierarchy schema remain */
+            /** @description Enable refused while nodes sit directly under the root or while an end-user SSO connection is the default of the Environment or of one of its OAuth clients; disable refused while organizations or a hierarchy schema remain; or the Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment in `data.current`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -33815,7 +33990,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Enable refused while nodes sit directly under the root or while an end-user SSO connection is the default of the Environment or of one of its OAuth clients; disable refused while organizations or a hierarchy schema remain",
+                     *         "message": "Enable refused while nodes sit directly under the root or while an end-user SSO connection is the default of the Environment or of one of its OAuth clients; disable refused while organizations or a hierarchy schema remain; or the Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/organizations",
                      *         "method": "PUT"
@@ -33831,6 +34006,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -33850,7 +34027,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The Environment already uses the flat access model, or administrators are still assigned at nodes in it; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The Environment already uses the flat access model, or administrators are still assigned at nodes in it; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -33861,7 +34038,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The Environment already uses the flat access model, or administrators are still assigned at nodes in it; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The Environment already uses the flat access model, or administrators are still assigned at nodes in it; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/revert-to-flat",
                      *         "method": "POST"
@@ -33907,6 +34084,27 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/access-model/revert-to-flat",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -34463,7 +34661,10 @@ export interface operations {
     ApiSsoController_activate: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
+            };
             path: {
                 id: string;
             };
@@ -34482,7 +34683,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The connection id is malformed, the connection is missing a field its protocol requires (SAML: entity ID, SSO URL, signing cert; OIDC: discovery URL, client ID, client secret), or an organization it is bound to holds no verified domain or has no arrival role; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The connection id is malformed, the connection is missing a field its protocol requires (SAML: entity ID, SSO URL, signing cert; OIDC: discovery URL, client ID, client secret), or an organization it is bound to holds no verified domain or has no arrival role; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -34493,7 +34694,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The connection id is malformed, the connection is missing a field its protocol requires (SAML: entity ID, SSO URL, signing cert; OIDC: discovery URL, client ID, client secret), or an organization it is bound to holds no verified domain or has no arrival role; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The connection id is malformed, the connection is missing a field its protocol requires (SAML: entity ID, SSO URL, signing cert; OIDC: discovery URL, client ID, client secret), or an organization it is bound to holds no verified domain or has no arrival role; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/activate",
                      *         "method": "POST"
@@ -34566,12 +34767,36 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/sso/connections/{id}/activate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiSsoController_disable: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
+            };
             path: {
                 id: string;
             };
@@ -34590,7 +34815,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -34601,7 +34826,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/disable",
                      *         "method": "POST"
@@ -34665,6 +34890,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/sso/connections/{id}/disable",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/disable",
                      *         "method": "POST"
@@ -37671,6 +37917,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -37696,7 +37944,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, the role is a system role, or the role is not one this directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation, the role is a system role, or the role is not one this directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -37707,7 +37955,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation, the role is a system role, or the role is not one this directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation, the role is a system role, or the role is not one this directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
                      *         "method": "PUT"
@@ -37780,7 +38028,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Another group already grants the organization's membership role; clear that group's mapping first */
+            /** @description Another group already grants the organization's membership role; clear that group's mapping first. Or the group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group in `data.current`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -37791,7 +38039,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": null,
-                     *         "message": "Another group already grants the organization's membership role; clear that group's mapping first",
+                     *         "message": "Another group already grants the organization's membership role; clear that group's mapping first. Or the group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
                      *         "method": "PUT"
@@ -37807,6 +38055,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -37824,7 +38074,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -37835,7 +38085,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
                      *         "method": "DELETE"
@@ -37899,6 +38149,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "No SCIM group with that id is in the request's Environment",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-groups/{id}/mapping",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group as it now stands in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
                      *         "method": "DELETE"
@@ -42165,6 +42436,8 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
+                "If-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -42190,7 +42463,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -42201,7 +42474,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": null,
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
                      *         "method": "PATCH"
@@ -42265,6 +42538,27 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": null,
                      *         "message": "API key not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys/{id}",
+                     *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The key changed since the version sent in `If-Match` was read (`version_mismatch`, with the key as it now stands, less its secret, in `data.current`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": null,
+                     *         "message": "The key changed since the version sent in `If-Match` was read (`version_mismatch`, with the key as it now stands, less its secret, in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
                      *         "method": "PATCH"

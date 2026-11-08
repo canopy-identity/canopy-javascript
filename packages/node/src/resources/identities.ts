@@ -1,6 +1,12 @@
 import type { CanopyClient } from "../client.js";
 import { paginate, type Paginator } from "../pagination.js";
-import type { QueryParams, RequestBody, ResponseBody } from "../schema.js";
+import { withConcurrency } from "../schema.js";
+import type {
+  ConcurrencyOptions,
+  QueryParams,
+  RequestBody,
+  ResponseBody,
+} from "../schema.js";
 
 /** The end users of your application. */
 export class Identities {
@@ -31,14 +37,20 @@ export class Identities {
     return this.client.request("POST", "/api/v1/identities", { body: input });
   }
 
+  /**
+   * Pass `ifMatch` with the identity's current `version` to make a
+   * read-modify-write safe: a concurrent edit answers 409 instead of being
+   * silently overwritten.
+   */
   update(
     id: string,
     input: RequestBody<"ApiIdentitiesController_updateIdentity">,
+    options: ConcurrencyOptions = {},
   ): Promise<ResponseBody<"ApiIdentitiesController_updateIdentity">> {
     return this.client.request(
       "PATCH",
       `/api/v1/identities/${encodeURIComponent(id)}`,
-      { body: input },
+      { body: input, ...withConcurrency(options) },
     );
   }
 
