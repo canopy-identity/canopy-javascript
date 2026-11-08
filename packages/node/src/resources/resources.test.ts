@@ -346,6 +346,19 @@ describe("optimistic concurrency", () => {
     expect(calls[0]?.headers["If-Match"]).toBe("3");
   });
 
+  it("sends If-Match when updating an identity", async () => {
+    const { canopy, calls } = harness();
+
+    await canopy.identities.update(
+      "id_1",
+      { first_name: "Ada" },
+      { ifMatch: "2" },
+    );
+
+    expect(calls[0]?.method).toBe("PATCH");
+    expect(calls[0]?.headers["If-Match"]).toBe("2");
+  });
+
   it("sends If-Match when deleting a role", async () => {
     const { canopy, calls } = harness();
 
