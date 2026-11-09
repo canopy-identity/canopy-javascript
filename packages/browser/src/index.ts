@@ -12,4 +12,9 @@ export {
   isCanopyAuthError,
   isCanopyConnectionError,
 } from "./errors.js";
+export type {
+  CanopyCaptchaElement,
+  CanopyCaptchaErrorDetail,
+  CanopyCaptchaTokenDetail,
+} from "./captcha.js";
 export type { IdTokenClaims } from "./id-token.js";

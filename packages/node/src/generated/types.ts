@@ -246,7 +246,7 @@ export interface paths {
         post?: never;
         /**
          * Remove an identity
-         * @description Removes an identity from the current Environment without hard-deleting the Identity row (the same person may belong to other Environments in the Account). The Environment membership is flipped to `deactivated` so it stays reversible, every role assignment at nodes in this Environment is dropped, and any still-pending invite for that email into this Environment is revoked. Assignments and memberships in other Environments are untouched. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
+         * @description Removes an identity from the current Environment without hard-deleting the Identity row (the same person may belong to other Environments in the Account). The Environment membership is flipped to `deactivated` so it stays reversible, every role assignment at nodes in this Environment is dropped, its organization memberships here end (each firing `organization.member.removed`), and any still-pending invite for that email into this Environment is revoked. Assignments and memberships in other Environments are untouched. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment.
          */
         delete: operations["ApiIdentitiesController_removeIdentity"];
         options?: never;
@@ -2835,7 +2835,7 @@ export interface paths {
         };
         /**
          * List an Application's Environments
-         * @description Returns every Environment of the Application as an unpaginated `{ items }` list, each with its `id`, `name`, `slug`, `is_production` and `publishable_key`. Requires `application.view`.
+         * @description Returns every Environment of the Application as an unpaginated `{ items }` list, each with its `id`, `name`, `slug` and `is_production`. Publishable keys are listed at `GET /api/v1/publishable-keys`. Requires `application.view`.
          */
         get: operations["ApiApplicationsController_listEnvironments"];
         put?: never;
@@ -2859,7 +2859,7 @@ export interface paths {
         };
         /**
          * Get an Environment
-         * @description Returns one Environment of the Account by `id`, with its `application_id`, `name`, `slug`, `is_production` and `publishable_key`. An id that names no Environment of the Account returns `404`. Requires `application.view`.
+         * @description Returns one Environment of the Account by `id`, with its `application_id`, `name`, `slug` and `is_production`. Publishable keys are listed at `GET /api/v1/publishable-keys`. An id that names no Environment of the Account returns `404`. Requires `application.view`.
          */
         get: operations["ApiEnvironmentsController_get"];
         put?: never;
@@ -5797,7 +5797,7 @@ export interface components {
              */
             effective_to?: string;
         };
-        CreateOrganizationInviteDto: {
+        ApiCreateOrganizationInviteDto: {
             /** @description Email to invite. Works for people with no identity in this Environment — one is created when they accept. */
             email: string;
             /** @description The role the person holds on acceptance, at `node_id`. Optional at the organization node, where accepting admits a member with no role; required for a place beneath it. */
@@ -5821,6 +5821,11 @@ export interface components {
              * @default true
              */
             send_email: boolean;
+            /**
+             * Format: uuid
+             * @description The identity sending this invitation, for a backend calling with its own credential on behalf of someone who clicked Invite. Must be an active member of the organization when this is sent. The email and `invite-info` name them. It is credit only: your credential authorizes the invitation, so what later happens to this person does not affect it. Not accepted with an identity access token, whose bearer is the sender.
+             */
+            invited_by_identity_id?: string;
         };
         OrganizationRoleResponseDto: {
             id: string;
@@ -7212,7 +7217,7 @@ export interface components {
             organization_integrations_enabled?: boolean;
             /** @description The roles an organization's administrators may give its integrations, by id: active roles of this Environment, shared by every organization (not one organization's own), carrying neither `canopy:organization.manage` nor `canopy:access.manage`; anything else is refused with `400 environment.integration_role_invalid`. Separate from `idp_arrival_roles`. Replaces the list. While `organization_integrations_enabled` is on the list cannot be empty (`400 environment.integrations_roles_required`). Removing a role leaves integrations already holding it unchanged; a deleted role leaves the list. */
             organization_integration_role_ids?: string[];
-            /** @description Browser Origins allowed to call this Environment's public identity-auth API cross-origin (CORS), e.g. `https://app.example.com`. Required to use the Direct-API flow from a browser SPA; empty means no browser client is permitted (server-to-server with an API key is unaffected). Persisted under `env.settings.allowed_web_origins`. */
+            /** @description Browser Origins allowed to call this Environment's public identity-auth API cross-origin (CORS), e.g. `https://app.example.com`. Needed to use the Direct API from a browser SPA. While the list is set, self-service sign-up refuses a browser `Origin` that is not on it; a request with no `Origin`, as from a backend, is not affected. Persisted under `env.settings.allowed_web_origins`. */
             allowed_web_origins?: string[];
             /** @description Allowlist of return URLs for publishable-key (Direct-API) SSO. After the IdP round-trip, `/v1/identity/auth/sso/*` redirects back to one of these with a single-use `sso_token`; an unregistered return URL is rejected (exact match — no open redirect). Persisted under `env.settings.sso_return_urls`. */
             sso_return_urls?: string[];
@@ -8374,10 +8379,10 @@ export interface components {
              */
             statusCode: number;
             /**
-             * @description Stable, machine-readable error code (a `MSG.*` constant). `null` for generic framework errors that carry no domain code.
+             * @description Stable, machine-readable error code. Present on every error; branch on this rather than on `message`.
              * @example auth.invalid_token
              */
-            code: string | null;
+            code: string;
             /**
              * @description Human-readable English fallback message.
              * @example Invalid or expired token
@@ -8656,6 +8661,21 @@ export interface components {
                      * @description The role assigned.
                      */
                     role_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The role held before this change; the same as `role_id` when the role did not change.
+                     */
+                    previous_role_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The node it was held at before this change; the same as `node_id` when it did not move.
+                     */
+                    previous_node_id: string;
+                    /**
+                     * Format: uuid
+                     * @description The organization the node is in; null outside one.
+                     */
+                    organization_id: string | null;
                 };
             };
         };
@@ -9847,7 +9867,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -9868,7 +9888,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -9889,7 +9909,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -9939,7 +9959,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -9960,7 +9980,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -9981,7 +10001,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10002,7 +10022,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A permission with that key already exists in the Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10050,7 +10070,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10071,7 +10091,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10092,7 +10112,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10113,7 +10133,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No permission with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10159,7 +10179,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10180,7 +10200,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10201,7 +10221,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is not allowed to manage permissions, or the permission is a system permission, which cannot be modified or deleted",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10222,7 +10242,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No permission with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10243,7 +10263,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10297,7 +10317,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10318,7 +10338,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10339,7 +10359,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is not allowed to manage permissions, or the permission is a system permission, which cannot be modified or deleted",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10360,7 +10380,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No permission with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10381,7 +10401,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}",
@@ -10429,7 +10449,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}/usage",
@@ -10450,7 +10470,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10471,7 +10491,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10492,7 +10512,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No permission with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/{id}/usage",
@@ -10542,7 +10562,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate",
@@ -10563,7 +10583,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10584,7 +10604,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate",
@@ -10605,7 +10625,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 429,
-                     *         "code": null,
+                     *         "code": "request.rate_limited",
                      *         "message": "Too many requests: this route's own rate limit, named in the operation description, was exceeded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate",
@@ -10655,7 +10675,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/bulk",
@@ -10676,7 +10696,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10697,7 +10717,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or a scoped API key is missing the `permissions.evaluate` scope (full_access keys and admin JWTs are unrestricted)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/bulk",
@@ -10718,7 +10738,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 429,
-                     *         "code": null,
+                     *         "code": "request.rate_limited",
                      *         "message": "Too many requests: this route's own rate limit, named in the operation description, was exceeded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/bulk",
@@ -10768,7 +10788,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/explain",
@@ -10789,7 +10809,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions",
@@ -10810,7 +10830,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, a scoped API key is missing the `permissions.evaluate` scope, or an admin lacks `env_identities.view` (and, in a production Environment, `production_identities.access`), because the trace names who holds which roles",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/explain",
@@ -10831,7 +10851,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The `node_id` does not exist in this environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/explain",
@@ -10852,7 +10872,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 429,
-                     *         "code": null,
+                     *         "code": "request.rate_limited",
                      *         "message": "Too many requests: this route's own rate limit, named in the operation description, was exceeded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/permissions/evaluate/explain",
@@ -10912,7 +10932,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -10933,7 +10953,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -10954,7 +10974,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11004,7 +11024,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the password appears in a known data breach (HaveIBeenPwned check), `password_hash` is not written the way `password_hash_algorithm` writes one (`identity.password_hash_invalid`), both `password` and `password_hash` were sent (`identity.password_and_hash_exclusive`), or the role named for the initial assignment is a system role that cannot be assigned or an organization's own role placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11025,7 +11045,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11046,7 +11066,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11067,7 +11087,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The role or node named for the initial assignment is not found in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11088,7 +11108,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The email or external_id already belongs to an identity in this Account, the Account has reached its plan's identity signup ceiling, or the starting role is placed beneath an organization, where a new identity holds no membership yet",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11150,7 +11170,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/with-roles",
@@ -11171,7 +11191,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11192,7 +11212,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11238,7 +11258,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/summary",
@@ -11259,7 +11279,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11280,7 +11300,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11365,7 +11385,7 @@ export interface operations {
                             input: Record<string, unknown>;
                             error: {
                                 /** @description Machine-readable error code */
-                                code: string | null;
+                                code: string;
                                 /** @description English fallback message */
                                 message: string;
                                 /** @description Optional validation error details */
@@ -11385,7 +11405,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/bulk-create",
@@ -11406,7 +11426,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11427,7 +11447,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11448,7 +11468,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 422,
-                     *         "code": null,
+                     *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/bulk-create",
@@ -11496,7 +11516,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
@@ -11517,7 +11537,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11538,7 +11558,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11559,7 +11579,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
@@ -11603,7 +11623,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
@@ -11624,7 +11644,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11645,7 +11665,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11666,7 +11686,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
@@ -11720,7 +11740,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
@@ -11741,7 +11761,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11762,7 +11782,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11783,7 +11803,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
@@ -11804,7 +11824,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The identity changed since the version sent in `If-Match` was read (`version_mismatch`, with the identity as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}",
@@ -11852,7 +11872,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/detail",
@@ -11873,7 +11893,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11894,7 +11914,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -11915,7 +11935,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/detail",
@@ -11963,7 +11983,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the password appears in a known data breach (HaveIBeenPwned check); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/password",
@@ -11984,7 +12004,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12005,7 +12025,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12026,7 +12046,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/password",
@@ -12070,7 +12090,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/password/reset",
@@ -12091,7 +12111,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12112,7 +12132,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12133,7 +12153,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/password/reset",
@@ -12187,7 +12207,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions",
@@ -12208,7 +12228,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12229,7 +12249,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12250,7 +12270,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions",
@@ -12295,7 +12315,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions/{sessionId}",
@@ -12316,7 +12336,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12337,7 +12357,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12358,7 +12378,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The identity is not found, or the session does not belong to it, belongs to another Environment, or is already revoked",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions/{sessionId}",
@@ -12402,7 +12422,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions/revoke",
@@ -12423,7 +12443,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12444,7 +12464,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12465,7 +12485,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/sessions/revoke",
@@ -12513,7 +12533,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/mfa",
@@ -12534,7 +12554,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12555,7 +12575,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12576,7 +12596,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/mfa",
@@ -12620,7 +12640,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/mfa/reset",
@@ -12641,7 +12661,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12662,7 +12682,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12683,7 +12703,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/mfa/reset",
@@ -12731,7 +12751,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/auth-state",
@@ -12752,7 +12772,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12773,7 +12793,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12794,7 +12814,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/auth-state",
@@ -12838,7 +12858,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/verify-email",
@@ -12859,7 +12879,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12880,7 +12900,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -12901,7 +12921,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/verify-email",
@@ -12961,7 +12981,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/assignments",
@@ -12982,7 +13002,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13003,7 +13023,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13024,7 +13044,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/assignments",
@@ -13075,7 +13095,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/access",
@@ -13096,7 +13116,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13117,7 +13137,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13138,7 +13158,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No identity with that id has a membership in this Environment, or `node_id` names no node in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/access",
@@ -13189,7 +13209,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/permissions",
@@ -13210,7 +13230,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13231,7 +13251,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13252,7 +13272,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/permissions",
@@ -13305,7 +13325,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/accessible-nodes",
@@ -13326,7 +13346,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13347,7 +13367,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13368,7 +13388,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No identity with that id has a membership in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/accessible-nodes",
@@ -13428,7 +13448,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/grants",
@@ -13449,7 +13469,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13470,7 +13490,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities",
@@ -13491,7 +13511,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "identity.not_found",
                      *         "message": "Identity not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/grants",
@@ -13551,7 +13571,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13572,7 +13592,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13593,7 +13613,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13643,7 +13663,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation; `role_id` came with no `node_id`, or a `node_id` with no `role_id` outside an organization node (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); a `password_reset` invite carries a role assignment or names an email with no identity; or `client_id` names no active OAuth client in this Environment, or one with no invite redirect URL; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13664,7 +13684,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13685,7 +13705,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13706,7 +13726,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A pending invite already exists for this email at this scope, the identity already has access to this Environment and the invitation joins no organization (`invite.identity_already_in_app`), or the identity is already an active member of the organization it joins (`organization.member_exists`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13752,7 +13772,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/summary",
@@ -13773,7 +13793,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13794,7 +13814,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13879,7 +13899,7 @@ export interface operations {
                             input: Record<string, unknown>;
                             error: {
                                 /** @description Machine-readable error code */
-                                code: string | null;
+                                code: string;
                                 /** @description English fallback message */
                                 message: string;
                                 /** @description Optional validation error details */
@@ -13899,7 +13919,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/bulk-create",
@@ -13920,7 +13940,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13941,7 +13961,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -13962,7 +13982,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 422,
-                     *         "code": null,
+                     *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/bulk-create",
@@ -14010,7 +14030,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the invite is neither pending nor expired so cannot be resent, or it was resent too recently; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/{id}/resend",
@@ -14031,7 +14051,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -14052,7 +14072,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -14073,7 +14093,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "invite.not_found",
                      *         "message": "Invite not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/{id}/resend",
@@ -14117,7 +14137,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the invite is no longer pending; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/{id}",
@@ -14138,7 +14158,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -14159,7 +14179,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
@@ -14180,7 +14200,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "invite.not_found",
                      *         "message": "Invite not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/{id}",
@@ -14247,7 +14267,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14268,7 +14288,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14289,7 +14309,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14339,7 +14359,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the node breaks the hierarchy rules: no hierarchy schema is configured, the node type is not in the schema or is one Canopy reserves, the parent may not hold this type, the maximum depth would be exceeded, or organizations are on and the node would sit directly under the root; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14360,7 +14380,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14381,7 +14401,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14402,7 +14422,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Root node already exists",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14465,7 +14485,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/parents",
@@ -14486,7 +14506,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14507,7 +14527,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14555,7 +14575,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14576,7 +14596,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14597,7 +14617,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14618,7 +14638,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "hierarchy.node_not_found",
                      *         "message": "Node not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14664,7 +14684,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The id in the path is malformed, the node is the root, or it is an organization (use the organizations API); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14685,7 +14705,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14706,7 +14726,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14727,7 +14747,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "hierarchy.node_not_found",
                      *         "message": "Node not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14748,7 +14768,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14802,7 +14822,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the change breaks the hierarchy rules: the node is an organization (use the organizations API), `status: deleted` was sent (use the delete endpoint), or the new parent may not hold this type, is one of the node's descendants, sits at the organization tier or in another organization while organizations are on, or no hierarchy schema is configured; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14823,7 +14843,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14844,7 +14864,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14865,7 +14885,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The node, or its new parent, does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14886,7 +14906,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -14946,7 +14966,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/tree",
@@ -14967,7 +14987,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -14988,7 +15008,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/tree",
@@ -15036,7 +15056,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}",
@@ -15057,7 +15077,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15078,7 +15098,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/ancestors",
@@ -15138,7 +15158,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/children",
@@ -15159,7 +15179,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15180,7 +15200,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is not allowed to view the hierarchy, or the node is unknown or outside the caller's accessible hierarchy scope",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/children",
@@ -15234,7 +15254,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the move breaks the hierarchy rules: the node is an organization (use the organizations API), or the new parent may not hold this type, is one of the node's descendants, sits at the organization tier or in another organization while organizations are on, or no hierarchy schema is configured; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/move",
@@ -15255,7 +15275,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15276,7 +15296,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15297,7 +15317,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The node, or its new parent, does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/move",
@@ -15318,7 +15338,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/move",
@@ -15370,7 +15390,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/move/preview",
@@ -15391,7 +15411,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15412,7 +15432,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15433,7 +15453,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The node, or its new parent, does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/move/preview",
@@ -15481,7 +15501,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/delete/preview",
@@ -15502,7 +15522,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15523,7 +15543,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15544,7 +15564,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "hierarchy.node_not_found",
                      *         "message": "Node not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/delete/preview",
@@ -15612,7 +15632,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities",
@@ -15633,7 +15653,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15654,7 +15674,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities",
@@ -15675,7 +15695,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "hierarchy.node_not_found",
                      *         "message": "Node not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities",
@@ -15741,7 +15761,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/holders",
@@ -15762,7 +15782,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15783,7 +15803,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/holders",
@@ -15804,7 +15824,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "hierarchy.node_not_found",
                      *         "message": "Node not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/holders",
@@ -15852,7 +15872,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities/summary",
@@ -15873,7 +15893,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
@@ -15894,7 +15914,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks a permission this operation checks: `hierarchy.view` on the node, or `identity.view`, because the answer names the Environment's people (a scoped API key without the scope, an admin without the Account capability that covers it); an admin reading a production Environment's people also needs `production_identities.access`. Also returned for a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities/summary",
@@ -15915,7 +15935,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "hierarchy.node_not_found",
                      *         "message": "Node not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes/{id}/identities/summary",
@@ -15963,7 +15983,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -15984,7 +16004,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16005,7 +16025,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16026,7 +16046,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16086,7 +16106,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/tree",
@@ -16107,7 +16127,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16128,7 +16148,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/tree",
@@ -16149,7 +16169,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/tree",
@@ -16218,7 +16238,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
@@ -16239,7 +16259,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16260,7 +16280,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
@@ -16281,7 +16301,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access",
@@ -16348,7 +16368,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/holders",
@@ -16369,7 +16389,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16390,7 +16410,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/holders",
@@ -16411,7 +16431,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/holders",
@@ -16460,7 +16480,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16481,7 +16501,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16502,7 +16522,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The token is not an admin, API key or identity token, the caller holds none of `hierarchy.view` at the node, `canopy:organization.manage` at the organization, or `canopy:access.manage` at the node or above it, or a developer's key lacks `identity.view` (or, for an admin in a production Environment, `production_identities.access`), since the answer names the Environment's people",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access/summary",
@@ -16523,7 +16543,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/access/summary",
@@ -16572,7 +16592,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16593,7 +16613,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16614,7 +16634,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/grantable-roles",
@@ -16635,7 +16655,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/grantable-roles",
@@ -16696,7 +16716,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/members",
@@ -16717,7 +16737,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16738,7 +16758,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/grantable-roles",
@@ -16759,7 +16779,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/members",
@@ -16811,7 +16831,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the role is inactive or a system role, the window does not start before it ends, or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments",
@@ -16832,7 +16852,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16853,7 +16873,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node, or is an identity outside the grant ceiling for the role (`assignment.grant_ceiling`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments",
@@ -16874,7 +16894,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments",
@@ -16895,7 +16915,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The identity already holds this role at this node, or is not a member of the organization (`organization.membership_required`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments",
@@ -16942,7 +16962,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16963,7 +16983,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -16984,7 +17004,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
@@ -17005,7 +17025,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the assignment is not at one of its nodes",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
@@ -17026,7 +17046,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The assignment changed since the version sent in `If-Match` was read (`assignment.version_mismatch`), or it is the last administrator's role at the organization node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
@@ -17081,7 +17101,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the new role is inactive or a system role, the window does not start before it ends, or an organization's own role would be held outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
@@ -17102,7 +17122,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/me",
@@ -17123,7 +17143,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The token is not an admin, API key or identity token, or the caller holds none of the keys the operation needs at the node, or is an identity outside the grant ceiling for the role (`assignment.grant_ceiling`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
@@ -17144,7 +17164,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the assignment is not at one of its nodes",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
@@ -17165,7 +17185,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or it is the last administrator's role at the organization node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/assignments/{assignmentId}",
@@ -17213,7 +17233,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17234,7 +17254,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17255,7 +17275,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds no delegated key inside the organization and no developer key over it, or the token is not an admin, API key or identity token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17276,7 +17296,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment (`organization.not_found`), or the Environment has no hierarchy schema (`hierarchy.schema_not_configured`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17328,7 +17348,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The organization id in the path or a body field is missing or malformed, or the schema refuses the node beneath the parent (`hierarchy.child_type_not_allowed`, `hierarchy.max_depth_exceeded`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes",
@@ -17349,7 +17369,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17370,7 +17390,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes",
@@ -17391,7 +17411,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes",
@@ -17440,7 +17460,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "An id in the path is malformed; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17461,7 +17481,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17482,7 +17502,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds neither the developer's `hierarchy.view` nor `canopy:structure.manage` or `canopy:access.manage` (or `canopy:organization.manage` at the organization node) at the node or above it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17503,7 +17523,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17550,7 +17570,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "An id in the path is malformed, or the node is the organization itself (`organization.use_organizations_api`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17571,7 +17591,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17592,7 +17612,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17613,7 +17633,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17634,7 +17654,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17689,7 +17709,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "An id in the path or a body field is malformed, or the node is the organization itself (`organization.use_organizations_api`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17710,7 +17730,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17731,7 +17751,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17752,7 +17772,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17773,7 +17793,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}",
@@ -17826,7 +17846,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move/preview",
@@ -17847,7 +17867,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17868,7 +17888,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move/preview",
@@ -17889,7 +17909,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move/preview",
@@ -17944,7 +17964,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "An id in the path or `parent_node_id` is malformed, or the move breaks the schema, the depth limit or makes a cycle (`hierarchy.child_type_not_allowed`, `hierarchy.max_depth_exceeded`, `hierarchy.reparent_cycle`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
@@ -17965,7 +17985,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -17986,7 +18006,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
@@ -18007,7 +18027,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
@@ -18028,7 +18048,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/move",
@@ -18077,7 +18097,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/delete/preview",
@@ -18098,7 +18118,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/schema",
@@ -18119,7 +18139,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller holds neither the developer's `hierarchy.manage` nor `canopy:structure.manage` (or `canopy:organization.manage` at the organization node) where the change reaches",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/delete/preview",
@@ -18140,7 +18160,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes/{nodeId}/delete/preview",
@@ -18200,7 +18220,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18221,7 +18241,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18242,7 +18262,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18292,7 +18312,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, `initial_member` names both or neither of `identity_id` and `email` (`organization.initial_member_invalid`), no role template is the default admin (`role_template.default_admin_missing`), or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18313,7 +18333,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18334,7 +18354,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18355,7 +18375,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "`initial_member.identity_id` is not an identity of this Environment (`identity.not_found`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18376,7 +18396,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Organizations are not enabled on this Environment, another organization already holds this external_id, or the plan's organization limit is reached",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18418,7 +18438,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18439,7 +18459,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18460,7 +18480,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18508,7 +18528,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18529,7 +18549,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18550,7 +18570,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18571,7 +18591,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18617,7 +18637,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18638,7 +18658,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18659,7 +18679,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18680,7 +18700,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18701,7 +18721,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18755,7 +18775,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18776,7 +18796,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18797,7 +18817,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or an organization administrator signed in as an identity sets `metadata` or `external_id`, which only the developer's backend or a Console administrator sets (`organization.developer_field`). Also a caller without the permissions the route needs",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18818,7 +18838,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18839,7 +18859,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The If-Match version is stale (the organization changed since), or another organization already holds this external_id",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}",
@@ -18887,7 +18907,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/delete/preview",
@@ -18908,7 +18928,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18929,7 +18949,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -18950,7 +18970,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/delete/preview",
@@ -18998,7 +19018,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
@@ -19019,7 +19039,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19040,7 +19060,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19061,7 +19081,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
@@ -19115,7 +19135,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the policy would loosen the Environment's authentication settings; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
@@ -19136,7 +19156,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19157,7 +19177,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the request turns `require_sso` on and the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
@@ -19178,7 +19198,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
@@ -19199,7 +19219,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
@@ -19261,7 +19281,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/staff-activity",
@@ -19282,7 +19302,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19303,7 +19323,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19324,7 +19344,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/staff-activity",
@@ -19372,7 +19392,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The organization id is malformed, or the organization does not require SSO, so it holds no recovery codes; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
@@ -19393,7 +19413,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19414,7 +19434,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
@@ -19435,7 +19455,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
@@ -19483,7 +19503,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The organization id is malformed; the organization has no SSO connection bound to it; or the connection is not an end-user connection bound to this Environment with every field its protocol needs; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test",
@@ -19504,7 +19524,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19525,7 +19545,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test",
@@ -19546,7 +19566,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test",
@@ -19595,7 +19615,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "An id in the path is malformed, or the organization has no SSO connection bound to it; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test/{testId}",
@@ -19616,7 +19636,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19637,7 +19657,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test/{testId}",
@@ -19658,7 +19678,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization or its bound connection does not exist, or there is no such test sign-in or it has expired",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/test/{testId}",
@@ -19706,7 +19726,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
@@ -19727,7 +19747,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19748,7 +19768,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
@@ -19769,7 +19789,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
@@ -19821,7 +19841,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the domain is malformed or a public email provider; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
@@ -19842,7 +19862,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19863,7 +19883,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
@@ -19884,7 +19904,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
@@ -19905,7 +19925,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The owner already holds 50 domain claims, the most it may (`sso.domain_limit`, `data.limit` naming the limit); remove one first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains",
@@ -19954,7 +19974,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "An id or the domain in the path is malformed, or the expected DNS TXT record was not found for the domain; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
@@ -19975,7 +19995,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -19996,7 +20016,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
@@ -20017,7 +20037,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it holds no claim for that domain",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
@@ -20038,7 +20058,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "This domain is already verified by another organization in this Environment.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
@@ -20059,7 +20079,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 429,
-                     *         "code": null,
+                     *         "code": "request.rate_limited",
                      *         "message": "More than 10 verification attempts in a minute from this caller; wait and retry",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}/verify",
@@ -20104,7 +20124,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The organization id or the domain in the path is malformed; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}",
@@ -20125,7 +20145,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20146,7 +20166,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}",
@@ -20167,7 +20187,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it holds no claim for that domain",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/domains/{domain}",
@@ -20215,7 +20235,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
@@ -20236,7 +20256,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20257,7 +20277,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
@@ -20278,7 +20298,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
@@ -20330,7 +20350,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation; the connection is not in the account, is not an end-user connection, or is not bound to the organization's Environment; or the role is not an active, assignable arrival role in that Environment, or is another organization's own (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
@@ -20351,7 +20371,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20372,7 +20392,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
@@ -20393,7 +20413,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
@@ -20414,7 +20434,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The connection is already bound to an organization in this Environment, or it belongs to another organization",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections",
@@ -20459,7 +20479,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
@@ -20480,7 +20500,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20501,7 +20521,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
@@ -20522,7 +20542,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or that SSO connection is not bound to it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
@@ -20543,7 +20563,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization set this connection up itself; it stays bound. Disable or delete the connection instead.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
@@ -20607,7 +20627,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
@@ -20628,7 +20648,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20649,7 +20669,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20670,7 +20690,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
@@ -20722,7 +20742,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the role is a system role, which cannot be assigned, a place or dates came with no role (`invite.window_requires_role`), or the dates end before they start; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
@@ -20743,7 +20763,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20764,7 +20784,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is an organization administrator signed in as an identity and holds no `rbac.manage_assignments` at the organization; an organization administrator adds people by invitation (`organization.member_add_requires_invite`). Also a caller without the permissions the route needs",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
@@ -20785,7 +20805,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization, the identity or the role does not exist in this Environment, or `node_id` is not the organization or a place beneath it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
@@ -20806,7 +20826,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The identity is already a member of this organization (`organization.member_exists`); give them a role through the assignment routes",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members",
@@ -20851,7 +20871,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}",
@@ -20872,7 +20892,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20893,7 +20913,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -20914,7 +20934,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or the identity is not a member of it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}",
@@ -20935,7 +20955,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}",
@@ -20980,7 +21000,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
@@ -21001,7 +21021,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21022,7 +21042,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21043,7 +21063,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or the identity is not a member of it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
@@ -21064,7 +21084,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The caller is an organization administrator and the member also belongs to another organization, or holds an active membership in another Environment of the Account; the second factor is held once per identity, so only the application's administrators may reset it (`organization.member_mfa_shared`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/members/{identityId}/mfa/reset",
@@ -21126,7 +21146,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
@@ -21147,7 +21167,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21168,7 +21188,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21189,7 +21209,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
@@ -21216,7 +21236,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateOrganizationInviteDto"];
+                "application/json": components["schemas"]["ApiCreateOrganizationInviteDto"];
             };
         };
         responses: {
@@ -21231,7 +21251,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; `invited_by_identity_id` names someone outside the organization (`invite.inviter_not_member`) or came with an identity access token (`invite.inviter_not_accepted`). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -21241,8 +21261,8 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
-                     *         "message": "The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "code": "request.invalid",
+                     *         "message": "The request failed validation; a place beneath the organization was named with no role (`invite.malformed_assignment`); dates came with no role (`invite.window_requires_role`), end before they start, or have already ended (`invite.window_ended`); or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; `invited_by_identity_id` names someone outside the organization (`invite.inviter_not_member`) or came with an identity access token (`invite.inviter_not_accepted`).",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
                      *         "method": "POST"
@@ -21262,7 +21282,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21283,7 +21303,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The token is not an admin, API key or identity token, or the caller is an identity that does not hold, at the organization node or above, every permission the role carries (`assignment.grant_ceiling`); Console users and API keys are not bounded",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
@@ -21304,7 +21324,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or `node_id` is not the organization or a place beneath it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
@@ -21325,7 +21345,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A pending invitation already exists for this email at this place, or the identity is already an active member of the organization (`organization.member_exists`); give a member a role through the assignment routes",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
@@ -21373,7 +21393,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -21394,7 +21414,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21415,7 +21435,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21436,7 +21456,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -21488,7 +21508,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -21509,7 +21529,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -21530,7 +21550,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -21551,7 +21571,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No such organization, or no such role among the ones the organization can use",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -21572,7 +21592,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization or the Environment already has a role by that name (`role.name_taken`), or the organization has reached its role limit (`organization.role_limit`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -21617,7 +21637,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "An id in the path is malformed, or the invitation is no longer pending; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites/{inviteId}",
@@ -21638,7 +21658,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21659,7 +21679,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
@@ -21680,7 +21700,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it has no such invitation",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites/{inviteId}",
@@ -21728,7 +21748,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21749,7 +21769,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21770,7 +21790,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21791,7 +21811,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21812,7 +21832,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21864,7 +21884,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21885,7 +21905,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21906,7 +21926,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21927,7 +21947,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21948,7 +21968,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization already has an SSO connection, or the plan's SSO connection limit is reached",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -21992,7 +22012,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22013,7 +22033,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22034,7 +22054,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22055,7 +22075,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22076,7 +22096,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22130,7 +22150,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The configuration is malformed, or the role is not an active, assignable role in the organization's Environment; or the request changes both the connection's settings and `default_role_id` with an `If-Match`, which names one version (`organization.sso_connection_if_match_ambiguous`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22151,7 +22171,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22172,7 +22192,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22193,7 +22213,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22214,7 +22234,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the record the request changes moved on since the version sent in `If-Match` was read (`version_mismatch`): the connection, in `data.current`, or for a change of `default_role_id` alone the organization's binding, in `data.current`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22264,7 +22284,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The organization id is malformed; the connection is missing the fields its protocol needs; the organization has no verified domain yet; no arrival role is chosen; or (for the organization's own administrator) no test sign-in has passed since the provider settings last changed; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
@@ -22285,7 +22305,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22306,7 +22326,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22327,7 +22347,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
@@ -22348,7 +22368,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/activate",
@@ -22398,7 +22418,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
@@ -22419,7 +22439,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22440,7 +22460,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22461,7 +22481,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
@@ -22482,7 +22502,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
@@ -22536,7 +22556,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation or names neither a metadata URL nor a document; the connection is not SAML; or the metadata could not be fetched or read, is not identity-provider metadata, or is missing an issuer, sign-in URL or signing certificate; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/import-metadata",
@@ -22557,7 +22577,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22578,7 +22598,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22599,7 +22619,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/import-metadata",
@@ -22620,7 +22640,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/import-metadata",
@@ -22668,7 +22688,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/recent-logins",
@@ -22689,7 +22709,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22710,7 +22730,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22731,7 +22751,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/recent-logins",
@@ -22752,7 +22772,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/recent-logins",
@@ -22800,7 +22820,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/arrival-roles",
@@ -22821,7 +22841,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22842,7 +22862,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22863,7 +22883,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/arrival-roles",
@@ -22911,7 +22931,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/service-provider",
@@ -22932,7 +22952,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22953,7 +22973,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SSO (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
@@ -22974,7 +22994,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/service-provider",
@@ -22995,7 +23015,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization has no SSO connection bound to it.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/service-provider",
@@ -23043,7 +23063,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23064,7 +23084,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23085,7 +23105,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23106,7 +23126,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23154,7 +23174,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23175,7 +23195,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23196,7 +23216,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23217,7 +23237,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23238,7 +23258,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization already has a directory connection, or the application owner has not yet chosen which roles its directory may grant",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23282,7 +23302,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23303,7 +23323,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23324,7 +23344,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23345,7 +23365,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23393,7 +23413,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
@@ -23414,7 +23434,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23435,7 +23455,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23456,7 +23476,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
@@ -23508,7 +23528,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
@@ -23529,7 +23549,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23550,7 +23570,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23571,7 +23591,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
@@ -23592,7 +23612,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
@@ -23645,7 +23665,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
@@ -23666,7 +23686,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23687,7 +23707,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23708,7 +23728,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, it has no directory connection, or the connection has no directory-sync token with that id",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
@@ -23729,7 +23749,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
@@ -23774,7 +23794,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}",
@@ -23795,7 +23815,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23816,7 +23836,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23837,7 +23857,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}",
@@ -23885,7 +23905,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/activity",
@@ -23906,7 +23926,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23927,7 +23947,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -23948,7 +23968,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/activity",
@@ -23996,7 +24016,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
@@ -24017,7 +24037,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -24038,7 +24058,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -24059,7 +24079,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
@@ -24111,7 +24131,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the default role is missing or not on the list, or the list names a system role; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
@@ -24132,7 +24152,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory",
@@ -24153,7 +24173,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "Only the application owner may change this list. An organization's own administrator can read it, not change it, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
@@ -24174,7 +24194,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization, or a role the list names, does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
@@ -24195,7 +24215,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The list cannot be emptied while the organization's directory is connected; remove the directory first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/grantable-roles",
@@ -24255,7 +24275,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24276,7 +24296,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24297,7 +24317,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24318,7 +24338,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24370,7 +24390,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24391,7 +24411,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24412,7 +24432,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24433,7 +24453,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24454,7 +24474,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Environment has no default audience, the organization already holds as many integrations as it may, another of its integrations has this name, or the plan's machine-credential allowance is reached",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24502,7 +24522,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-client-roles",
@@ -24523,7 +24543,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24544,7 +24564,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-client-roles",
@@ -24565,7 +24585,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-client-roles",
@@ -24614,7 +24634,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24635,7 +24655,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24656,7 +24676,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24677,7 +24697,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24722,7 +24742,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24743,7 +24763,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24764,7 +24784,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24785,7 +24805,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24840,7 +24860,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24861,7 +24881,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -24882,7 +24902,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24903,7 +24923,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24924,7 +24944,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Another of the organization's integrations has this name (`organization.integration_name_taken`), or the integration was modified since the version named in If-Match was read (`version_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}",
@@ -24977,7 +24997,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
@@ -24998,7 +25018,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -25019,7 +25039,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
@@ -25040,7 +25060,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
@@ -25101,7 +25121,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
@@ -25122,7 +25142,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -25143,7 +25163,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
@@ -25164,7 +25184,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
@@ -25217,7 +25237,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
@@ -25238,7 +25258,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -25259,7 +25279,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization or grant this role at this node (`assignment.grant_ceiling`), the role is not one an integration may hold (`organization.integration_role_not_grantable`), or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
@@ -25280,7 +25300,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
@@ -25301,7 +25321,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The node is outside the organization (`oauth.client_outside_organization`), or the integration already holds this role there",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments",
@@ -25347,7 +25367,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
@@ -25368,7 +25388,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -25389,7 +25409,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization, or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
@@ -25410,7 +25430,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
@@ -25466,7 +25486,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
@@ -25487,7 +25507,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
@@ -25508,7 +25528,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not manage this organization or grant this role at this node (`assignment.grant_ceiling`), the role is not one an integration may hold (`organization.integration_role_not_grantable`), or the Environment does not let organizations create integrations (`organization.integrations_disabled`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
@@ -25529,7 +25549,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it, the node or role does not exist in it, or the assignment is not one this integration holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
@@ -25550,7 +25570,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The assignment changed since it was read (`assignment.version_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/assignments/{assignmentId}",
@@ -25598,7 +25618,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/usage",
@@ -25619,7 +25639,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -25640,7 +25660,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/usage",
@@ -25661,7 +25681,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/usage",
@@ -25709,7 +25729,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/usage",
@@ -25730,7 +25750,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -25751,7 +25771,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/usage",
@@ -25772,7 +25792,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "organization.not_found",
                      *         "message": "Organization not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/permissions",
@@ -25821,7 +25841,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -25842,7 +25862,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -25863,7 +25883,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/usage",
@@ -25884,7 +25904,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No such organization, or no such role among the ones the organization can use",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -25931,7 +25951,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -25952,7 +25972,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -25973,7 +25993,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -25994,7 +26014,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No such organization, or no such role among the ones the organization can use",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -26015,7 +26035,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The role is the one directory sync or single sign-on gives new people (`scim.grantable_default_in_use`, `role.idp_arrival_role_in_use`), the organization's last administrator holds it (`organization.last_admin`), or it changed since the version named in If-Match (`version_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -26070,7 +26090,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -26091,7 +26111,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -26112,7 +26132,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -26133,7 +26153,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No such organization, or no such role among the ones the organization can use",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -26154,7 +26174,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The organization or the Environment already has a role by that name (`role.name_taken`), or the role changed since the version named in If-Match (`version_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}",
@@ -26209,7 +26229,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field or an id in the path is missing, malformed or out of range, or a role carrying `canopy:roles.manage` is already held beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
@@ -26230,7 +26250,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles",
@@ -26251,7 +26271,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller may not shape this organization's roles, a permission being added is one the caller does not hold at the organization node (`organization.role_permission_not_held`), or the role is one of the Environment's (`organization.role_not_owned`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
@@ -26272,7 +26292,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No such organization, or no such role among the ones the organization can use",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
@@ -26293,7 +26313,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The role changed since the version named in If-Match (`version_mismatch`), or the change would take `canopy:organization.manage` from the organization's last administrator (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/roles/{roleId}/permissions",
@@ -26353,7 +26373,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26374,7 +26394,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26395,7 +26415,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26416,7 +26436,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, or it has no directory connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26471,7 +26491,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the role is a system role or not one this organization's directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
@@ -26492,7 +26512,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26513,7 +26533,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26534,7 +26554,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, it has no directory connection, its directory has no pushed group with that id, or the role does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
@@ -26555,7 +26575,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Another pushed group already grants the organization's membership role; clear that group's mapping first. Or the group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
@@ -26606,7 +26626,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
@@ -26627,7 +26647,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26648,7 +26668,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this route checks, or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups",
@@ -26669,7 +26689,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The organization does not exist, it has no directory connection, or its directory has no pushed group with that id",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
@@ -26690,7 +26710,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/groups/{groupId}/mapping",
@@ -26745,7 +26765,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26766,7 +26786,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26787,7 +26807,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26808,7 +26828,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "`organization_id` is not a live organization in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26858,7 +26878,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26879,7 +26899,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26900,7 +26920,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26921,7 +26941,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "`organization_id` is not a live organization in this Environment, or `copy_from_role_id` names no role that can be copied here (an Environment role, or one of the same organization)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26942,7 +26962,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The name is taken in the role's tier, or by the other tier: an organization's role named like an Environment role, or an Environment role named like any organization's own role (`role.name_taken`); or an Environment role would take an organization role template's name (`role.name_used_by_template`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -26990,7 +27010,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27011,7 +27031,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27032,7 +27052,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27053,7 +27073,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "rbac.role_not_found",
                      *         "message": "Role not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27099,7 +27119,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27120,7 +27140,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27141,7 +27161,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is not allowed to manage roles, or the role is a system role, which cannot be deleted",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27162,7 +27182,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "rbac.role_not_found",
                      *         "message": "Role not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27183,7 +27203,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The role changed since the If-Match version, it is the role people arrive with through an organization's directory, it is one the Environment lets identity providers grant, or it is the role an organization's last administrator holds (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27237,7 +27257,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27258,7 +27278,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27279,7 +27299,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27300,7 +27320,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "rbac.role_not_found",
                      *         "message": "Role not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27321,7 +27341,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The role changed since the If-Match version, another role in the Environment or any organization's own role already has that name (`role.name_taken`), an Environment role would take an organization role template's name (`role.name_used_by_template`), or disabling it would leave an organization without an administrator (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}",
@@ -27369,7 +27389,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions",
@@ -27390,7 +27410,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27411,7 +27431,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27432,7 +27452,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "rbac.role_not_found",
                      *         "message": "Role not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions",
@@ -27486,7 +27506,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions",
@@ -27507,7 +27527,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27528,7 +27548,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27549,7 +27569,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "Role not found, or a permission key is not in this Environment's catalog",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions",
@@ -27570,7 +27590,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The role changed since the version named in If-Match (`version_mismatch`), or the change would take `canopy:organization.manage` off the role an organization's last administrator holds at its node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions",
@@ -27622,7 +27642,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions/preview",
@@ -27643,7 +27663,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27664,7 +27684,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles",
@@ -27685,7 +27705,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "Role not found, or a permission key is not in this Environment's catalog",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/roles/{id}/permissions/preview",
@@ -27752,7 +27772,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -27773,7 +27793,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -27794,7 +27814,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -27844,7 +27864,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The body is invalid, or names something that is not in the Environment: the node (`deny.node_not_found`), the target (`deny.target_not_found`, `oauth.client_not_machine` for a client that is not a machine client), a permission key (`deny.permission_not_found`, with the missing keys in `data.permission_keys`) or an exception role (`deny.exception_role_not_found`); or the target role is also an exception (`deny.target_is_exception`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -27865,7 +27885,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -27886,7 +27906,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks `deny.manage` (an admin's `env_denies.manage`); or the target is a person and the caller may not see the Environment's people (`identity.view`, and for an admin in a production Environment `production_identities.access`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -27907,7 +27927,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "An identical deny already exists, with the same target, node, permissions and exceptions (`deny.duplicate`, its id in `data.deny_id`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -27962,7 +27982,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The body is invalid, or names something that is not in the Environment: the node (`deny.node_not_found`), the target (`deny.target_not_found`, `oauth.client_not_machine` for a client that is not a machine client), a permission key (`deny.permission_not_found`, with the missing keys in `data.permission_keys`) or an exception role (`deny.exception_role_not_found`); or the target role is also an exception (`deny.target_is_exception`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/preview",
@@ -27983,7 +28003,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -28004,7 +28024,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks `deny.manage` (an admin's `env_denies.manage`); or the target is a person and the caller may not see the Environment's people (`identity.view`, and for an admin in a production Environment `production_identities.access`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/preview",
@@ -28052,7 +28072,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/{id}",
@@ -28073,7 +28093,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -28094,7 +28114,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -28115,7 +28135,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No deny with this id in the Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/{id}",
@@ -28159,7 +28179,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/{id}",
@@ -28180,7 +28200,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -28201,7 +28221,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -28222,7 +28242,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No deny with this id in the Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/{id}",
@@ -28275,7 +28295,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/{id}/reach",
@@ -28296,7 +28316,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -28317,7 +28337,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies",
@@ -28338,7 +28358,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No deny with this id in the Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/denies/{id}/reach",
@@ -28400,7 +28420,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The preview id is not a UUID or the query failed validation (`direction` other than `gains` or `loses`, `take` above 5000, `role_id` not a UUID); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
@@ -28421,7 +28441,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
@@ -28442,7 +28462,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
@@ -28463,7 +28483,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No stored preview with this id was made by this principal in this Environment, or it has expired (`access_preview.not_found`); the node, its destination, the organization or the role the preview read no longer exists; or a resource the path names does not exist. Preview the change again",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
@@ -28484,7 +28504,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The node, its destination or the role has changed since the preview was made (`version_mismatch`); preview the change again",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
@@ -28530,7 +28550,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The preview id is not a UUID; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people.csv",
@@ -28551,7 +28571,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
@@ -28572,7 +28592,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
@@ -28593,7 +28613,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No stored preview with this id was made by this principal in this Environment, or it has expired (`access_preview.not_found`); the node, its destination, the organization or the role the preview read no longer exists; or a resource the path names does not exist. Preview the change again",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people.csv",
@@ -28614,7 +28634,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The node, its destination or the role has changed since the preview was made (`version_mismatch`); preview the change again",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people.csv",
@@ -28678,7 +28698,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -28699,7 +28719,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -28720,7 +28740,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -28766,7 +28786,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide/summary",
@@ -28787,7 +28807,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -28808,7 +28828,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -28858,7 +28878,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the role is a system role (system roles are reserved for platform administration), or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
@@ -28879,7 +28899,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -28900,7 +28920,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -28921,7 +28941,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
@@ -28942,7 +28962,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The identity already has this role at this node, or the node sits beneath an organization the identity is not an active member of (`organization.membership_required`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments",
@@ -28986,7 +29006,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
@@ -29007,7 +29027,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29028,7 +29048,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29049,7 +29069,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
@@ -29070,7 +29090,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
@@ -29124,7 +29144,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the role is inactive or a system role, or `effective_from` is not before `effective_to`; or an organization's own role is placed outside that organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
@@ -29145,7 +29165,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29166,7 +29186,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29187,7 +29207,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
@@ -29208,7 +29228,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or the role is the last administrator's at an organization node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/{id}",
@@ -29254,7 +29274,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-remove",
@@ -29275,7 +29295,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29296,7 +29316,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29317,7 +29337,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-remove",
@@ -29338,7 +29358,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The member is the organization's last administrator (`organization.last_admin`); make someone else one first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-remove",
@@ -29388,7 +29408,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the role is inactive or a system role; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-change-role",
@@ -29409,7 +29429,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29430,7 +29450,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29451,7 +29471,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "An identity, role, assignment or node the request names does not exist in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-change-role",
@@ -29472,7 +29492,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The identity already holds this role at this node, the assignment has been modified since the version named in If-Match was read (`assignment.version_mismatch`), or the role is the last administrator's at an organization node (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-change-role",
@@ -29555,7 +29575,7 @@ export interface operations {
                             input: Record<string, unknown>;
                             error: {
                                 /** @description Machine-readable error code */
-                                code: string | null;
+                                code: string;
                                 /** @description English fallback message */
                                 message: string;
                                 /** @description Optional validation error details */
@@ -29575,7 +29595,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/bulk-create",
@@ -29596,7 +29616,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29617,7 +29637,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, the caller lacks the permission this operation checks (a scoped API key without that scope, an admin without the Account capability that covers it), or an admin reading a production Environment's people lacks `production_identities.access`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/assignments/app-wide",
@@ -29696,7 +29716,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start a fresh query; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -29717,7 +29737,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -29738,7 +29758,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -29784,7 +29804,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/export",
@@ -29805,7 +29825,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -29826,7 +29846,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -29876,7 +29896,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/export",
@@ -29897,7 +29917,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -29918,7 +29938,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -29966,7 +29986,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/export/{id}",
@@ -29987,7 +30007,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -30008,7 +30028,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -30029,7 +30049,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "Export job not found — nonexistent, owned by another Account, or taken from a different surface (indistinguishable on the wire).",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/export/{id}",
@@ -30073,7 +30093,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/export/{id}",
@@ -30094,7 +30114,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -30115,7 +30135,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -30136,7 +30156,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "Export job not found — nonexistent, owned by another Account, or taken from a different surface (indistinguishable on the wire).",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/export/{id}",
@@ -30184,7 +30204,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/{id}",
@@ -30205,7 +30225,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -30226,7 +30246,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
@@ -30247,7 +30267,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "Audit-log row not found. Indistinguishable from a row that exists but belongs to a different Account, a different surface, or is internal-only — disclosing the difference would leak the presence of cross-surface or platform-support rows.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events/{id}",
@@ -30302,7 +30322,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "Cursor is malformed (bad base64, bad JSON shape, or invalid timestamp/UUID). Drop the cursor and start from the beginning of the retained window; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/changes",
@@ -30323,7 +30343,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/changes",
@@ -30344,7 +30364,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "This token is not authorized for this endpoint (wrong principal type — e.g., admin token on identity-only endpoint, or vice versa)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/changes",
@@ -30390,7 +30410,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30411,7 +30431,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30432,7 +30452,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30453,7 +30473,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Environment has no hierarchy schema: it is flat (`hierarchy.schema_not_configured`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30505,7 +30525,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the schema is refused: it names a node type Canopy reserves, it is not rooted at \"canopy:organization\" while organizations are on, or it removes a node type that nodes still use; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30526,7 +30546,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30547,7 +30567,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30568,7 +30588,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/hierarchy-schema",
@@ -30614,7 +30634,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
@@ -30635,7 +30655,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
@@ -30656,7 +30676,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
@@ -30708,7 +30728,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
@@ -30729,7 +30749,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
@@ -30750,7 +30770,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
@@ -30771,7 +30791,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the branding as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
@@ -30817,7 +30837,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/token-claims",
@@ -30838,7 +30858,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/token-claims",
@@ -30859,7 +30879,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/token-claims",
@@ -30911,7 +30931,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or an entry is refused: a name the JWT or OpenID Connect standards or Canopy already set (`token_claims.reserved_name`), a source outside the allowed fields (`token_claims.source_invalid`), or a name twice on the same token (`token_claims.duplicate_name`), with `error.data` naming the entry's `index` and its `field`; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/token-claims",
@@ -30932,7 +30952,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/token-claims",
@@ -30953,7 +30973,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/token-claims",
@@ -30974,7 +30994,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Environment changed since the version named in `If-Match` was read (`version_mismatch`); the current mapping is in `error.data.current`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/token-claims",
@@ -31017,7 +31037,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31038,7 +31058,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31059,7 +31079,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31106,7 +31126,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31127,7 +31147,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31148,7 +31168,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31169,7 +31189,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "An Application with this slug (supplied, or derived from the name) already exists in this Account (`application.slug_conflict`), or the Account already holds as many Applications as it may (`application.limit`, `data.limit` naming the limit)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31214,7 +31234,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31235,7 +31255,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31256,7 +31276,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31277,7 +31297,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Application with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}",
@@ -31318,7 +31338,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The Application is the Account's last, or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}",
@@ -31339,7 +31359,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31360,7 +31380,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31381,7 +31401,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Application with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}",
@@ -31433,7 +31453,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}",
@@ -31454,7 +31474,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31475,7 +31495,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31496,7 +31516,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Application with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}",
@@ -31517,7 +31537,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Application changed since the version sent in `If-Match` was read (`version_mismatch`, with the current Application in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}",
@@ -31569,7 +31589,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation or `slug` names no Environment of this Application, or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/default-environment",
@@ -31590,7 +31610,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31611,7 +31631,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31632,7 +31652,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Application with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/default-environment",
@@ -31653,7 +31673,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Application changed since the version sent in `If-Match` was read (`version_mismatch`, with the current Application in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/default-environment",
@@ -31698,7 +31718,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31719,7 +31739,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31740,7 +31760,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31761,7 +31781,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Application with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/environments",
@@ -31810,7 +31830,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/environments",
@@ -31831,7 +31851,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31852,7 +31872,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications",
@@ -31873,7 +31893,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Application with this `id`, or `copy_from` names no Environment of it (`environment.copy_source_not_found`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/environments",
@@ -31894,7 +31914,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "An Environment with this slug already exists in the Application (`environment.slug_conflict`), or the Application already holds as many Environments as it may (`environment.limit`, `data.limit` naming the limit)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/environments",
@@ -31939,7 +31959,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -31960,7 +31980,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -31981,7 +32001,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32002,7 +32022,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Environment with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32043,7 +32063,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The Environment is its Application's last or its default, or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32064,7 +32084,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32085,7 +32105,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32106,7 +32126,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Environment with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32158,7 +32178,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or it would demote a production Environment, which is permanent (`environment.production_irreversible`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32179,7 +32199,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32200,7 +32220,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32221,7 +32241,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Environment with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32242,7 +32262,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Another Environment of the Application already uses the slug (`environment.slug_conflict`), or the Environment changed since it was read (`version_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32287,7 +32307,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32308,7 +32328,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32329,7 +32349,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32350,7 +32370,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Environment with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/export",
@@ -32402,7 +32422,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
@@ -32423,7 +32443,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}",
@@ -32444,7 +32464,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller does not hold both `application.manage` and `auth_settings.manage`: an import replaces the target's sign-in policy and custom claims",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
@@ -32465,7 +32485,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no Environment with this `id`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
@@ -32486,7 +32506,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
@@ -32532,7 +32552,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
@@ -32553,7 +32573,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
@@ -32574,7 +32594,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
@@ -32626,7 +32646,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
@@ -32647,7 +32667,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
@@ -32668,7 +32688,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
@@ -32689,7 +32709,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The change needs the organizations container: `organizations_create_on_signup` or `organizations_membership_required` cannot be switched on while it is off, and a role an inheriting organization's directory still maps cannot be withdrawn from `idp_arrival_roles`; or the Environment changed since the version named in `If-Match` (`version_mismatch`), the current settings being in `error.data.current`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
@@ -32735,7 +32755,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -32756,7 +32776,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -32777,7 +32797,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -32831,7 +32851,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request is malformed, the provider name does not fit its kind (`social.provider_slug_invalid`), a setting it needs is missing (`social.provider_incomplete`), a setting does not apply to its kind (`social.provider_field_not_applicable`), or a custom provider's discovery document cannot be read or relied on (`sso.discovery_url_invalid`, `sso.discovery_unreachable`, `sso.discovery_endpoint_invalid`, `social.oidc_discovery_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers/{providerSlug}",
@@ -32852,7 +32872,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -32873,7 +32893,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -32894,7 +32914,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The provider being changed was removed by another request while this one was saving (`social.provider_not_found`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers/{providerSlug}",
@@ -32915,7 +32935,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The provider changed since it was read, or another request added it first (`version_mismatch`), a custom provider is added to an Environment that already holds 20 (`social.provider_limit`), or a custom provider is enabled before a test sign-in through it has completed (`social.oidc_not_verified`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers/{providerSlug}",
@@ -32961,7 +32981,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -32982,7 +33002,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -33003,7 +33023,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers",
@@ -33024,7 +33044,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No social provider by that name exists in the request's Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers/{providerSlug}",
@@ -33045,7 +33065,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The provider changed since it was read (`version_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/social-providers/{providerSlug}",
@@ -33091,7 +33111,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/signing-keys",
@@ -33112,7 +33132,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/signing-keys",
@@ -33133,7 +33153,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/signing-keys",
@@ -33183,7 +33203,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/signing-keys/rotate",
@@ -33204,7 +33224,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/signing-keys",
@@ -33225,7 +33245,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/signing-keys",
@@ -33271,7 +33291,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33292,7 +33312,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33313,7 +33333,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33363,7 +33383,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33384,7 +33404,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33405,7 +33425,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33426,7 +33446,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Environment already holds as many live publishable keys as it may (`publishable_key.limit`, `data.limit` naming the limit); revoke one first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33470,7 +33490,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The Environment's last web key cannot be revoked; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys/{id}",
@@ -33491,7 +33511,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33512,7 +33532,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33533,7 +33553,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No live publishable key with that id exists in the request's Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys/{id}",
@@ -33587,7 +33607,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys/{id}",
@@ -33608,7 +33628,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33629,7 +33649,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
@@ -33650,7 +33670,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No live publishable key with that id exists in the request's Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys/{id}",
@@ -33671,7 +33691,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The key changed since the version sent in `If-Match` was read (`version_mismatch`, with the key as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys/{id}",
@@ -33717,7 +33737,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33738,7 +33758,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33759,7 +33779,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33811,7 +33831,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or it asks for hierarchy to flat directly; call revert-to-flat instead; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33832,7 +33852,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33853,7 +33873,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33874,7 +33894,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33926,7 +33946,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or enabling was refused because the hierarchy schema is not rooted at \"canopy:organization\"; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/organizations",
@@ -33947,7 +33967,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -33968,7 +33988,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller does not hold `hierarchy.manage`",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/organizations",
@@ -33989,7 +34009,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Enable refused while nodes sit directly under the root or while an end-user SSO connection is the default of the Environment or of one of its OAuth clients; disable refused while organizations or a hierarchy schema remain; or the Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/organizations",
@@ -34037,7 +34057,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The Environment already uses the flat access model, or administrators are still assigned at nodes in it; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/revert-to-flat",
@@ -34058,7 +34078,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -34079,7 +34099,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model",
@@ -34100,7 +34120,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-model/revert-to-flat",
@@ -34145,7 +34165,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34166,7 +34186,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34187,7 +34207,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34234,7 +34254,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34255,7 +34275,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34276,7 +34296,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34297,7 +34317,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The Account has reached its plan limit for end-user SSO connections.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34342,7 +34362,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}",
@@ -34363,7 +34383,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34384,7 +34404,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34405,7 +34425,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}",
@@ -34446,7 +34466,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}",
@@ -34467,7 +34487,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34488,7 +34508,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34509,7 +34529,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}",
@@ -34561,7 +34581,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or the change would leave an active connection without a field its protocol requires (SAML: entity ID, SSO URL, signing cert; OIDC: discovery URL, client ID, client secret); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}",
@@ -34582,7 +34602,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34603,7 +34623,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34624,7 +34644,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}",
@@ -34645,7 +34665,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}",
@@ -34693,7 +34713,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The connection id is malformed, the connection is missing a field its protocol requires (SAML: entity ID, SSO URL, signing cert; OIDC: discovery URL, client ID, client secret), or an organization it is bound to holds no verified domain or has no arrival role; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/activate",
@@ -34714,7 +34734,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34735,7 +34755,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34756,7 +34776,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/activate",
@@ -34777,7 +34797,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/activate",
@@ -34825,7 +34845,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/disable",
@@ -34846,7 +34866,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34867,7 +34887,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34888,7 +34908,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/disable",
@@ -34909,7 +34929,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/disable",
@@ -34954,7 +34974,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The connection id is malformed, or the connection is not an end-user connection; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients",
@@ -34975,7 +34995,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -34996,7 +35016,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35017,7 +35037,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients",
@@ -35068,7 +35088,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the connection is not an end-user connection, or the placement node or default role is not in the Environment (or the role is inactive or a system role); or the default role is one organization's own, which a link serving every sign-in cannot use (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35089,7 +35109,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35110,7 +35130,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35131,7 +35151,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or the SSO connection, the OAuth client, its Environment or the link between them is not in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35152,7 +35172,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A default is refused in an Environment with organizations, and on a connection an organization owns; or the connection is already linked to 50 OAuth clients, the most it may (`sso.oauth_client_link_limit`, `data.limit` naming the limit)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35195,7 +35215,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The connection id is malformed, or the connection is not an end-user connection; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35216,7 +35236,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35237,7 +35257,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35258,7 +35278,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or the SSO connection, the OAuth client, its Environment or the link between them is not in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35309,7 +35329,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the connection is not an end-user connection, or the placement node or default role is not in the Environment (or the role is inactive or a system role); or the default role is one organization's own, which a link serving every sign-in cannot use (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35330,7 +35350,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35351,7 +35371,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35372,7 +35392,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or the SSO connection, the OAuth client, its Environment or the link between them is not in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35393,7 +35413,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A default is refused in an Environment with organizations, and on a connection an organization owns",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/oauth-clients/{clientId}",
@@ -35439,7 +35459,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/oauth-clients/{clientId}/links",
@@ -35460,7 +35480,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35481,7 +35501,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35502,7 +35522,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no OAuth client with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/oauth-clients/{clientId}/links",
@@ -35545,7 +35565,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/sign-in-coverage",
@@ -35566,7 +35586,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35587,7 +35607,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35632,7 +35652,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The connection id is malformed, or the connection is not an end-user connection; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments",
@@ -35653,7 +35673,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35674,7 +35694,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35695,7 +35715,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments",
@@ -35745,7 +35765,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the connection is not an end-user connection, or the placement node or default role is not in the Environment (or the role is inactive or a system role); or the default role is one organization's own, which a link serving every sign-in cannot use (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -35766,7 +35786,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35787,7 +35807,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35808,7 +35828,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or the SSO connection, the Environment or the binding between them is not in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -35829,7 +35849,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A default is refused in an Environment with organizations, and on a connection an organization owns; a connection an organization owns cannot be bound outside that organization's Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -35871,7 +35891,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The connection id is malformed, or the connection is not an end-user connection; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -35892,7 +35912,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35913,7 +35933,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -35934,7 +35954,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or the SSO connection, the Environment or the binding between them is not in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -35955,7 +35975,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "An organization in this Environment set the connection up itself; it stays linked. Disable or delete the connection instead.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -36005,7 +36025,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the connection is not an end-user connection, or the placement node or default role is not in the Environment (or the role is inactive or a system role); or the default role is one organization's own, which a link serving every sign-in cannot use (`rbac.role_outside_organization`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -36026,7 +36046,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36047,7 +36067,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36068,7 +36088,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or the SSO connection, the Environment or the binding between them is not in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -36089,7 +36109,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A default is refused in an Environment with organizations, and on a connection an organization owns",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/environments/{environmentId}",
@@ -36148,7 +36168,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The connection id is malformed, or the connection is not an end-user connection; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/organizations",
@@ -36169,7 +36189,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36190,7 +36210,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36211,7 +36231,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/organizations",
@@ -36260,7 +36280,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the connection is not an end-user connection, is not bound to that Environment, or is missing its protocol's required fields; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/test",
@@ -36281,7 +36301,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36302,7 +36322,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36323,7 +36343,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/test",
@@ -36369,7 +36389,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/test/{testId}",
@@ -36390,7 +36410,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36411,7 +36431,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36432,7 +36452,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or the SSO connection is not in it, or the test sign-in does not exist or has expired",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/test/{testId}",
@@ -36477,7 +36497,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/recent-logins",
@@ -36498,7 +36518,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36519,7 +36539,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36540,7 +36560,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or no SSO connection with that id is in it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/recent-logins",
@@ -36583,7 +36603,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/sign-in-coverage",
@@ -36604,7 +36624,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36625,7 +36645,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36672,7 +36692,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the domain is not a valid domain name, or it belongs to a public email provider; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains",
@@ -36693,7 +36713,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36714,7 +36734,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36735,7 +36755,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The owner already holds 50 domain claims, the most it may (`sso.domain_limit`, `data.limit` naming the limit); remove one first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains",
@@ -36780,7 +36800,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The domain is not a valid domain name, or the expected DNS TXT record was not found for it; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains/{domain}/verify",
@@ -36801,7 +36821,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36822,7 +36842,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36843,7 +36863,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or it holds no claim on that domain",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains/{domain}/verify",
@@ -36864,7 +36884,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "This domain is already verified by another Account.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains/{domain}/verify",
@@ -36885,7 +36905,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 429,
-                     *         "code": null,
+                     *         "code": "request.rate_limited",
                      *         "message": "Too many verification attempts: this route allows 10 per minute",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains/{domain}/verify",
@@ -36926,7 +36946,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The domain is not a valid domain name; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains/{domain}",
@@ -36947,7 +36967,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36968,7 +36988,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include single sign-on (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
@@ -36989,7 +37009,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The account does not exist, or it holds no claim on that domain",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/domains/{domain}",
@@ -37035,7 +37055,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37056,7 +37076,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37077,7 +37097,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37098,7 +37118,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No custom auth domain is configured",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37148,7 +37168,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The domain is invalid or reserved; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37169,7 +37189,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37190,7 +37210,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37211,7 +37231,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The domain is already configured elsewhere",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37253,7 +37273,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37274,7 +37294,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37295,7 +37315,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37316,7 +37336,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No custom auth domain is configured",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37362,7 +37382,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The DNS records aren't visible yet; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain/verify",
@@ -37383,7 +37403,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37404,7 +37424,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain",
@@ -37425,7 +37445,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No custom auth domain is configured",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-domain/verify",
@@ -37471,7 +37491,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37492,7 +37512,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37513,7 +37533,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37563,7 +37583,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37584,7 +37604,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37605,7 +37625,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37626,7 +37646,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37672,7 +37692,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37693,7 +37713,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37714,7 +37734,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37758,7 +37778,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens/{id}",
@@ -37779,7 +37799,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37800,7 +37820,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
@@ -37858,7 +37878,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups",
@@ -37879,7 +37899,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups",
@@ -37900,7 +37920,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups",
@@ -37954,7 +37974,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the role is a system role, or the role is not one this directory may grant; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
@@ -37975,7 +37995,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups",
@@ -37996,7 +38016,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups",
@@ -38017,7 +38037,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The SCIM group, the role or the node is not in the request's Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
@@ -38038,7 +38058,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Another group already grants the organization's membership role; clear that group's mapping first. Or the group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
@@ -38084,7 +38104,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
@@ -38105,7 +38125,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups",
@@ -38126,7 +38146,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups",
@@ -38147,7 +38167,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No SCIM group with that id is in the request's Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
@@ -38168,7 +38188,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The group changed since the version sent in `If-Match` was read (`version_mismatch`, with the group as it now stands in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-groups/{id}/mapping",
@@ -38211,7 +38231,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38232,7 +38252,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38253,7 +38273,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38300,7 +38320,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, a capability is unknown, or the capabilities mix account-wide and Environment scopes; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38321,7 +38341,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38342,7 +38362,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38363,7 +38383,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "An administrator role with that name exists (`admin_role.name_conflict`), or the Account already holds 50 administrator roles, the most it may (`admin_role.limit`, `data.limit` naming the limit)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38408,7 +38428,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/capabilities",
@@ -38429,7 +38449,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38450,7 +38470,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38495,7 +38515,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38516,7 +38536,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38537,7 +38557,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38558,7 +38578,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The administrator role is not in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38599,7 +38619,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38620,7 +38640,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38641,7 +38661,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The role is a system administrator role, which cannot be deleted, or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38662,7 +38682,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The administrator role is not in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38683,7 +38703,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Role is still granted to people; revoke those assignments first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38735,7 +38755,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, a capability is unknown, or the capabilities mix account-wide and Environment scopes; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38756,7 +38776,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38777,7 +38797,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The role is a system administrator role, which cannot be modified, or an API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries or would carry (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38798,7 +38818,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The administrator role is not in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38819,7 +38839,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The `If-Match` version does not match the current version (refresh and retry), or another administrator role already has that name",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}",
@@ -38867,7 +38887,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}/grantable-roles",
@@ -38888,7 +38908,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38909,7 +38929,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -38930,7 +38950,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The administrator role or the Environment is not in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}/grantable-roles",
@@ -38979,7 +38999,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, or one or more roles do not exist in the Environment or belong to one organization (administrators are allowed only the roles every organization shares); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}/grantable-roles",
@@ -39000,7 +39020,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles",
@@ -39021,7 +39041,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}/grantable-roles",
@@ -39042,7 +39062,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The administrator role or the Environment is not in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-roles/{adminRoleId}/grantable-roles",
@@ -39103,7 +39123,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39124,7 +39144,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39145,7 +39165,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39192,7 +39212,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, the target user is not an active member of the Account, the scope does not match the role's scope, or the effective window does not start before it ends; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39213,7 +39233,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39234,7 +39254,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "An API key's scopes, or a bounded MCP client's approval, do not cover every capability the role carries (`admin_role.capability_beyond_key`, `admin_role.capability_beyond_mcp_grant`, `error.data.capabilities` naming them), or the caller lacks the permission this operation checks",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39255,7 +39275,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The administrator role, Environment or node is not in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39276,7 +39296,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "An identical live grant already covers this period",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39317,7 +39337,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments/{adminAssignmentId}",
@@ -39338,7 +39358,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39359,7 +39379,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments",
@@ -39380,7 +39400,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The administrator assignment (or its role or Environment) is not in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/admin-assignments/{adminAssignmentId}",
@@ -39437,7 +39457,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators",
@@ -39458,7 +39478,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators",
@@ -39479,7 +39499,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators",
@@ -39524,7 +39544,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators/{id}",
@@ -39545,7 +39565,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators",
@@ -39566,7 +39586,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators",
@@ -39587,7 +39607,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The user is not an administrator of the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators/{id}",
@@ -39628,7 +39648,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The id is malformed, or it names the caller, who cannot deactivate or remove their own membership; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators/{id}",
@@ -39649,7 +39669,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators",
@@ -39670,7 +39690,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks `administrator.manage`, or the target is the Account owner, whom no one can deactivate or remove",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators/{id}",
@@ -39691,7 +39711,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The user is not an administrator of the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/administrators/{id}",
@@ -39749,7 +39769,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -39770,7 +39790,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -39791,7 +39811,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -39841,7 +39861,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -39862,7 +39882,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -39883,7 +39903,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -39929,7 +39949,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/event-types",
@@ -39950,7 +39970,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -39971,7 +39991,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40031,7 +40051,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}/deliveries",
@@ -40052,7 +40072,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40073,7 +40093,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40094,7 +40114,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "webhook.not_found",
                      *         "message": "Webhook subscription not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}/deliveries",
@@ -40142,7 +40162,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
@@ -40163,7 +40183,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40184,7 +40204,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40205,7 +40225,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "webhook.not_found",
                      *         "message": "Webhook subscription not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
@@ -40249,7 +40269,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
@@ -40270,7 +40290,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40291,7 +40311,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40312,7 +40332,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "webhook.not_found",
                      *         "message": "Webhook subscription not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
@@ -40366,7 +40386,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
@@ -40387,7 +40407,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40408,7 +40428,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40429,7 +40449,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "webhook.not_found",
                      *         "message": "Webhook subscription not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
@@ -40450,7 +40470,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The subscription changed since the version sent in `If-Match` was read (`version_mismatch`, with the subscription as it now stands, less its secrets, in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}",
@@ -40502,7 +40522,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}/rotate-secret",
@@ -40523,7 +40543,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40544,7 +40564,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
@@ -40565,7 +40585,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "webhook.not_found",
                      *         "message": "Webhook subscription not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}/rotate-secret",
@@ -40625,7 +40645,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40646,7 +40666,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40667,7 +40687,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40717,7 +40737,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40738,7 +40758,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40759,7 +40779,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40780,7 +40800,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "A machine client: the account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`, API keys and machine clients together); `data` carries the limit, the usage and an upgrade URL",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40801,7 +40821,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 422,
-                     *         "code": null,
+                     *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40852,7 +40872,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/summary",
@@ -40873,7 +40893,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40894,7 +40914,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40942,7 +40962,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
@@ -40963,7 +40983,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -40984,7 +41004,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41005,7 +41025,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
@@ -41049,7 +41069,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
@@ -41070,7 +41090,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41091,7 +41111,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41112,7 +41132,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
@@ -41166,7 +41186,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
@@ -41187,7 +41207,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41208,7 +41228,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41229,7 +41249,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
@@ -41250,7 +41270,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The client was modified since the version named in If-Match was read (`version_mismatch`). Read it again and reapply the change",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
@@ -41302,7 +41322,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
@@ -41323,7 +41343,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41344,7 +41364,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41365,7 +41385,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
@@ -41386,7 +41406,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The client is public and has no secret to rotate (`oauth.client_public_has_no_secret`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
@@ -41446,7 +41466,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
@@ -41467,7 +41487,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41488,7 +41508,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41509,7 +41529,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
@@ -41561,7 +41581,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
@@ -41582,7 +41602,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41603,7 +41623,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41624,7 +41644,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
@@ -41645,7 +41665,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
@@ -41666,7 +41686,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 422,
-                     *         "code": null,
+                     *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
@@ -41711,7 +41731,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
@@ -41732,7 +41752,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41753,7 +41773,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41774,7 +41794,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
@@ -41795,7 +41815,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
@@ -41850,7 +41870,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
@@ -41871,7 +41891,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41892,7 +41912,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -41913,7 +41933,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
@@ -41934,7 +41954,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
@@ -41994,7 +42014,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/grants",
@@ -42015,7 +42035,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -42036,7 +42056,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
@@ -42057,7 +42077,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No OAuth client with that id exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/grants",
@@ -42115,7 +42135,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42136,7 +42156,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42157,7 +42177,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42207,7 +42227,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42228,7 +42248,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42249,7 +42269,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key asking for more than it holds: `full_access`, or a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities asking for `full_access` or a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42270,7 +42290,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`: API keys and machine clients); `data` carries the limit, the usage and an upgrade URL",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42291,7 +42311,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 422,
-                     *         "code": null,
+                     *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42312,7 +42332,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 429,
-                     *         "code": null,
+                     *         "code": "request.rate_limited",
                      *         "message": "More than 20 create requests in a minute from this caller (`x-canopy-rate-limit`); retry after the window",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42356,7 +42376,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
@@ -42377,7 +42397,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42398,7 +42418,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
@@ -42419,7 +42439,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "api_key.not_found",
                      *         "message": "API key not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
@@ -42473,7 +42493,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
@@ -42494,7 +42514,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42515,7 +42535,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
@@ -42536,7 +42556,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "api_key.not_found",
                      *         "message": "API key not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
@@ -42557,7 +42577,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The key changed since the version sent in `If-Match` was read (`version_mismatch`, with the key as it now stands, less its secret, in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}",
@@ -42605,7 +42625,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}/rotate-secret",
@@ -42626,7 +42646,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
@@ -42647,7 +42667,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks `api_key.manage` (a scoped API key without that scope, or an admin without the Account capability that covers it), or is a scoped API key acting on a key with more access than its own: a `full_access` key, or one holding a scope outside its own (`api_key.access_exceeds_caller`), or is an MCP client whose approval names only some capabilities acting on a `full_access` key or one holding a scope that approval does not cover (`api_key.access_exceeds_mcp_grant`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}/rotate-secret",
@@ -42668,7 +42688,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "api_key.not_found",
                      *         "message": "API key not found",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}/rotate-secret",
@@ -42711,7 +42731,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account",
@@ -42732,7 +42752,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account",
@@ -42753,7 +42773,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller is not an account API key of this Account or one of its administrators: an Environment API key reads its own Environment, never the Account's profile",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account",
@@ -42803,7 +42823,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account",
@@ -42824,7 +42844,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account",
@@ -42845,7 +42865,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account",
@@ -42866,7 +42886,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account",
@@ -42921,7 +42941,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -42942,7 +42962,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -42963,7 +42983,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43010,7 +43030,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43031,7 +43051,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43052,7 +43072,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43097,7 +43117,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/summary",
@@ -43118,7 +43138,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43139,7 +43159,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43182,7 +43202,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/event-types",
@@ -43203,7 +43223,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43224,7 +43244,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43281,7 +43301,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}/deliveries",
@@ -43302,7 +43322,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43323,7 +43343,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43344,7 +43364,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No webhook subscription with that id is in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}/deliveries",
@@ -43389,7 +43409,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}",
@@ -43410,7 +43430,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43431,7 +43451,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43452,7 +43472,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No webhook subscription with that id is in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}",
@@ -43493,7 +43513,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}",
@@ -43514,7 +43534,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43535,7 +43555,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43556,7 +43576,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No webhook subscription with that id is in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}",
@@ -43608,7 +43628,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request failed validation, an event type is not supported for this subscription's scope (or the `*` wildcard is mixed with specific types), or the delivery URL is not an https address on a public host; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}",
@@ -43629,7 +43649,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43650,7 +43670,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43671,7 +43691,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No webhook subscription with that id is in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}",
@@ -43692,7 +43712,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 409,
-                     *         "code": null,
+                     *         "code": "request.conflict",
                      *         "message": "The subscription changed since the version sent in `If-Match` was read (`version_mismatch`, with the subscription as it now stands, less its secrets, in `data.current`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}",
@@ -43741,7 +43761,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}/rotate-secret",
@@ -43762,7 +43782,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43783,7 +43803,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
@@ -43804,7 +43824,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "No webhook subscription with that id is in the Account",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}/rotate-secret",
@@ -43847,7 +43867,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -43868,7 +43888,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -43889,7 +43909,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -43910,7 +43930,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 404,
-                     *         "code": null,
+                     *         "code": "request.not_found",
                      *         "message": "The Account has no subscription record",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -43953,7 +43973,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -43974,7 +43994,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -43995,7 +44015,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44038,7 +44058,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44059,7 +44079,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44080,7 +44100,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44123,7 +44143,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44144,7 +44164,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44165,7 +44185,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44226,7 +44246,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.validation_failed",
                      *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/invoices",
@@ -44247,7 +44267,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44268,7 +44288,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44311,7 +44331,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44332,7 +44352,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44353,7 +44373,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44396,7 +44416,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 400,
-                     *         "code": null,
+                     *         "code": "request.invalid",
                      *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44417,7 +44437,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 401,
-                     *         "code": null,
+                     *         "code": "auth.invalid_token",
                      *         "message": "Invalid or expired token",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",
@@ -44438,7 +44458,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "statusCode": 403,
-                     *         "code": null,
+                     *         "code": "auth.forbidden",
                      *         "message": "The caller lacks the permission this operation checks: an account API key without that scope, an Environment API key (these are account scopes, which no Environment key holds), or an administrator without the Account capability that covers it",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/billing/subscription",

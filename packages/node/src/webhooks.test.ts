@@ -82,6 +82,9 @@ describe("webhook event types", () => {
     type Updated = WebhookEventData<"assignment.updated">["metadata"];
 
     expectTypeOf<Updated["node_id"]>().toEqualTypeOf<string>();
+    expectTypeOf<Updated["previous_role_id"]>().toEqualTypeOf<string>();
+    expectTypeOf<Updated["previous_node_id"]>().toEqualTypeOf<string>();
+    expectTypeOf<Updated["organization_id"]>().toEqualTypeOf<string | null>();
 
     // Deleting an organization reports what went with it, SSO included.
     type Deleted = WebhookEventData<"organization.deleted">["metadata"];

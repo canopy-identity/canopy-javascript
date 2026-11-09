@@ -62,7 +62,7 @@ export interface PartialSuccess<T> {
     code: number;
     data?: T;
     input?: unknown;
-    error?: { code: string | null; message: string };
+    error?: { code: string; message: string };
   }[];
 }
 
