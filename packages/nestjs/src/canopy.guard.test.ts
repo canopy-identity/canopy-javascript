@@ -659,13 +659,13 @@ describe("reporting why a check failed", () => {
   /**
    * The failure that must never look like policy.
    *
-   * A 404 with no error code is "no such route" — an SDK pointed at a Canopy
-   * that does not serve the grants endpoint. Reported as a denial it would take
+   * A 404 coded `request.not_found` is "no such route": an SDK pointed at a
+   * Canopy that does not serve the grants endpoint. Reported as a denial it would take
    * down every guarded route in the application at once while reading as
    * ordinary authorization, so it is a `500` that names the path instead.
    */
   it("reports a missing grants endpoint as a misconfiguration, not a denial", async () => {
-    const { run } = failWith(canopyError(404, null));
+    const { run } = failWith(canopyError(404, "request.not_found"));
 
     const result = await run();
 

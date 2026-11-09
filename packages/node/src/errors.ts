@@ -13,9 +13,10 @@
 export interface CanopyErrorBody {
   statusCode: number;
   /**
-   * Stable machine-readable code, e.g. `rbac.assignment_conflict`. Null on
-   * framework-level failures such as a validation 400, where `details` carries
-   * the specifics instead.
+   * Stable machine-readable code, e.g. `rbac.assignment_conflict`. Canopy
+   * sends one on every error, `request.validation_failed` with `details` on a
+   * validation 400. Null only for a response that did not come from Canopy's
+   * API, such as a proxy's error page.
    */
   code: string | null;
   message: string;

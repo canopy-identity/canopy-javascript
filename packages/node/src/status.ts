@@ -78,9 +78,13 @@ export function authorizationErrorStatus(error: unknown): FailureStatus {
     };
   }
 
-  // A 404 with no error code is the framework's own "no such route": this
-  // Canopy does not serve the endpoint the authorizer reads.
-  if (error.statusCode === 404 && error.code === null) {
+  // `request.not_found` is the framework's own "no such route", and a 404 with
+  // no code never reached Canopy's API at all. Either way, this Canopy does not
+  // serve the endpoint the authorizer reads.
+  if (
+    error.statusCode === 404 &&
+    (error.code === null || error.code === "request.not_found")
+  ) {
     return {
       status: 500,
       message:
