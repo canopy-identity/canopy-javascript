@@ -1,6 +1,6 @@
 {
   "name": "@canopy-io/browser",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Official browser SDK for Canopy: sign a single-page app in through Canopy's hosted login as a public OAuth client.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
