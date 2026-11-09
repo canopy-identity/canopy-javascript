@@ -28,6 +28,7 @@ The same model answers a machine client acting for a person with a `delegated` t
 
 An optional container, on top of either model, for B2B tenancy: each customer is an organization, which is also a node. Membership is admission, a record of its own; a member's roles are assignments at the organization's node or beneath it, and may be none.
 
+- A backend inviting on someone's behalf with its own credential names them with `invited_by_identity_id` on `POST /api/v1/organizations/{id}/invites`. They must be an active member when it is sent, and the email names them. It is credit only: the credential authorizes the invitation. An identity access token cannot send it.
 - Identity tokens carry `org_id` (the organization the session is acting in), `org_roles` (the roles held at its node, possibly empty) and `org_role_ids` (the same roles' ids, in the same order). Read them with `orgContext(claims)`. A machine client pinned to an organization carries the same claims.
 - Authorize at the organization's node: `node_id` is the token's `org_id`. In NestJS, `@RequirePermission("invoices.view", { scope: "org" })` does this.
 - Take the organization from the **verified token**, and refuse records that belong to another organization. A caller acting in no organization is denied on an organization-scoped route.

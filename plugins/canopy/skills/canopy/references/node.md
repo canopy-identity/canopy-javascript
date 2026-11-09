@@ -45,6 +45,8 @@ export async function listEmails(): Promise<string[]> {
 }
 ```
 
+Every error Canopy sends has a `code`, framework refusals included (`request.validation_failed`, `request.not_found`). It is null only when something else answered, such as a proxy.
+
 Anything without a typed wrapper goes through `canopy.client.request`, with the same envelope handling, errors and retries:
 
 ```ts
@@ -167,7 +169,7 @@ export async function authenticate(
 
 - On a custom auth domain or self-hosted instance, pass `issuer` (for example `https://auth.acme.com`) instead of `environmentId`.
 - Pre-auth tokens (issued before an administrator picks an Account) are refused by default. Leave it that way.
-- `claims.amr` says how the session was proven (`pwd`, `otp`, `sso`, `fed` with the provider for a social sign-in such as `["fed", "google"]`, `hwk` for a passkey sign-in, which carries `mfa` with it as `["hwk", "mfa"]`, plus `mfa` after a second factor). Require `claims.amr?.includes("mfa")` before a sensitive action if the product needs it.
+- `claims.amr` says how the session was proven (`pwd`, `otp`, `sso`, `fed` with the provider for a social sign-in such as `["fed", "google"]`, `hwk` for a passkey sign-in, which carries `mfa` with it as `["hwk", "mfa"]`, plus `mfa` after a second factor). A remembered device that stood in for the second factor adds `remembered_device` beside `mfa`. Require `claims.amr?.includes("mfa")` before a sensitive action if the product needs it, and refuse `remembered_device` too when the factor must have been cleared in this sign-in.
 - **Custom claims.** An Environment can map facts of its own onto the token (Console: Tenant → Authentication → Custom claims, or `PUT /api/v1/token-claims`): a `plan` copied from the identity's or organization's metadata, say. Name them to `verify` to read them typed; each is optional, because a value that is not stored is left off the token, and so is one that did not fit the token's size limit, which `claims.custom_claims_overflow` reports. Treat an absent claim as "not set", and when `custom_claims_overflow` is true read the value from the API instead of trusting the token to be complete.
 
 ```ts
@@ -385,4 +387,5 @@ app.post(
 - `applyEvent` drops only the subjects a change names (an assignment, a membership, an identity's status), everything for a role, permission, node or schema change, and nothing for a profile edit. It returns what it did.
 - A delivery reaches one process. Across several instances either fan it out over your own pub/sub, or run `authorizer.replayChanges({ cursor })` on every instance on an interval shorter than `ttlMs`, keeping the cursor it returns. Run `replayChanges` at startup too, to catch up on what a process missed while down.
 - Deliveries are at-least-once. `X-Canopy-Webhook-Id` is the same across retries: use it as an idempotency key for your own handlers. `applyEvent` is safe to repeat.
+- `assignment.updated` says what changed: `metadata` has `role_id` and `node_id` as they are now, `previous_role_id` and `previous_node_id` as they were (the same when that part did not change), and `organization_id` (null outside an organization).
 - Answer `2xx` quickly and do the work afterwards.

@@ -58,6 +58,10 @@ Your API verifies the access token as it would any Hosted Login token, with `aud
 
 A public client's session ends a fixed time after sign-in, however often it refreshes: 30 days by default, set per Environment from 1 to 90 days (**Public app session lifetime**). Then `getAccessToken()` returns `null` and `onSessionEnd` is called.
 
+## CAPTCHA on your own form
+
+A Direct API sign-in page that requires CAPTCHA loads `<canopy-captcha>` from `<api origin>/auth/static/canopy-captcha.js`. This package exports its types (`CanopyCaptchaElement`, and the `canopy-captcha:token` and `canopy-captcha:error` events), so `document.querySelector("canopy-captcha")` is typed once anything is imported from it.
+
 ## Errors
 
 - `CanopyAuthError`: Canopy answered with an OAuth error. Branch on `code` (`login_required`, `interaction_required`, `invalid_grant`, `state_mismatch`).

@@ -68,6 +68,9 @@ describe("authorizationErrorStatus", () => {
   it("answers 500 for an endpoint this Canopy does not serve, and 403 for an identity it does not know", () => {
     expect(authorizationErrorStatus(canopyError(404)).status).toBe(500);
     expect(
+      authorizationErrorStatus(canopyError(404, "request.not_found")).status,
+    ).toBe(500);
+    expect(
       authorizationErrorStatus(canopyError(404, "identity.not_found")).status,
     ).toBe(403);
   });
