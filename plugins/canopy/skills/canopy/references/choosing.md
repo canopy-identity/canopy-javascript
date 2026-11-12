@@ -8,6 +8,8 @@ Two independent choices: who renders the sign-in screen, and where the refresh t
 
 The application renders its own form and calls Canopy's identity endpoints. The publishable key (`pk_…`) goes in the JSON body, never a header.
 
+- A browser calling these endpoints directly must run on a site the Environment lists under its own **Allowed web origins**; any other site, including one another Environment lists, is refused with `403 auth.origin_not_allowed`. A request with no `Origin` (a backend, a mobile app) is not judged, and a backend that forwards its browser's `Origin` passes with the Environment's secret API key.
+
 - Sign in: `POST /v1/identity/auth/login` with `{ publishable_key, email, password }`. The response is a `{ data }` envelope holding `access_token`, `expires_in` (900 seconds by default) and the `identity`. There is no ID token.
 - Refresh, sign out, account management and organization switching are also under `/v1/identity/auth/*`.
 - Email one-time codes (`/login/email-otp/start` and `/verify`), passkey sign-in (`/login/passkey/options` and `/verify`) and self-signup (`/register`) exist but are off until the Environment turns them on.
@@ -24,7 +26,7 @@ The application renders its own form and calls Canopy's identity endpoints. The 
 Canopy renders sign-in, MFA and SSO. The application is an OAuth client, of one of two types chosen at registration and never changed:
 
 - **Confidential** (the default): a backend holds the client secret and exchanges the code. Use it whenever the app has a server, including a single-page app with a backend for frontend.
-- **Public**: a single-page app with no backend, or a mobile or desktop app. No secret: it sends its `client_id` alone (`token_endpoint_auth_method: none`), and PKCE binds the code to the browser. It may hold only the `authorization_code` and `refresh_token` grants. Its session ends a fixed time after sign-in (30 days by default) however often it refreshes. A browser app uses `@canopy-io/browser` ([spa.md](spa.md)) and adds its origin to the Environment's **Allowed web origins**; a native app opens the system browser and registers a custom-scheme (`com.example.app:/callback`) or loopback redirect URI.
+- **Public**: a single-page app with no backend, or a mobile or desktop app. No secret: it sends its `client_id` alone (`token_endpoint_auth_method: none`), and PKCE binds the code to the browser. It may hold only the `authorization_code` and `refresh_token` grants. Its session ends a fixed time after sign-in (30 days by default) however often it refreshes. A browser app uses `@canopy-io/browser` ([spa.md](spa.md)) and adds its origin to that Environment's own **Allowed web origins** (a public client calling `/oauth/token` from any other site is refused with `403 access_denied`); a native app opens the system browser and registers a custom-scheme (`com.example.app:/callback`) or loopback redirect URI.
 
 For either:
 
