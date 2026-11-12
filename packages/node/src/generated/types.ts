@@ -3567,13 +3567,13 @@ export interface paths {
         };
         /**
          * List active SCIM tokens for the Environment
-         * @description Lists the active SCIM tokens for the current Environment, newest first, with secrets masked to a `token_preview` (revoked tokens are excluded). The response is an unpaginated `{ items }` array.
+         * @description Lists the active SCIM tokens for the current Environment, newest first, with secrets masked to a `token_preview` and each one's `expires_at` (revoked and expired tokens are excluded). The response is an unpaginated `{ items }` array.
          */
         get: operations["ApiScimTokensController_list"];
         put?: never;
         /**
          * Mint a SCIM bearer token for the Environment
-         * @description Mints a new SCIM bearer token for the current Environment, returning the raw `token` exactly once alongside its `id`, `token_preview`, and the SCIM `base_url` the IdP admin pastes into Okta/Entra. The raw value is bcrypt-hashed for storage (with a SHA-256 lookup hash) and is never recoverable afterwards. Accepts an optional human `name` label and returns `201`.
+         * @description Mints a new SCIM bearer token for the current Environment, returning the raw `token` exactly once alongside its `id`, `token_preview`, and the SCIM `base_url` the IdP admin pastes into Okta/Entra. The raw value is bcrypt-hashed for storage (with a SHA-256 lookup hash) and is never recoverable afterwards. Accepts an optional human `name` label and returns `201`. The token expires 365 days after minting (`expires_at`); once it has, the provider's requests are refused with `401`, so replace it before then.
          */
         post: operations["ApiScimTokensController_create"];
         delete?: never;
@@ -3596,6 +3596,26 @@ export interface paths {
         get: operations["ApiScimTokensController_activity"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scim-tokens/{id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a SCIM token without an outage
+         * @description Mints a replacement for the SCIM token `id` in the current Environment and shortens the current token's life to 7 days rather than revoking it, so the identity provider can be moved to the new token before the old one stops working. Returns the replacement's raw `token` exactly once, with its `id`, `token_preview`, `expires_at` (365 days out) and the SCIM `base_url`. The replacement counts toward the directory's 10 live tokens, and so does the old token until its 7 days end.
+         */
+        post: operations["ApiScimTokensController_rotate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3903,7 +3923,7 @@ export interface paths {
         };
         /**
          * List delivery attempts for a webhook
-         * @description Returns a paginated, newest-first history of delivery attempts for one webhook subscription (`id`), scoped to the active Application's current Environment. Each delivery includes its `event_type`, `status`, `response_status`, `response_body`, `attempts` count, and `next_retry_at`. Returns `404` when the subscription does not belong to this Environment; requires the `webhook.view` permission.
+         * @description Returns a paginated, newest-first history of delivery attempts for one webhook subscription (`id`), scoped to the active Application's current Environment. Each delivery includes its `id` (sent as `X-Canopy-Webhook-Id`), `event_type`, `status`, `response_status`, `response_body`, `attempts` count, and `next_retry_at`. Returns `404` when the subscription does not belong to this Environment; requires the `webhook.view` permission.
          */
         get: operations["ApiWebhooksController_listDeliveries"];
         put?: never;
@@ -4287,7 +4307,7 @@ export interface paths {
         };
         /**
          * List delivery attempts for a webhook
-         * @description Returns a paginated, newest-first history of delivery attempts for one webhook subscription (`id`), in the Account. Each delivery includes its `event_type`, `status`, `response_status`, `response_body`, `attempts` count, and `next_retry_at`. Returns `404` when the subscription does not belong to the Account; requires the `account_webhook.view` scope.
+         * @description Returns a paginated, newest-first history of delivery attempts for one webhook subscription (`id`), in the Account. Each delivery includes its `id` (sent as `X-Canopy-Webhook-Id`), `event_type`, `status`, `response_status`, `response_body`, `attempts` count, and `next_retry_at`. Returns `404` when the subscription does not belong to the Account; requires the `account_webhook.view` scope.
          */
         get: operations["ApiAccountWebhooksController_listDeliveries"];
         put?: never;
@@ -4527,6 +4547,8 @@ export interface components {
             is_active: boolean;
             /** @description Number of distinct identities assigned this role, across all nodes. */
             member_count: number;
+            /** @description The name of the organization this role belongs to; null for an Environment role. */
+            organization_name?: string | null;
         };
         PermissionUsageDto: {
             permission_id: string;
@@ -5588,7 +5610,7 @@ export interface components {
         UpdateOrganizationPolicyDto: {
             /** @description Require MFA for this organization's members. `true` tightens an Environment that leaves MFA optional; `false` is only accepted where the Environment does not require MFA; `null` inherits. */
             mfa_required?: boolean | null;
-            /** @description Factors this organization's members may enroll and use. Must be a non-empty subset of the Environment's allowlist; `null` inherits. */
+            /** @description Factors this organization's members may enroll and use. Must be a non-empty subset of the Environment's allowlist; `null` inherits. A member holding only a factor of a kind left out is treated on the way into this organization as holding none. */
             mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[] | null;
             /**
              * @description Whether an SSO login still owes an MFA challenge. `require` tightens an Environment that exempts SSO; `exempt` is only accepted where the Environment exempts; `null` inherits.
@@ -6976,6 +6998,8 @@ export interface components {
             source_client_id: string;
             /** @description Freshly-minted client_id in the new env */
             client_id: string;
+            /** @description The client's name, the same in the source and the target Environment */
+            name: string;
             /** @description Raw client_secret — shown once, never returned again. Persist on receipt. Null for a public client, which has no secret; its entry still maps the source client_id to the new one. */
             client_secret: string | null;
         };
@@ -7013,7 +7037,7 @@ export interface components {
             mfa_grace_period_days?: number;
             /** @description Number of days a 'remember this device' cookie remains valid. 0 disables the option entirely. Range 0..90. */
             mfa_trusted_device_days?: number;
-            /** @description Factor types end users may use under this Environment. Customers wanting TOTP/WebAuthn only (e.g. healthcare) drop `email_otp` from the list. `recovery_code` is always offered and is not configurable here. */
+            /** @description Factor types end users may use under this Environment. Customers wanting TOTP/WebAuthn only (e.g. healthcare) drop `email_otp` from the list. `recovery_code` is always offered and is not configurable here. Dropping `totp` or `webauthn` keeps the factors people already enrolled of that kind, but they stop counting: they answer no sign-in challenge and prove no step-up, and a person left with no allowed factor is treated as holding none, so where MFA is required their next sign-in asks them to enrol an allowed one. A list of `email_otp` alone names nothing to enrol, so both kinds stay open under it and are offered at a challenge. */
             mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[];
             /**
              * @description What an SSO login owes the MFA gate. `require` (the default) challenges an SSO login like any other when MFA is required; `exempt` trusts the identity provider's own second factor and skips the challenge for logins that arrived through SSO.
@@ -7135,6 +7159,7 @@ export interface components {
             organization_integrations_enabled: boolean;
             /** @description The roles an organization's administrators may give its integrations, by id. Empty when none are chosen. */
             organization_integration_role_ids: string[];
+            /** @description The sites whose browsers may call this Environment, each a bare origin. A browser on any other site is refused. */
             allowed_web_origins?: string[];
             sso_return_urls?: string[];
             /** @description The roles a customer's identity provider may grant and the one arrivals get, inherited by every organization without a list of its own. `null` when unset, which keeps directory sync closed for those organizations. */
@@ -7157,7 +7182,7 @@ export interface components {
             mfa_grace_period_days?: number;
             /** @description Number of days a 'remember this device' cookie remains valid. 0 disables the option entirely. Range 0..90. */
             mfa_trusted_device_days?: number;
-            /** @description Factor types end users may use under this Environment. Customers wanting TOTP/WebAuthn only (e.g. healthcare) drop `email_otp` from the list. `recovery_code` is always offered and is not configurable here. */
+            /** @description Factor types end users may use under this Environment. Customers wanting TOTP/WebAuthn only (e.g. healthcare) drop `email_otp` from the list. `recovery_code` is always offered and is not configurable here. Dropping `totp` or `webauthn` keeps the factors people already enrolled of that kind, but they stop counting: they answer no sign-in challenge and prove no step-up, and a person left with no allowed factor is treated as holding none, so where MFA is required their next sign-in asks them to enrol an allowed one. A list of `email_otp` alone names nothing to enrol, so both kinds stay open under it and are offered at a challenge. */
             mfa_factor_allowlist?: ("totp" | "webauthn" | "email_otp")[];
             /**
              * @description What an SSO login owes the MFA gate. `require` (the default) challenges an SSO login like any other when MFA is required; `exempt` trusts the identity provider's own second factor and skips the challenge for logins that arrived through SSO.
@@ -7217,7 +7242,7 @@ export interface components {
             organization_integrations_enabled?: boolean;
             /** @description The roles an organization's administrators may give its integrations, by id: active roles of this Environment, shared by every organization (not one organization's own), carrying neither `canopy:organization.manage` nor `canopy:access.manage`; anything else is refused with `400 environment.integration_role_invalid`. Separate from `idp_arrival_roles`. Replaces the list. While `organization_integrations_enabled` is on the list cannot be empty (`400 environment.integrations_roles_required`). Removing a role leaves integrations already holding it unchanged; a deleted role leaves the list. */
             organization_integration_role_ids?: string[];
-            /** @description Browser Origins allowed to call this Environment's public identity-auth API cross-origin (CORS), e.g. `https://app.example.com`. Needed to use the Direct API from a browser SPA. While the list is set, self-service sign-up refuses a browser `Origin` that is not on it; a request with no `Origin`, as from a backend, is not affected. Persisted under `env.settings.allowed_web_origins`. */
+            /** @description The sites whose browsers may call this Environment, each a bare origin such as `https://app.example.com`. A browser on a site that is not listed is refused with `403` (`auth.origin_not_allowed`) wherever its request names this Environment, and an empty list admits no other site. The origin in `auth_links_base_url` and the Environment's active custom auth domain are admitted without being listed. A request with no `Origin`, as from a backend or a mobile app, is not affected. Persisted under `env.settings.allowed_web_origins`. */
             allowed_web_origins?: string[];
             /** @description Allowlist of return URLs for publishable-key (Direct-API) SSO. After the IdP round-trip, `/v1/identity/auth/sso/*` redirects back to one of these with a single-use `sso_token`; an unregistered return URL is rejected (exact match — no open redirect). Persisted under `env.settings.sso_return_urls`. */
             sso_return_urls?: string[];
@@ -7770,6 +7795,7 @@ export interface components {
             secret: string;
         };
         CreateWebhookDto: {
+            /** @description Where Canopy POSTs each signed event. An https address on a public host, with no credentials or fragment: Canopy's servers call it directly, so loopback, private-range and link-local addresses are refused (`webhook.url_refused`). While developing, expose your local receiver through a tunnel and register the tunnel's https address. */
             url: string;
             event_types: string[];
             description?: string;
@@ -7823,6 +7849,7 @@ export interface components {
             created_at: string;
         };
         UpdateWebhookDto: {
+            /** @description Where Canopy POSTs each signed event. An https address on a public host, with no credentials or fragment: Canopy's servers call it directly, so loopback, private-range and link-local addresses are refused (`webhook.url_refused`). While developing, expose your local receiver through a tunnel and register the tunnel's https address. */
             url?: string;
             event_types?: string[];
             description?: string | null;
@@ -28452,7 +28479,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an administrator's, an organization administrator's or a platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an administrator without the Account capability that covers it, an organization administrator who no longer holds the organization's key at the places the preview names, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -28463,7 +28490,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": "auth.forbidden",
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an administrator's, an organization administrator's or a platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an administrator without the Account capability that covers it, an organization administrator who no longer holds the organization's key at the places the preview names, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
                      *         "method": "GET"
@@ -28582,7 +28609,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The bearer token is not an administrator's, an organization administrator's or a platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an administrator without the Account capability that covers it, an organization administrator who no longer holds the organization's key at the places the preview names, or, for a node-scoped check, a node outside this Environment */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -28593,7 +28620,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": "auth.forbidden",
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The bearer token is not an administrator's, an organization administrator's or a platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an administrator without the Account capability that covers it, an organization administrator who no longer holds the organization's key at the places the preview names, or, for a node-scoped check, a node outside this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/access-previews/{previewId}/people",
                      *         "method": "GET"
@@ -37739,6 +37766,142 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiScimTokensController_rotate: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
+                "X-Canopy-Environment"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateScimTokenDto"];
+            };
+        };
+        responses: {
+            /** @description Replacement token created — the raw value is shown only once, with the base URL. The token it replaces keeps working for 7 days */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["ScimTokenCreatedResponseDto"];
+                    };
+                };
+            };
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": "request.validation_failed",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens/{id}/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": "auth.invalid_token",
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": "auth.forbidden",
+                     *         "message": "The caller lacks the permission this operation checks: an account API key without that `sso` scope, an Environment API key (`sso.*` is an account scope, which no Environment key holds), or an administrator without the Account capability that covers it; or the Account's plan does not include SCIM (`plan_feature_unavailable`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The Environment's directory has no live SCIM token with that id (`scim.token_not_found`) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 404,
+                     *         "code": "request.not_found",
+                     *         "message": "The Environment's directory has no live SCIM token with that id (`scim.token_not_found`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens/{id}/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens/{id}/rotate",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */

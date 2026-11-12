@@ -5,7 +5,7 @@ A single-page app with no server of its own signs in through Hosted Login as a *
 ## Set up, once per Environment
 
 1. Register the OAuth client with **Client Type** set to **Public** (Console: Integrations → OAuth Clients, or `POST /api/v1/oauth-clients` with `"client_type": "public"`). The type cannot change later. Register the app's callback URL exactly, and the page `signOut()` lands on as a post-logout redirect URL.
-2. Add the app's origin, scheme and host only (`https://app.example.com`), to the Environment's **Allowed web origins** (Console: Tenant → Authentication → Sign-in methods, the Environment's row). Without it the browser cannot read Canopy's token responses, and every sign-in fails with `CanopyConnectionError`.
+2. Add the app's origin, scheme and host only (`https://app.example.com`), to that Environment's **Allowed web origins** (Console: Tenant → Authentication → Sign-in methods, the Environment's row). The list is each Environment's own: a site listed on another Environment does not count, so list the local dev origin on the development Environment and the production origin on the production one. Without it every sign-in fails: with `CanopyConnectionError` when no Environment lists the site (the browser cannot read the answer), or with `CanopyAuthError` code `access_denied` (status `403` from the token endpoint) when another Environment does.
 
 ## The whole integration
 
@@ -71,7 +71,7 @@ A public client's session ends a fixed time after sign-in, however often it refr
 
 ## Errors
 
-- `CanopyAuthError`: Canopy answered with an OAuth error. Branch on `code`. `needsSignIn` is true for `login_required` and `interaction_required`, the answers to a silent attempt that found no session or needs the person (a second factor, a policy). `state_mismatch` means the URL answered a sign-in this browser did not start: show the sign-in button.
+- `CanopyAuthError`: Canopy answered with an OAuth error. Branch on `code`. `access_denied` from the token endpoint (`status` 403) means this Environment does not list the page's site under **Allowed web origins**. `needsSignIn` is true for `login_required` and `interaction_required`, the answers to a silent attempt that found no session or needs the person (a second factor, a policy). `state_mismatch` means the URL answered a sign-in this browser did not start: show the sign-in button.
 - `CanopyConnectionError`: no response could be read. A browser reports a cross-origin refusal exactly like a network failure, so on a page that has never signed in, check **Allowed web origins** first.
 
 A mobile or desktop app is a public client too, but it opens the authorize URL in the system browser (`ASWebAuthenticationSession`, Custom Tabs) and registers a custom scheme (`com.example.app:/callback`) or a loopback redirect URI; this package is for browsers only.

@@ -23,7 +23,9 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 298 as of the management API: Applications and Environments with their
+// 299 as of replacing a SCIM token (`POST /api/v1/scim-tokens/{id}/rotate`):
+// unwrapped, one typed `request` like the rest of the management API.
+// Before that, 298 as of the management API: Applications and Environments with their
 // settings, single sign-on, the auth domain and SCIM, administrator roles,
 // grants and administrators, billing reads, the Account and account
 // webhooks, reached with an account key (`environmentId` names the
@@ -80,7 +82,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 298;
+const EXPECTED_OPERATION_COUNT = 299;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;

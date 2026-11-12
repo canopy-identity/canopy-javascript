@@ -90,6 +90,10 @@ A `cnpy_…` API key or an OAuth client secret in front-end code, or in an envir
 
 Storing a `web` refresh token in `localStorage` (it is an httpOnly cookie for a reason), parsing it, or keeping an old one after a refresh. Replaying a rotated refresh token through the Direct API revokes every session the identity holds; through Hosted Login it ends that sign-in's session. A backend proxy overwrites its stored token on every refresh.
 
+## A browser app's site listed on the wrong Environment
+
+Allowed web origins are each Environment's own list. A site listed only on the development Environment is a stranger to production: its Direct API calls answer `403 auth.origin_not_allowed`, and a public client's `/oauth/token` answers `403 access_denied` (`@canopy-io/browser` raises `CanopyAuthError` with that code). An empty list admits no other site. List each origin on the Environment its build talks to, and do not answer the refusal by retrying. The same refusal meets a backend that copies its browser's `Origin` header onto its own call to Canopy: a server-side call sends none, which is not judged, and forwards one only with the Environment's secret API key. A passkey needs no `Origin` header either; its origin is checked inside the signed `response`.
+
 ## A public client's tokens in `localStorage`
 
 A public client has no secret, which is not permission to keep its tokens where any script on the page can read them. Keep them in memory (`@canopy-io/browser` does), and get new ones after a reload with `prompt=none` ([spa.md](spa.md)). `sessionStorage` holds only the PKCE verifier for the round trip.
