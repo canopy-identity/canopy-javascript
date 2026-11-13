@@ -1,5 +1,12 @@
 # @canopy-io/node
 
+## 0.23.4
+
+### Patch Changes
+
+- 7b022e1: Follows Canopy's November 12 release. The generated types add `require_sso_ready` to an organization's policy, which says whether `require_sso` can be turned on (an active SSO connection bound to the organization and a verified domain), and `conferred_capabilities` to administrator roles. Turning `require_sso` on before then, or removing an organization's last verified domain or disabling, unbinding or deleting its last active connection while it is on, answers `409`. An identity's session list now names a hosted sign-in no application has exchanged a code for yet by its session id, and `identities.revokeSession` ends it. No caller changes are needed.
+- bd162f7: Document verifying tokens when a backend reaches Canopy at a different address than the one its tokens name: `issuer` as the token's `iss` reads, with `jwksUri` at the address the backend can reach, which must be a loopback address or a `*.localhost` name because Canopy refuses any other hostname. The agent skill also says a backend relaying the passkey sign-in calls sends no `Origin` header, since forwarding the browser's is refused with `403 auth.origin_not_allowed`.
+
 ## 0.23.3
 
 ### Patch Changes
