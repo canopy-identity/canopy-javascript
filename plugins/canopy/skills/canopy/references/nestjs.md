@@ -10,7 +10,7 @@ Requires NestJS 10 or 11. `@canopy-io/node` comes with it.
 
 Register it once, in the root module, with `isGlobal: true`. Guarded controllers usually live in feature modules, and the guards there resolve the module's providers only when it is global; without it the application refuses to start.
 
-`verify` is required: the module builds a `TokenVerifier` at startup. Name the Environment (`environmentId`), or `issuer` on a custom auth domain or self-hosted instance. For Hosted Login, add `audience`, your OAuth `client_id`; for the Direct API, leave it out.
+`verify` is required: the module builds a `TokenVerifier` at startup. Name the Environment (`environmentId`), or `issuer` on a custom auth domain or self-hosted instance. A backend that reaches Canopy at a different address than the one its tokens name passes `issuer` as the token's `iss` reads plus `jwksUri` at the address it can reach ([node.md](node.md)). For Hosted Login, add `audience`, your OAuth `client_id`; for the Direct API, leave it out.
 
 ```ts
 import { Module } from "@nestjs/common";

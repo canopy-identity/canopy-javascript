@@ -14,6 +14,10 @@ A Hosted Login access token carries `aud`, your OAuth `client_id`; a Direct API 
 
 Each Environment is its own issuer. A verifier for the wrong Environment rejects every token, and code that skips the issuer check accepts tokens from other Environments. Pass `environmentId`, or `issuer` for a custom auth domain.
 
+## Deriving the issuer from an address the tokens do not name
+
+`CANOPY_BASE_URL` with `environmentId` builds the issuer from the address the backend calls. When that is not the address on the tokens (a container reaching Canopy by an internal hostname), every token is refused with `Token was issued by "…", not "…"`. Do not loosen the check: pass `issuer` exactly as the token's `iss` reads and `jwksUri` at the reachable address. That address must be one Canopy serves: a loopback address or a `*.localhost` name. A Docker service name answers `404 auth.domain_host_not_served`.
+
 ## A provider's OAuth flow built beside Canopy
 
 Signing people in with Google through `passport`, NextAuth or the provider's own SDK, then matching the email to a Canopy identity, leaves the application holding no Canopy token and duplicates what Canopy does: verifying the provider's answer, trusting only an email the provider verified, linking, and applying the organization's sign-in policy and MFA. Enable the provider for the Environment in the Console instead, and use the hosted button or the Direct API start URL ([choosing.md](choosing.md)).

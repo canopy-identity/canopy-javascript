@@ -327,7 +327,7 @@ export interface paths {
         };
         /**
          * List an identity's active sessions (admin)
-         * @description Lists one page of an identity's active sessions in the caller's Environment (server-to-server admin), newest first, taking `page` and `take` only: the rows a customer reads to confirm from its own side that a sign-out took, or to show a person where they are signed in. Each row is a session's current refresh token, so `id` changes on every refresh. Sessions the identity holds in its other Environments are not listed. Returns `404` when the identity has no membership in this Environment.
+         * @description Lists one page of an identity's active sessions in the caller's Environment (server-to-server admin), newest first, taking `page` and `take` only: the rows a customer reads to confirm from its own side that a sign-out took, or to show a person where they are signed in. A hosted sign-in no application has exchanged a code for yet holds no refresh token and is listed first, by its session id; every other row is a session's current refresh token, so its `id` changes on every refresh. Sessions the identity holds in its other Environments are not listed. Returns `404` when the identity has no membership in this Environment.
          */
         get: operations["ApiIdentitiesController_listIdentitySessions"];
         put?: never;
@@ -350,7 +350,7 @@ export interface paths {
         post?: never;
         /**
          * Revoke one of an identity's sessions (admin)
-         * @description Revokes one of an identity's sessions in the caller's Environment (server-to-server admin) by marking its refresh token revoked, so the next refresh from that device returns `401` while every other session carries on. Audited as `identity.session.revoked`, the same row the person's own per-session sign-out writes. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment, or when the session is not the identity's, belongs to another Environment, or is already revoked.
+         * @description Revokes one of an identity's sessions in the caller's Environment (server-to-server admin) by the id the list gave it: a refresh token's is marked revoked, so the next refresh from that device returns `401`, and a hosted sign-in no application has exchanged a code for yet is ended, so its code issues nothing, while every other session carries on. Audited as `identity.session.revoked`, the same row the person's own per-session sign-out writes. Returns `204 No Content`; returns `404` when the identity has no membership in this Environment, or when the session is not the identity's, belongs to another Environment, or is already revoked or ended.
          */
         delete: operations["ApiIdentitiesController_revokeIdentitySession"];
         options?: never;
@@ -1321,7 +1321,7 @@ export interface paths {
         head?: never;
         /**
          * Update an organization's authentication policy
-         * @description Sets the organization's own authentication policy. A field set to `null` inherits the Environment again. The policy can only tighten the Environment's settings: `mfa_required` can be true where the Environment leaves MFA optional, `mfa_factor_allowlist` must be a subset of the Environment's, `mfa_after_sso` can be `require` where the Environment exempts, and `require_sso` refuses password and code logins for members. `staff_entry` is the organization's own decision: `refused` turns away the Environment's staff (a role at the Environment root), records each attempt, and ends the sessions staff have inside at their next refresh. Returns `400` (`organization.policy_loosens`) when a value would loosen the Environment, `409` when `If-Match` does not match the policy version. Requires the `hierarchy.manage` permission at the organization and emits `organization.policy.updated`.
+         * @description Sets the organization's own authentication policy. A field set to `null` inherits the Environment again. The policy can only tighten the Environment's settings: `mfa_required` can be true where the Environment leaves MFA optional, `mfa_factor_allowlist` must be a subset of the Environment's, `mfa_after_sso` can be `require` where the Environment exempts, and `require_sso` refuses password and code logins for members. Turning `require_sso` on needs an active SSO connection bound to the organization and a verified domain, since members are sent to single sign-on and found by their email's domain; without both it returns `409` (`organization.sso_requirement_not_ready`). `staff_entry` is the organization's own decision: `refused` turns away the Environment's staff (a role at the Environment root), records each attempt, and ends the sessions staff have inside at their next refresh. Returns `400` (`organization.policy_loosens`) when a value would loosen the Environment, `409` when `If-Match` does not match the policy version. Requires the `hierarchy.manage` permission at the organization and emits `organization.policy.updated`.
          */
         patch: operations["ApiOrganizationsController_updatePolicy"];
         trace?: never;
@@ -1462,7 +1462,7 @@ export interface paths {
         post?: never;
         /**
          * Remove one of the organization's domain claims
-         * @description Removes a domain claim from the organization; the bound connection stops routing and admitting that domain on the next login. Emits an `sso.domain.removed` audit row and returns `204`; responds `404` when the organization holds no claim for that domain.
+         * @description Removes a domain claim from the organization; the bound connection stops routing and admitting that domain on the next login. Emits an `sso.domain.removed` audit row and returns `204`; responds `404` when the organization holds no claim for that domain, and `409` (`organization.sso_requirement_needs_domain`) while the organization requires single sign-on and this is its only verified domain: turn `require_sso` off first.
          */
         delete: operations["ApiOrganizationsController_removeDomain"];
         options?: never;
@@ -1506,7 +1506,7 @@ export interface paths {
         post?: never;
         /**
          * Unbind an SSO connection from an organization
-         * @description Removes the binding; logins through the connection fall back to the Environment's placement. Existing memberships are untouched. Returns `404` when the connection is not bound to this organization, and `409` (`organization.sso_connection_owned_cannot_unbind`) when the organization set the connection up itself: an owned connection stays with its organization, so disable or delete it instead. Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.unbound`.
+         * @description Removes the binding; logins through the connection fall back to the Environment's placement. Existing memberships are untouched. Returns `404` when the connection is not bound to this organization, `409` (`organization.sso_connection_owned_cannot_unbind`) when the organization set the connection up itself: an owned connection stays with its organization, so disable or delete it instead; and `409` (`organization.sso_requirement_needs_connection`) while the organization requires single sign-on and this is its only active connection: turn `require_sso` off first. Requires the `hierarchy.manage` permission at the organization and emits `organization.sso_connection.unbound`.
          */
         delete: operations["ApiOrganizationsController_unbindSsoConnection"];
         options?: never;
@@ -1666,7 +1666,7 @@ export interface paths {
         post: operations["ApiOrganizationSsoConnectionController_create"];
         /**
          * Remove an organization's SSO connection
-         * @description Unbinds the connection from the organization, unlinks it from the Environment, and deletes it. Existing memberships stay. Refused on a developer-managed connection. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
+         * @description Unbinds the connection from the organization, unlinks it from the Environment, and deletes it. Existing memberships stay. Refused on a developer-managed connection, and with `409` (`organization.sso_requirement_needs_connection`) while the organization requires single sign-on and this is its only active connection: turn `require_sso` off first. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
          */
         delete: operations["ApiOrganizationSsoConnectionController_remove"];
         options?: never;
@@ -1709,7 +1709,7 @@ export interface paths {
         put?: never;
         /**
          * Disable an organization's SSO connection
-         * @description Sets the connection `disabled`; sign-ins through it stop and the row stays. Refused on a developer-managed connection. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
+         * @description Sets the connection `disabled`; sign-ins through it stop and the row stays. Refused on a developer-managed connection, and with `409` (`organization.sso_requirement_needs_connection`) while the organization requires single sign-on and this is its only active connection: turn `require_sso` off first. Requires `hierarchy.manage` or `canopy:organization.manage` at the organization.
          */
         post: operations["ApiOrganizationSsoConnectionController_disable"];
         delete?: never;
@@ -3178,7 +3178,7 @@ export interface paths {
         post?: never;
         /**
          * Delete an SSO connection
-         * @description Permanently deletes an SSO connection and its configuration from the Account. Emits an `sso.connection.deleted` audit row and returns `204` with no body; responds `404` when the connection is not found.
+         * @description Permanently deletes an SSO connection and its configuration from the Account. Emits an `sso.connection.deleted` audit row and returns `204` with no body; responds `404` when the connection is not found, and `409` (`organization.sso_requirement_needs_connection`) while an organization that requires single sign-on has this as its only active connection: turn that organization's `require_sso` off first.
          */
         delete: operations["ApiSsoController_remove"];
         options?: never;
@@ -3221,7 +3221,7 @@ export interface paths {
         put?: never;
         /**
          * Disable an SSO connection
-         * @description Sets an active connection's status to `disabled`, stopping all login flows through it while preserving the row and its configuration for later re-activation. Emits an `sso.connection.disabled_by_user` audit row and returns the updated connection. Responds `404` when the connection is not found in the Account.
+         * @description Sets an active connection's status to `disabled`, stopping all login flows through it while preserving the row and its configuration for later re-activation. Emits an `sso.connection.disabled_by_user` audit row and returns the updated connection. Refused with `409` (`organization.sso_requirement_needs_connection`) while it is the only active connection of an organization that requires single sign-on: turn `require_sso` off first. Responds `404` when the connection is not found in the Account.
          */
         post: operations["ApiSsoController_disable"];
         delete?: never;
@@ -4816,7 +4816,7 @@ export interface components {
             password: string;
         };
         IdentitySessionResponseDto: {
-            /** @description The session's current refresh token id: what `DELETE /identities/:id/sessions/:sessionId` takes. It changes on every refresh. */
+            /** @description What `DELETE /identities/:id/sessions/:sessionId` takes: the session's current refresh token id, which changes on every refresh, or, for a hosted sign-in no application has exchanged a code for yet, its session id. */
             id: string;
             /** Format: date-time */
             created_at: string;
@@ -5587,6 +5587,8 @@ export interface components {
             /** @description The methods the organization keeps of the Environment's, or null to inherit them all. Each is `password`, `email_otp`, `passkey`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
             allowed_sign_in_methods?: string[] | null;
             require_sso: boolean;
+            /** @description Whether `require_sso` can be turned on: the organization has an active SSO connection bound to it and a verified domain. */
+            require_sso_ready: boolean;
             /**
              * @description Whether the Environment's staff (identities holding a role at the Environment root) may enter this organization. `allowed` until the organization refuses them.
              * @enum {string}
@@ -5619,7 +5621,7 @@ export interface components {
             mfa_after_sso?: "exempt" | "require" | null;
             /** @description The sign-in methods this organization's members may use. A non-empty subset of the methods the Environment offers (`password` unless the Environment turned it off, `email_otp` and `passkey` where the Environment turned them on, each social provider it enabled, and `sso`); a method the Environment does not offer is refused with `organization.policy_loosens`. `null` inherits the Environment's. While `require_sso` is on, SSO is the only method whatever this says. Each is `password`, `email_otp`, `passkey`, `sso`, a social provider (`google`, `github`, `microsoft`, `apple`), or `oidc:<slug>` for a custom OpenID Connect provider. */
             allowed_sign_in_methods?: string[] | null;
-            /** @description Members must sign in through SSO. Password and email-code logins are refused for the organization's members and for any email whose domain routes to a connection bound to this organization. */
+            /** @description Members must sign in through SSO. Password and email-code logins are refused for the organization's members and for any email whose domain routes to a connection bound to this organization. Turning it on is refused with `organization.sso_requirement_not_ready` until the organization has an active SSO connection bound to it and a verified domain. */
             require_sso?: boolean;
             /**
              * @description Whether the Environment's staff (identities holding a role at the Environment root) may enter this organization. `refused` refuses each entry, records it in the organization's activity, and ends the sessions staff already have inside at their next refresh.
@@ -7631,6 +7633,8 @@ export interface components {
             scope: "account" | "environment";
             /** @description Capability keys the role grants */
             capabilities: string[];
+            /** @description Every capability a holder of the role has: its own keys and each `view` a `manage` among them implies */
+            conferred_capabilities: string[];
             /** @description Live grants of this role across the whole Account, not just one Environment */
             assignment_count: number;
             /** @description Optimistic-lock version. Send it back in `If-Match` on an update to refuse a stale edit with 409. */
@@ -12212,7 +12216,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description One page of the sessions the identity holds that are neither revoked nor expired, newest first: the session's current refresh token id (what the per-session revoke takes), when it was signed in and when it expires, the browser's address and user agent, and the organization it is acting in. */
+            /** @description One page of the sessions the identity holds that are neither revoked nor expired: first the hosted sign-ins no application has exchanged a code for yet, by their session id, then the sessions that hold a refresh token, by that token's id, each group newest first. Each row has the id the per-session revoke takes, when it was signed in and when it expires, the browser's address and user agent, and the organization it is acting in (null for a sign-in not yet exchanged). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -19236,7 +19240,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry. */
+            /** @description The policy was modified since the version supplied in `If-Match`; or `require_sso` was turned on for an organization with no active bound SSO connection or no verified domain */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19247,7 +19251,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "Version mismatch — the resource was modified since the version supplied in If-Match. Refresh and retry.",
+                     *         "message": "The policy was modified since the version supplied in `If-Match`; or `require_sso` was turned on for an organization with no active bound SSO connection or no verified domain",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy",
                      *         "method": "PATCH"
@@ -20225,6 +20229,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description The organization requires single sign-on and this is its only verified domain */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "The organization requires single sign-on and this is its only verified domain",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/domains/{domain}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiOrganizationsController_listSsoConnections: {
@@ -20580,7 +20605,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization set this connection up itself; it stays bound. Disable or delete the connection instead. */
+            /** @description The organization set this connection up itself, so it stays bound: disable or delete the connection instead; or the organization requires single sign-on and this is its only active connection */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -20591,7 +20616,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The organization set this connection up itself; it stays bound. Disable or delete the connection instead.",
+                     *         "message": "The organization set this connection up itself, so it stays bound: disable or delete the connection instead; or the organization requires single sign-on and this is its only active connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connections/{connectionId}",
                      *         "method": "DELETE"
@@ -22113,7 +22138,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console */
+            /** @description The organization has no SSO connection bound to it, its connection is developer-managed and is changed from the Console, or the organization requires single sign-on and this is its only active connection */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22124,7 +22149,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console",
+                     *         "message": "The organization has no SSO connection bound to it, its connection is developer-managed and is changed from the Console, or the organization requires single sign-on and this is its only active connection",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection",
                      *         "method": "DELETE"
@@ -22519,7 +22544,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`) */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`); or the organization requires single sign-on and this is its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22530,7 +22555,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; or the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`)",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`); or the organization requires single sign-on and this is its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
                      *         "method": "POST"
@@ -34567,6 +34592,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description An organization that requires single sign-on has this as its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "An organization that requires single sign-on has this as its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/sso/connections/{id}",
+                     *         "method": "DELETE"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
         };
     };
     ApiSsoController_update: {
@@ -34946,7 +34992,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`) */
+            /** @description The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`), or it is the only active connection of an organization that requires single sign-on (`organization.sso_requirement_needs_connection`): turn the requirement off first */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -34957,7 +35003,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`)",
+                     *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`), or it is the only active connection of an organization that requires single sign-on (`organization.sso_requirement_needs_connection`): turn the requirement off first",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/disable",
                      *         "method": "POST"
