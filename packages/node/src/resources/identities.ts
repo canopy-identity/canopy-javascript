@@ -167,7 +167,8 @@ export class Identities {
   /**
    * Ends one session and leaves the identity's others signed in. `sessionId`
    * is the session's `id` from `sessions`: its current refresh token, which
-   * changes on every refresh, so read it shortly before revoking.
+   * changes on every refresh, so read it shortly before revoking; or, for a
+   * hosted sign-in no application has exchanged a code for yet, its session id.
    */
   revokeSession(id: string, sessionId: string): Promise<void> {
     return this.client.request(
