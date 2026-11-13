@@ -50,6 +50,16 @@ Register it once, in the root module. `isGlobal: true` makes its providers visib
 
 `verify` names the Environment whose tokens the module accepts (`environmentId`, or `issuer` on a custom auth domain or a self-hosted instance; a self-hosted instance can instead set `CANOPY_BASE_URL` for the process, which `environmentId` and the client both follow). It is required: the module builds its token verifier at startup.
 
+When your backend reaches Canopy at a different address than the one its tokens name, such as a container using an internal hostname, the issuer derived from `CANOPY_BASE_URL` is not the one the tokens carry and every sign-in is refused. Give `verify` both halves: `issuer` exactly as the token's `iss` reads, and `jwksUri` at the address your backend can reach. Canopy serves the signing keys only on its own hosts (the address its tokens name, a loopback address or a `*.localhost` name); any other hostname, such as a Docker service name, answers `404` with `auth.domain_host_not_served`.
+
+```ts
+verify: {
+  issuer: "https://auth.example.com/environments/<environment_id>",
+  jwksUri:
+    "http://canopy.localhost:8080/environments/<environment_id>/.well-known/jwks.json",
+},
+```
+
 The two resolvers are how the guard learns _who_ is asking and _where_. Where those live is your application's business — a claim on a verified token, a route parameter, a tenant on the session — so you supply them rather than the library guessing. Pass your own request type to `forRoot` and both resolvers are typed against it.
 
 When the key comes from something injectable, use `forRootAsync`:

@@ -200,6 +200,30 @@ the client calls it and `environmentId` resolves to an issuer under it, so the
 code stays what it is on hosted Canopy. An explicit `baseUrl` or `issuer` still
 wins.
 
+That holds only while your backend reaches Canopy at the address its tokens
+name. A backend that calls it by another name, such as a container using an
+internal hostname, gets an issuer the tokens do not carry, and every token is
+refused (`Token was issued by "…", not "…"`). Name the two separately: `issuer`
+exactly as the token's `iss` reads, and `jwksUri` at the address your backend
+can reach.
+
+Canopy serves the signing keys only on its own hosts: the address its tokens
+name, a loopback address, or a `*.localhost` name. Any other hostname, such as
+a Docker service name, answers `404` with `auth.domain_host_not_served`, so
+reach it by a `*.localhost` name (or a loopback address) instead.
+
+```ts
+new TokenVerifier({
+  // What the token says: the address people sign in at.
+  issuer: "https://auth.example.com/environments/<environment_id>",
+  // Where this process fetches the signing keys from.
+  jwksUri:
+    "http://canopy.localhost:8080/environments/<environment_id>/.well-known/jwks.json",
+});
+```
+
+`CANOPY_BASE_URL` (or `baseUrl`) stays the address the client calls.
+
 With an Environment's **organizations** container on, an identity token also
 names the organization the session is acting in and the roles held at that
 organization's node, by name and by id. Read them through `orgContext` rather
