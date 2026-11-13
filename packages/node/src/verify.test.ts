@@ -187,6 +187,46 @@ describe("TokenVerifier — accepting a genuine token", () => {
   });
 });
 
+describe("TokenVerifier — keys served at another address than the issuer", () => {
+  const REACHABLE_JWKS =
+    "http://canopy.localhost:8080/environments/env_1/.well-known/jwks.json";
+
+  it("accepts the issuer's token with its keys fetched from the address this process can reach", async () => {
+    const fetch = vi.fn((_url: string | URL | Request) =>
+      Promise.resolve(jwksResponse([signer])),
+    );
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      jwksUri: REACHABLE_JWKS,
+      fetch,
+    });
+
+    const claims = await verifier.verify(await signer.sign(validClaims()));
+
+    expect(claims.sub).toBe("idn_123");
+    expect(fetch).toHaveBeenCalledWith(REACHABLE_JWKS, expect.anything());
+  });
+
+  it("still refuses a token naming the reachable address as its issuer", async () => {
+    const { fetch } = jwksFetch([signer]);
+    const verifier = new TokenVerifier({
+      issuer: ISSUER,
+      jwksUri: REACHABLE_JWKS,
+      fetch,
+    });
+
+    await expect(
+      verifier.verify(
+        await signer.sign(
+          validClaims({
+            iss: "http://canopy.localhost:8080/environments/env_1",
+          }),
+        ),
+      ),
+    ).rejects.toThrow(/was issued by/);
+  });
+});
+
 describe("TokenVerifier — refusing what it should", () => {
   async function expectCode(
     promise: Promise<CanopyTokenClaims>,

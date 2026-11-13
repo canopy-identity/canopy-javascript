@@ -14,6 +14,10 @@ A Hosted Login access token carries `aud`, your OAuth `client_id`; a Direct API 
 
 Each Environment is its own issuer. A verifier for the wrong Environment rejects every token, and code that skips the issuer check accepts tokens from other Environments. Pass `environmentId`, or `issuer` for a custom auth domain.
 
+## Deriving the issuer from an address the tokens do not name
+
+`CANOPY_BASE_URL` with `environmentId` builds the issuer from the address the backend calls. When that is not the address on the tokens (a container reaching Canopy by an internal hostname), every token is refused with `Token was issued by "…", not "…"`. Do not loosen the check: pass `issuer` exactly as the token's `iss` reads and `jwksUri` at the reachable address. That address must be one Canopy serves: a loopback address or a `*.localhost` name. A Docker service name answers `404 auth.domain_host_not_served`.
+
 ## A provider's OAuth flow built beside Canopy
 
 Signing people in with Google through `passport`, NextAuth or the provider's own SDK, then matching the email to a Canopy identity, leaves the application holding no Canopy token and duplicates what Canopy does: verifying the provider's answer, trusting only an email the provider verified, linking, and applying the organization's sign-in policy and MFA. Enable the provider for the Environment in the Console instead, and use the hosted button or the Direct API start URL ([choosing.md](choosing.md)).
@@ -29,6 +33,10 @@ A Direct API social sign-in returns to `return_url` with `error` when Canopy ref
 ## A WebAuthn flow built beside Canopy
 
 Registering passkeys and verifying assertions in the application (with `@simplewebauthn/server` or any other library), then looking the person up in Canopy, leaves the application holding no Canopy session and storing credentials of its own. Canopy already keeps the passkey as the identity's second factor and verifies it: run only the browser ceremony against Canopy's options (`/login/passkey/options` and `/verify`, [choosing.md](choosing.md)), or let the hosted page do it.
+
+## The browser's `Origin` forwarded on the passkey calls
+
+A backend that relays `POST /v1/identity/auth/login/passkey/options` and `/verify` sends no `Origin` header: not the browser's, and not the app's own URL. The API reference lists `403 auth.origin_not_allowed` for these calls; that refusal is for a request carrying an `Origin` the Environment does not list, which only a browser calling Canopy directly sends. A server-side call without one is never refused for it. The page's origin is still checked: it is inside the signed `response`, against the Environment's `webauthn_origins`. Copying `request.headers.origin` (or the app's own URL) onto the call makes Canopy judge it as a browser's request, and refuse it with that `403` unless the site is on the Environment's allowed web origins.
 
 ## A passkey sign-in's refusal treated as a crash
 
