@@ -1,5 +1,14 @@
 # @canopy-io/nestjs
 
+## 0.9.2
+
+### Patch Changes
+
+- bd162f7: Document verifying tokens when a backend reaches Canopy at a different address than the one its tokens name: `issuer` as the token's `iss` reads, with `jwksUri` at the address the backend can reach, which must be a loopback address or a `*.localhost` name because Canopy refuses any other hostname. The agent skill also says a backend relaying the passkey sign-in calls sends no `Origin` header, since forwarding the browser's is refused with `403 auth.origin_not_allowed`.
+- Updated dependencies [7b022e1]
+- Updated dependencies [bd162f7]
+  - @canopy-io/node@0.23.4
+
 ## 0.9.1
 
 ### Patch Changes
