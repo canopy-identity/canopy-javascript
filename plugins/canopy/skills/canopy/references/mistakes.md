@@ -22,6 +22,10 @@ Each Environment is its own issuer. A verifier for the wrong Environment rejects
 
 Signing people in with Google through `passport`, NextAuth or the provider's own SDK, then matching the email to a Canopy identity, leaves the application holding no Canopy token and duplicates what Canopy does: verifying the provider's answer, trusting only an email the provider verified, linking, and applying the organization's sign-in policy and MFA. Enable the provider for the Environment in the Console instead, and use the hosted button or the Direct API start URL ([choosing.md](choosing.md)).
 
+## A sign-in page built only to carry the product's look
+
+Moving from Hosted Login to the Direct API so the sign-in page can use the product's logo, colors, fonts or wording takes on MFA, passkeys, social sign-in, organization policy and account recovery, which the hosted pages already do. Brand the hosted pages instead (`/api/v1/branding`, [node.md](node.md)), per app where apps differ. Saving branding without reading the fonts and text keys lists, or without previewing, guesses at ids and wording the API then refuses.
+
 ## A sign-in `state` that is not tied to the browser
 
 A social sign-in's `state` kept in a server-side set or map of pending states, and accepted from any request that presents one, protects nothing: an attacker starts a sign-in with their own provider account, takes the `state` and `sso_token` from their own return URL, and sends someone else that link, who ends up signed in as the attacker. Keep the `state` in the browser that started the sign-in (an httpOnly, `SameSite=Lax` cookie, or that browser's session) and compare against it on return.
