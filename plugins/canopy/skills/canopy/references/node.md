@@ -119,6 +119,74 @@ export async function provisionStaging(applicationId: string) {
 - An `If-Match` that is not a whole number answers `400 if_match.invalid`; leave the header out to skip the check.
 - `canopy.identities.update(id, input, { ifMatch })` takes the identity's `version` the same way. A route the client does not wrap takes it through `withConcurrency`, as above: API keys, publishable keys, branding, the access model (the `version` `GET /api/v1/access-model` returns), an Environment import, SSO activation and disabling, and SCIM group mappings.
 
+## Branding the hosted pages
+
+`/api/v1/branding` sets how an Environment's hosted pages and emails look. The fonts, layout, dark look, text and card colors, corners, reworded texts and the header, notice and footer need a plan with hosted page customization (Starter and up): setting one on Free answers `403 plan_feature_unavailable`, and `customization_available` on `GET /api/v1/branding` says whether the Account has it. Read the lists before writing, and preview before saving:
+
+```ts
+import { Canopy, type ResponseBody, withConcurrency } from "@canopy-io/node";
+
+const canopy = new Canopy({ apiKey: process.env.CANOPY_API_KEY });
+
+export async function rebrandSignIn() {
+  // A font is an id from this list, or the https URL of a WOFF2 file.
+  const { items: fonts } = await canopy.client.request<
+    ResponseBody<"ApiBrandingController_getFonts">
+  >("GET", "/api/v1/branding/fonts");
+
+  // Only the texts this list names can be reworded. Each keeps its
+  // placeholders and stays within its max_length.
+  const { items: texts } = await canopy.client.request<
+    ResponseBody<"ApiBrandingController_getTextKeys">
+  >("GET", "/api/v1/branding/text-keys");
+  const heading = texts.find(
+    (text) => text.key === "authHosted.login.signInHeading",
+  );
+
+  if (!heading) {
+    throw new Error("The sign-in heading cannot be reworded.");
+  }
+
+  const changes = {
+    primary_color: "#0b5cff",
+    heading_font: fonts.find((font) => font.kind === "serif")?.id ?? null,
+    text_overrides: {
+      [heading.locale]: { [heading.key]: "Welcome back to Acme" },
+    },
+  };
+
+  // Renders the page in the state that shows this text, with the changes
+  // laid over the saved branding. Nothing is saved.
+  const preview = await canopy.client.request<
+    ResponseBody<"ApiBrandingController_preview">
+  >("POST", "/api/v1/branding/preview", {
+    body: {
+      page: heading.page,
+      state: heading.preview_state,
+      branding: changes,
+    },
+  });
+
+  if (!preview.html.includes("Welcome back to Acme")) {
+    throw new Error("The preview does not show the new heading.");
+  }
+
+  const current = await canopy.client.request<
+    ResponseBody<"ApiBrandingController_getBranding">
+  >("GET", "/api/v1/branding");
+
+  return canopy.client.request("PATCH", "/api/v1/branding", {
+    body: changes,
+    ...withConcurrency({ ifMatch: `"${current.version}"` }),
+  });
+}
+```
+
+- Send only the fields that change; `null` clears one. A text set to `null` in `text_overrides` returns to its default.
+- `header_html`, `notice_html` and `footer_html` keep links, paragraphs, bold, italics, line breaks, lists and https images; everything else is removed when saved, so read the response for what was kept.
+- `GET /api/v1/branding/preview-pages` lists every page and email the preview renders, with their states.
+- A web OAuth client can carry its own look over the Environment's: `branding` on `PATCH /api/v1/oauth-clients/:id` takes the same fields, and `null` gives one back to the Environment. A sign-in that client starts wears it, on every hosted page and in the emails it sends. A machine client takes none (`400 oauth.machine_client_branding_invalid`).
+
 ## Verifying an access token
 
 One fetch of the signing keys, then every verification is local. Name the Environment, and name your client when the tokens come from Hosted Login: those carry `aud`, your OAuth `client_id`, and the verifier refuses a token whose `aud` it was not told to check. Direct API tokens carry none, so leave `audience` out for them.

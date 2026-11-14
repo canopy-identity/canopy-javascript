@@ -55,6 +55,7 @@ Then the authorization model: is the Environment **flat**, a **hierarchy**, or d
 - Single-page app with no backend: [references/spa.md](references/spa.md)
 - Flat, hierarchy or organizations: [references/access-models.md](references/access-models.md)
 - Giving an agent a credential, or letting one act for a person: [references/choosing.md](references/choosing.md), "Which credential an agent holds"
+- Branding the hosted pages and emails, per Environment or per app: [references/node.md](references/node.md), "Branding the hosted pages"
 - Reviewing existing code: [references/mistakes.md](references/mistakes.md)
 
 ## Looking things up

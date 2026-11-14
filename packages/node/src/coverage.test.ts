@@ -23,7 +23,11 @@ const SRC = resolve(import.meta.dirname);
  * Operations in the published spec, as of the committed types. Bump this
  * deliberately when the API's surface changes, and say why in the changeset.
  */
-// 299 as of replacing a SCIM token (`POST /api/v1/scim-tokens/{id}/rotate`):
+// 303 as of hosted page customization: the branding fonts, text keys,
+// preview pages and preview (`/api/v1/branding/fonts`, `text-keys`,
+// `preview-pages`, `preview`). Unwrapped like the rest of branding, so the
+// floor does not move.
+// Before that, 299 as of replacing a SCIM token (`POST /api/v1/scim-tokens/{id}/rotate`):
 // unwrapped, one typed `request` like the rest of the management API.
 // Before that, 298 as of the management API: Applications and Environments with their
 // settings, single sign-on, the auth domain and SCIM, administrator roles,
@@ -82,7 +86,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 299;
+const EXPECTED_OPERATION_COUNT = 303;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;
