@@ -38,6 +38,7 @@ For either:
 - A standard OIDC library (for example `openid-client`) drives the flow; read endpoints from the issuer's discovery document rather than building URLs.
 - Social providers the Environment enables appear as buttons on the hosted sign-in and sign-up pages, and the person links or unlinks them on the hosted security page. The application builds nothing for them; their tokens carry `amr` `["fed", "<provider>"]`.
 - Where the Environment turns passkey sign-in on, the hosted sign-in page offers **Sign in with a passkey** and passkey autofill on its email field. The application builds nothing for it; the tokens carry `amr` `["hwk", "mfa"]`.
+- The hosted pages and the emails they send wear the Environment's branding (`/api/v1/branding`, [node.md](node.md)). On a plan with hosted page customization, each web client can carry its own look over it (`branding` on the OAuth client), so two apps in one Environment sign people in under their own names. A machine client has no hosted pages and takes none.
 
 ## Where the refresh token lives
 

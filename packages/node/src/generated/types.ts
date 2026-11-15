@@ -2715,7 +2715,7 @@ export interface paths {
         };
         /**
          * Get an Environment's branding
-         * @description Returns the Environment's branding: the values the customer set (`branding`, null where unset) beside the effective result every hosted page and the organization admin portal render (`effective`: product name, logo, favicon, primary and background colors, support, terms and privacy links, and whether the attribution mark stays). Only the primary color has a default; every other unset field is `null`. `brand_removal_available` says whether the Account's plan removes the attribution mark.
+         * @description Returns the Environment's branding: the values the customer set (`branding`, null where unset) beside the effective result every hosted page and the organization admin portal render (`effective`: product name, logo and dark logo, favicon, the color scheme, the primary, background, text and card colors and their dark counterparts, the layout, the background style with its gradient colors and image, the panel's heading, text and image, the corner radius, card style and card shadow, the heading and body fonts, support, terms and privacy links, the header, notice and footer content as the pages show it, the wording of any reworded texts (`text_overrides`), and whether the attribution mark stays). The color scheme (`light`), the layout (`card`), the background style (`color`), the primary color, the corner radius (`medium`), the card style (`border`) and the card shadow (`soft`) have defaults; every other unset field is `null`. `brand_removal_available` says whether the Account's plan removes the attribution mark, and `customization_available` whether it carries hosted page customization: without it `effective` reads the color scheme as `light`, the dark colors and dark logo as `null`, the layout as `card`, the background style as `color`, the gradient colors, images and panel as `null`, the text and card colors as `null`, the corner radius as `medium`, the card style as `border`, the card shadow as `soft` and the heading and body fonts as `null`, the header, notice and footer content as `null` and `text_overrides` as empty, whatever is stored.
          */
         get: operations["ApiBrandingController_getBranding"];
         put?: never;
@@ -2725,9 +2725,89 @@ export interface paths {
         head?: never;
         /**
          * Change an Environment's branding
-         * @description Sets the Environment's branding. Every field is optional and stands on its own: send only what you want to change, send `null` to clear a field (the primary color then returns to the default blue). The product name shows in the browser tab, as the logo's alt text and in place of a missing logo; the logo shows at the top and the favicon in the tab; the primary color drives buttons and links, and the hover, link and focus shades are derived from it; the background color paints the page behind the card; the support, terms and privacy links show as "Need help?", "Terms" and "Privacy" under every hosted page. Returns `400` (`validation`) for a malformed value. Emits `environment.branding_updated`.
+         * @description Sets the Environment's branding. Every field is optional and stands on its own: send only what you want to change, send `null` to clear a field (the primary color then returns to the default blue). The product name shows in the browser tab, as the logo's alt text and in place of a missing logo; the logo shows at the top and the favicon in the tab; the primary color drives buttons and links, and the hover, link and focus shades are derived from it; the background color paints the page behind the card; the text and card colors set the card and what is written on it, with secondary text, lines and field borders derived from the pair; the color scheme chooses the light look, the dark look or whichever the visitor's device asks for, and the dark colors and dark logo describe the dark look, each with a default; the layout is one centred card or a split page with a panel beside the card, which holds a heading, a short text and an image; the background style paints the background color, a two-color gradient or an image behind the card; the corner radius rounds the card, its panels, fields and buttons together; the card style gives the card a border or none, and the card shadow sets the shadow under it; the body font sets the text and the heading font the headings, each a curated font from the fonts list or the https URL of a WOFF2 file, with the system font behind it; the support, terms and privacy links show as "Need help?", "Terms" and "Privacy" under every hosted page; `header_html`, `notice_html` and `footer_html` place your own content in a bar across the top of the page, above the card and under it, kept to links, paragraphs, bold, italics, line breaks, lists and images with https addresses, everything else being removed when it is saved, so the response shows what was kept; `text_overrides` rewords the hosted page texts the text keys list names, one text at a time. Returns `400` (`validation`) for a malformed value, and `403` (`plan_feature_unavailable`) when the request sets `color_scheme`, `logo_dark_url`, a dark color, `layout`, `background_style`, a gradient color, a background or panel image, `panel_heading`, `panel_text`, a text in `text_overrides`, `header_html`, `notice_html`, `footer_html`, `text_color`, `surface_color`, `corner_radius`, `card_style`, `card_shadow`, `heading_font` or `body_font` and the Account's plan does not include hosted page customization; clearing one with `null` is always allowed. Emits `environment.branding_updated`, which records the fields that changed.
          */
         patch: operations["ApiBrandingController_updateBranding"];
+        trace?: never;
+    };
+    "/api/v1/branding/preview-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the hosted pages and emails a preview can render
+         * @description Lists every hosted page and every customer email the branding preview can render, in the order to show them: each with its `id`, its `kind` (`page` or `email`), the `group` it sits in, its `title`, and its states. An email has one state, `default`. Returns `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         */
+        get: operations["ApiBrandingController_getPreviewPages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/branding/fonts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the fonts hosted pages can be set in
+         * @description Lists the curated fonts: each with the `id` that `heading_font` and `body_font` take, its `name`, and its `kind` (`sans-serif`, `serif` or `monospace`). Canopy serves these fonts from its own origin, in a regular and a semibold weight and in Latin characters, so a person's browser asks no third party for one. A branding can name a font outside this list by the https URL of a WOFF2 file instead. Returns `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         */
+        get: operations["ApiBrandingController_getFonts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/branding/text-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the hosted page texts whose wording can be changed
+         * @description Lists the texts on hosted pages that `text_overrides` can reword: the headings, labels, button labels and helper text of the sign-in, sign-up, account recovery, email verification, invitation, multi-factor challenge and sign-out pages. Each entry has the `key` an override names it by, its `locale`, the `page` it shows on with that page's title and a `preview_state` that shows it, a plain `name`, its `kind`, its `default` wording, the `placeholders` an override must keep, and its `max_length`. Wording that tells a person what happened to their account (errors, refusals, expiry notices and warnings) is not listed and cannot be changed. Read this list before writing `text_overrides`. Returns `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         */
+        get: operations["ApiBrandingController_getTextKeys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/branding/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a hosted page or email in a branding
+         * @description Renders one hosted page, in one of its states, or one customer email, in the Environment's branding with the unsaved changes in `branding` laid over it, so a branding change can be checked before it is saved. Nothing is saved, and no session or person is involved: the page shows sample data. `page` and `state` are ids from the preview list, and `scheme` renders a page in its light or its dark look whatever the color scheme. Returns the whole HTML document, which works without scripts. Returns `400` (`branding.preview_page_unknown`) for a page or state that does not exist, or `validation` for a malformed branding value, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         */
+        post: operations["ApiBrandingController_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/token-claims": {
@@ -4049,7 +4129,7 @@ export interface paths {
         head?: never;
         /**
          * Update OAuth client
-         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`; for a machine client `allowed_audiences` and `token_exchange`, which adds or removes the token-exchange grant in its `grant_types`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). The secret is not rotated here.
+         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`, and for a web client `branding`, the settings it carries over its Environment's branding; for a machine client `allowed_audiences` and `token_exchange`, which adds or removes the token-exchange grant in its `grant_types`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). Setting a `branding` value answers `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization, and `400` (`oauth.machine_client_branding_invalid`) on a machine client; returning one to the Environment's with `null` is always allowed. The secret is not rotated here.
          */
         patch: operations["ApiOAuthClientsController_update"];
         trace?: never;
@@ -4415,7 +4495,7 @@ export interface paths {
         };
         /**
          * Get the Account's plan-feature entitlements
-         * @description Returns the Account's plan-feature map — one boolean per gated feature (`sso`, `scim`, `audit_destinations`) — honoring the effective (grace-period) plan and Enterprise overrides. Requires `billing.view`. Usage counts and plan identity stay on the `billing.view`-gated usage endpoint.
+         * @description Returns the Account's plan-feature map — one boolean per gated feature (`sso`, `scim`, `audit_destinations`, `hosted_page_customization`) — honoring the effective (grace-period) plan and Enterprise overrides. Requires `billing.view`. Usage counts and plan identity stay on the `billing.view`-gated usage endpoint.
          */
         get: operations["ApiBillingController_getEntitlements"];
         put?: never;
@@ -6832,32 +6912,161 @@ export interface components {
         StoredBrandingDto: {
             product_name: string | null;
             logo_url: string | null;
+            logo_dark_url: string | null;
             /** @enum {string|null} */
             logo_kind: "full" | "icon" | null;
             favicon_url: string | null;
+            /** @enum {string|null} */
+            color_scheme: "light" | "dark" | "system" | null;
             primary_color: string | null;
             background_color: string | null;
+            text_color: string | null;
+            surface_color: string | null;
+            primary_dark_color: string | null;
+            background_dark_color: string | null;
+            text_dark_color: string | null;
+            surface_dark_color: string | null;
+            /** @enum {string|null} */
+            layout: "card" | "split" | null;
+            /** @enum {string|null} */
+            background_style: "color" | "gradient" | "image" | null;
+            gradient_start_color: string | null;
+            gradient_end_color: string | null;
+            gradient_start_dark_color: string | null;
+            gradient_end_dark_color: string | null;
+            background_image_url: string | null;
+            background_image_dark_url: string | null;
+            panel_heading: string | null;
+            panel_text: string | null;
+            panel_image_url: string | null;
+            panel_image_dark_url: string | null;
+            /** @enum {string|null} */
+            corner_radius: "none" | "small" | "medium" | "large" | null;
+            /** @enum {string|null} */
+            card_style: "border" | "flat" | null;
+            /** @enum {string|null} */
+            card_shadow: "none" | "soft" | "strong" | null;
+            /** @description A curated font's id, or the https URL of a WOFF2 file. */
+            heading_font: string | null;
+            /** @description A curated font's id, or the https URL of a WOFF2 file. */
+            body_font: string | null;
             support_url: string | null;
             terms_url: string | null;
             privacy_url: string | null;
+            header_html: string | null;
+            notice_html: string | null;
+            footer_html: string | null;
+            /**
+             * @description The customer's own wording for hosted page texts, by locale and then by the text's key. Empty where none is set.
+             * @example {
+             *       "en": {
+             *         "authHosted.login.signInHeading": "Sign in to Acme"
+             *       }
+             *     }
+             */
+            text_overrides: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
         };
         EffectiveBrandingDto: {
             /** @description Null when the customer set none; surfaces then show no name. */
             product_name: string | null;
             logo_url: string | null;
+            /** @description The logo the dark look shows in place of `logo_url`, or null to show the same one. Null on a plan without hosted page customization, whatever is stored. */
+            logo_dark_url: string | null;
             /**
              * @description `full`: the logo is shown alone. `icon`: it is shown at icon size with the product name beside it.
              * @enum {string}
              */
             logo_kind: "full" | "icon";
             favicon_url: string | null;
+            /**
+             * @description Which look hosted pages wear: `light`, `dark`, or `system` for whichever the visitor's device asks for. `light` when unset, and on a plan without hosted page customization.
+             * @enum {string}
+             */
+            color_scheme: "light" | "dark" | "system";
             /** @description Six-digit hex. */
             primary_color: string;
             /** @description Six-digit hex, or null for the neutral grey. */
             background_color: string | null;
+            /** @description Six-digit hex for text on the card, or null for the neutral ink. Null on a plan without hosted page customization, whatever is stored. */
+            text_color: string | null;
+            /** @description Six-digit hex for the card, or null for white. Null on a plan without hosted page customization, whatever is stored. */
+            surface_color: string | null;
+            /** @description Six-digit hex for buttons and links in the dark look, or null to derive it from `primary_color`. Null on a plan without hosted page customization, whatever is stored. */
+            primary_dark_color: string | null;
+            /** @description Six-digit hex for the page behind the card in the dark look, or null for the neutral near-black. Null on a plan without hosted page customization, whatever is stored. */
+            background_dark_color: string | null;
+            /** @description Six-digit hex for text on the card in the dark look, or null for the neutral light ink. Null on a plan without hosted page customization, whatever is stored. */
+            text_dark_color: string | null;
+            /** @description Six-digit hex for the card in the dark look, or null for the neutral dark card. Null on a plan without hosted page customization, whatever is stored. */
+            surface_dark_color: string | null;
+            /**
+             * @description How the pages are laid out: one centred `card`, or `split` with a panel beside it. `card` when unset, and on a plan without hosted page customization.
+             * @enum {string}
+             */
+            layout: "card" | "split";
+            /**
+             * @description What is painted behind the card in the `card` layout: the background `color`, a `gradient` or an `image`. `color` when unset, and on a plan without hosted page customization.
+             * @enum {string}
+             */
+            background_style: "color" | "gradient" | "image";
+            /** @description Six-digit hex at the top of a gradient background, or null for the background color. Null on a plan without hosted page customization, whatever is stored. */
+            gradient_start_color: string | null;
+            /** @description Six-digit hex at the bottom of a gradient background, or null for the background color. Null on a plan without hosted page customization, whatever is stored. */
+            gradient_end_color: string | null;
+            /** @description The dark look's color at the top of the gradient, or null to darken the light look's. Null on a plan without hosted page customization, whatever is stored. */
+            gradient_start_dark_color: string | null;
+            /** @description The dark look's color at the bottom of the gradient, or null to darken the light look's. Null on a plan without hosted page customization, whatever is stored. */
+            gradient_end_dark_color: string | null;
+            /** @description The image behind the card, or null for none. Null on a plan without hosted page customization, whatever is stored. */
+            background_image_url: string | null;
+            /** @description The image the dark look shows behind the card, or null to dim the same one. Null on a plan without hosted page customization, whatever is stored. */
+            background_image_dark_url: string | null;
+            /** @description The heading on the split layout's panel, or null for none. Null on a plan without hosted page customization, whatever is stored. */
+            panel_heading: string | null;
+            /** @description The text under the panel's heading, or null for none. Null on a plan without hosted page customization, whatever is stored. */
+            panel_text: string | null;
+            /** @description The image that fills the split layout's panel, or null to fill it from the primary color. Null on a plan without hosted page customization, whatever is stored. */
+            panel_image_url: string | null;
+            /** @description The image the dark look shows on the panel, or null to show the same one. Null on a plan without hosted page customization, whatever is stored. */
+            panel_image_dark_url: string | null;
+            /**
+             * @description How round the corners are. `medium` when unset, and on a plan without hosted page customization.
+             * @enum {string}
+             */
+            corner_radius: "none" | "small" | "medium" | "large";
+            /**
+             * @description Whether the card has a border. `border` when unset, and on a plan without hosted page customization.
+             * @enum {string}
+             */
+            card_style: "border" | "flat";
+            /**
+             * @description The shadow under the card. `soft` when unset, and on a plan without hosted page customization.
+             * @enum {string}
+             */
+            card_shadow: "none" | "soft" | "strong";
+            /** @description The font headings are set in: a curated font's id or the https URL of a WOFF2 file. Null follows `body_font`, and is what a plan without hosted page customization reads. */
+            heading_font: string | null;
+            /** @description The font everything but headings is set in, likewise. Null is the system font, and is what a plan without hosted page customization reads. */
+            body_font: string | null;
             support_url: string | null;
             terms_url: string | null;
             privacy_url: string | null;
+            /** @description The content in the bar across the top of hosted pages, as the pages show it, or null for none. Null on a plan without hosted page customization, whatever is stored. */
+            header_html: string | null;
+            /** @description The content in the notice above the card, likewise. */
+            notice_html: string | null;
+            /** @description The content under the card, likewise. */
+            footer_html: string | null;
+            /** @description The wording the hosted pages show in place of their own, by locale and then by the text's key. Empty where none is set, and on a plan without hosted page customization. */
+            text_overrides: {
+                [key: string]: {
+                    [key: string]: string;
+                };
+            };
             /** @description Whether the attribution mark stays on hosted pages and the portal. False only on a plan with brand removal. */
             attribution: boolean;
         };
@@ -6867,6 +7076,8 @@ export interface components {
             effective: components["schemas"]["EffectiveBrandingDto"];
             /** @description Whether the Account's plan removes the attribution mark. When false, the mark stays whatever the customer sets. */
             brand_removal_available: boolean;
+            /** @description Whether the Account's plan carries hosted page customization. When false, the color scheme, the dark colors and dark logo, the layout, the background style with its gradient and image, the panel, the header, notice and footer content, the texts' wording, `text_color`, `surface_color`, `corner_radius`, `card_style`, `card_shadow`, `heading_font` and `body_font` cannot be set and the pages ignore any already stored. */
+            customization_available: boolean;
             /** @description The Environment's optimistic-lock version; send it back as `If-Match` on PATCH. Any change to the Environment moves it. */
             version: number;
         };
@@ -6875,6 +7086,8 @@ export interface components {
             product_name?: string | null;
             /** @description Absolute https URL of the logo shown at the top of hosted pages, the portal and emails to the Environment's users. Emails show it only when the image is a PNG, JPEG or GIF, which every email client displays; with any other format they show the product name. Null clears it. */
             logo_url?: string | null;
+            /** @description Absolute https URL of the logo the dark look of hosted pages shows in place of `logo_url`: a version of the same logo that reads on a dark card. It is used only when `logo_url` is set, and `logo_kind` describes both. Emails never show it. Null shows `logo_url` in both looks. Needs the `hosted_page_customization` plan feature to set. */
+            logo_dark_url?: string | null;
             /**
              * @description What the logo image is. `full`: a complete logo that already carries the product name, shown alone. `icon`: a square mark, shown at icon size with the product name beside it. Null returns to `full`.
              * @enum {string|null}
@@ -6883,21 +7096,287 @@ export interface components {
             /** @description Absolute https URL of the browser-tab icon on hosted pages: a square PNG or ICO of at least 32 px. Null clears it. */
             favicon_url?: string | null;
             /**
+             * @description Which look hosted pages wear. `light`: the look the colour fields describe. `dark`: the look their dark counterparts describe (`primary_dark_color`, `background_dark_color`, `text_dark_color`, `surface_dark_color`, `logo_dark_url`), each with a default. `system`: whichever the visitor's device asks for, chosen by the browser with no script. A QR code and the CAPTCHA keep a light ground in both, and emails are always light. Null returns to `light`. Needs the `hosted_page_customization` plan feature to set.
+             * @enum {string|null}
+             */
+            color_scheme?: "light" | "dark" | "system" | null;
+            /**
              * @description Six-digit hex colour for buttons and links on hosted pages and the portal. Hover, link, focus and tint shades are derived from it so each meets its contrast rule. Null returns to the default blue.
              * @example #B93C0C
              */
             primary_color?: string | null;
             /**
-             * @description Six-digit hex colour for the page behind the card on hosted pages. The card stays white; footer text is chosen to reach 4.5:1 against it. Null returns to the neutral grey.
+             * @description Six-digit hex colour for the page behind the card on hosted pages. Footer text is chosen to reach 4.5:1 against it. Null returns to the neutral grey.
              * @example #0B1F3A
              */
             background_color?: string | null;
+            /**
+             * @description Six-digit hex colour for text on the card of hosted pages. Secondary text, lines and field borders are derived from it, and it is moved away from the card colour until it reaches 4.5:1. Null returns to the neutral ink. Needs the `hosted_page_customization` plan feature to set.
+             * @example #1F2937
+             */
+            text_color?: string | null;
+            /**
+             * @description Six-digit hex colour for the card on hosted pages, and for the fields and panels on it. Links and focus rings are corrected to stay readable on it. Null returns to white. Needs the `hosted_page_customization` plan feature to set.
+             * @example #FFFDF8
+             */
+            surface_color?: string | null;
+            /**
+             * @description Six-digit hex colour for buttons and links in the dark look of hosted pages. Null derives it from `primary_color`, lightened where it would not show on the dark card. Needs the `hosted_page_customization` plan feature to set.
+             * @example #FDBA74
+             */
+            primary_dark_color?: string | null;
+            /**
+             * @description Six-digit hex colour for the page behind the card in the dark look of hosted pages. Null is a neutral near-black. Needs the `hosted_page_customization` plan feature to set.
+             * @example #0B0B0F
+             */
+            background_dark_color?: string | null;
+            /**
+             * @description Six-digit hex colour for text on the card in the dark look of hosted pages, corrected against the dark card the way `text_color` is against the light one. Null is a neutral light ink. Needs the `hosted_page_customization` plan feature to set.
+             * @example #F4F4F5
+             */
+            text_dark_color?: string | null;
+            /**
+             * @description Six-digit hex colour for the card in the dark look of hosted pages, and for the fields and panels on it. Null is a neutral dark card. Needs the `hosted_page_customization` plan feature to set.
+             * @example #18181B
+             */
+            surface_dark_color?: string | null;
+            /**
+             * @description How hosted pages are laid out. `card`: one card centred on the page. `split`: the card on one side and a panel on the other, holding `panel_heading`, `panel_text` and `panel_image_url`; on a narrow screen the panel becomes a band above the card that shows the heading. Null returns to `card`. Needs the `hosted_page_customization` plan feature to set.
+             * @enum {string|null}
+             */
+            layout?: "card" | "split" | null;
+            /**
+             * @description What is painted behind the card in the `card` layout. `color`: `background_color`. `gradient`: `gradient_start_color` at the top to `gradient_end_color` at the bottom. `image`: `background_image_url`, covering the page, with `background_color` behind it while it loads. The `split` layout ignores it. Null returns to `color`. Needs the `hosted_page_customization` plan feature to set.
+             * @enum {string|null}
+             */
+            background_style?: "color" | "gradient" | "image" | null;
+            /**
+             * @description Six-digit hex colour at the top of the page when `background_style` is `gradient`. Null uses the background colour. Needs the `hosted_page_customization` plan feature to set.
+             * @example #EEF2FF
+             */
+            gradient_start_color?: string | null;
+            /**
+             * @description Six-digit hex colour at the bottom of the page when `background_style` is `gradient`; footer text is chosen to reach 4.5:1 against it. Null uses the background colour. Needs the `hosted_page_customization` plan feature to set.
+             * @example #C7D2FE
+             */
+            gradient_end_color?: string | null;
+            /**
+             * @description The dark look's colour at the top of the gradient. Null darkens `gradient_start_color`. Needs the `hosted_page_customization` plan feature to set.
+             * @example #0B1020
+             */
+            gradient_start_dark_color?: string | null;
+            /**
+             * @description The dark look's colour at the bottom of the gradient. Null darkens `gradient_end_color`. Needs the `hosted_page_customization` plan feature to set.
+             * @example #111827
+             */
+            gradient_end_dark_color?: string | null;
+            /**
+             * @description The image behind the card when `background_style` is `image`. An absolute https URL holding no quote, bracket or space. Null shows the background colour. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://cdn.example.com/brand/background-image.jpg
+             */
+            background_image_url?: string | null;
+            /**
+             * @description The image the dark look shows behind the card. Null dims `background_image_url`. An absolute https URL holding no quote, bracket or space. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://cdn.example.com/brand/background-image-dark.jpg
+             */
+            background_image_dark_url?: string | null;
+            /** @description The heading on the `split` layout's panel, as plain text. Null shows none. Needs the `hosted_page_customization` plan feature to set. */
+            panel_heading?: string | null;
+            /** @description A short paragraph under the panel's heading, as plain text; hidden on a narrow screen. Null shows none. Needs the `hosted_page_customization` plan feature to set. */
+            panel_text?: string | null;
+            /**
+             * @description The image that fills the `split` layout's panel, darkened under the heading and text so they stay readable. An absolute https URL holding no quote, bracket or space. Null fills the panel from the primary colour. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://cdn.example.com/brand/panel-image.jpg
+             */
+            panel_image_url?: string | null;
+            /**
+             * @description The image the dark look shows on the panel. Null shows `panel_image_url`. An absolute https URL holding no quote, bracket or space. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://cdn.example.com/brand/panel-image-dark.jpg
+             */
+            panel_image_dark_url?: string | null;
+            /**
+             * @description How round the corners on hosted pages are. One setting moves the card, its panels, fields and buttons in proportion; pills stay pills. Null returns to `medium`. Needs the `hosted_page_customization` plan feature to set.
+             * @enum {string|null}
+             */
+            corner_radius?: "none" | "small" | "medium" | "large" | null;
+            /**
+             * @description Whether the card has a border. `border`: a hairline border. `flat`: none. Null returns to `border`. Needs the `hosted_page_customization` plan feature to set.
+             * @enum {string|null}
+             */
+            card_style?: "border" | "flat" | null;
+            /**
+             * @description The shadow under the card, apart from its border. `none`, `soft` or `strong`. Null returns to `soft`. Needs the `hosted_page_customization` plan feature to set.
+             * @enum {string|null}
+             */
+            card_shadow?: "none" | "soft" | "strong" | null;
+            /**
+             * @description The font headings on hosted pages are set in: the `id` of a curated font from `GET /api/v1/branding/fonts`, which Canopy serves itself, or the absolute https URL of a WOFF2 file, whose host must send CORS headers. A font that fails to load leaves the system font. Null returns to the body font. Needs the `hosted_page_customization` plan feature to set.
+             * @example inter
+             */
+            heading_font?: string | null;
+            /**
+             * @description The font everything but headings on hosted pages is set in: the `id` of a curated font from `GET /api/v1/branding/fonts`, or the absolute https URL of a WOFF2 file, whose host must send CORS headers. A font that fails to load leaves the system font. Null returns to the system font. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://cdn.example.com/fonts/brand.woff2
+             */
+            body_font?: string | null;
             /** @description Where "Need help?" points: an https URL or a mailto: address. Null hides it. */
             support_url?: string | null;
             /** @description Absolute https URL of the customer's terms, linked as "Terms" in the hosted pages' footer. Null hides it. */
             terms_url?: string | null;
             /** @description Absolute https URL of the customer's privacy policy, linked as "Privacy" in the hosted pages' footer. Null hides it. */
             privacy_url?: string | null;
+            /**
+             * @description Your own content in a bar across the top of the page on hosted pages, as HTML. Only `a`, `p`, `strong`, `em`, `br`, `ul`, `ol`, `li` and `img` are kept, with a link's `href` and an image's `src` and `alt`, each an absolute https address; scripts, styles, forms, frames, event attributes and every other element or attribute are removed when it is saved and again when a page is drawn, and the response shows what was kept, which can be sent back unchanged. The limit applies to the content as written and as kept, where a bare `&`, `<` or `>` in its words is written as an entity. Links open in a new tab. It sits outside the card, so it cannot cover or imitate the form. Null shows none. Needs the `hosted_page_customization` plan feature to set.
+             * @example <p>Need a hand? <a href="https://acme.example/help">Ask us</a>.</p>
+             */
+            header_html?: string | null;
+            /**
+             * @description Your own content in a notice above the card, for a message such as planned maintenance on hosted pages, as HTML. Only `a`, `p`, `strong`, `em`, `br`, `ul`, `ol`, `li` and `img` are kept, with a link's `href` and an image's `src` and `alt`, each an absolute https address; scripts, styles, forms, frames, event attributes and every other element or attribute are removed when it is saved and again when a page is drawn, and the response shows what was kept, which can be sent back unchanged. The limit applies to the content as written and as kept, where a bare `&`, `<` or `>` in its words is written as an entity. Links open in a new tab. It sits outside the card, so it cannot cover or imitate the form. Null shows none. Needs the `hosted_page_customization` plan feature to set.
+             * @example <p>Need a hand? <a href="https://acme.example/help">Ask us</a>.</p>
+             */
+            notice_html?: string | null;
+            /**
+             * @description Your own content under the card, above the support, terms and privacy links on hosted pages, as HTML. Only `a`, `p`, `strong`, `em`, `br`, `ul`, `ol`, `li` and `img` are kept, with a link's `href` and an image's `src` and `alt`, each an absolute https address; scripts, styles, forms, frames, event attributes and every other element or attribute are removed when it is saved and again when a page is drawn, and the response shows what was kept, which can be sent back unchanged. The limit applies to the content as written and as kept, where a bare `&`, `<` or `>` in its words is written as an entity. Links open in a new tab. It sits outside the card, so it cannot cover or imitate the form. Null shows none. Needs the `hosted_page_customization` plan feature to set.
+             * @example <p>Need a hand? <a href="https://acme.example/help">Ask us</a>.</p>
+             */
+            footer_html?: string | null;
+            /**
+             * @description Your own wording for texts on hosted pages, by locale and then by the text's `key` from `GET /api/v1/branding/text-keys`. Each text set here replaces the stored wording, `null` returns that text to its default, and a text left out keeps what is stored; `null` for the whole value returns every text to its default. Wording is plain text without `<` or `>`, no longer than the text's `max_length`, and keeps each of the text's `placeholders` in double braces. A locale the pages are not written in, a key outside the list, or wording that breaks these rules is refused. Needs the `hosted_page_customization` plan feature to set.
+             * @example {
+             *       "en": {
+             *         "authHosted.login.signInHeading": "Sign in to Acme"
+             *       }
+             *     }
+             */
+            text_overrides?: {
+                [key: string]: {
+                    [key: string]: string | null;
+                };
+            } | null;
+        };
+        BrandingPreviewStateDto: {
+            /** @example WrongPassword */
+            id: string;
+            /** @example Wrong password */
+            label: string;
+        };
+        BrandingPreviewPageDto: {
+            /** @example login */
+            id: string;
+            /**
+             * @description `page` for a hosted page, `email` for an email.
+             * @enum {string}
+             */
+            kind: "page" | "email";
+            /**
+             * @description The group the page sits in, for listing.
+             * @example Sign-in
+             */
+            group: string;
+            /** @example Sign in */
+            title: string;
+            states: components["schemas"]["BrandingPreviewStateDto"][];
+        };
+        BrandingFontDto: {
+            /**
+             * @description What `heading_font` and `body_font` take.
+             * @example inter
+             */
+            id: string;
+            /**
+             * @description The font's name.
+             * @example Inter
+             */
+            name: string;
+            /**
+             * @description `sans-serif`, `serif` or `monospace`.
+             * @enum {string}
+             */
+            kind: "sans-serif" | "serif" | "monospace";
+        };
+        BrandingTextKeyDto: {
+            /**
+             * @description What `text_overrides` names the text by.
+             * @example authHosted.login.signInHeading
+             */
+            key: string;
+            /**
+             * @description The locale this entry's wording is in.
+             * @example en
+             */
+            locale: string;
+            /**
+             * @description The hosted page the text shows on, by the `id` the preview list returns.
+             * @example login
+             */
+            page: string;
+            /**
+             * @description That page's title.
+             * @example Sign in
+             */
+            page_title: string;
+            /**
+             * @description A state of that page that shows the text, by the `id` the preview list returns: what to preview to see it.
+             * @example Password
+             */
+            preview_state: string;
+            /**
+             * @description A plain name for the text.
+             * @example Heading
+             */
+            name: string;
+            /**
+             * @description What the text is: a `heading`, `label`, `button` or `helper`.
+             * @enum {string}
+             */
+            kind: "heading" | "label" | "button" | "helper";
+            /**
+             * @description The wording the page shows when the text is not overridden.
+             * @example Sign in
+             */
+            default: string;
+            /**
+             * @description The placeholders an override must keep, each written in double braces, such as `{{name}}`. Empty for most texts.
+             * @example [
+             *       "name"
+             *     ]
+             */
+            placeholders: string[];
+            /**
+             * @description The longest an override may be, in characters.
+             * @example 80
+             */
+            max_length: number;
+        };
+        BrandingPreviewResponseDto: {
+            /** @enum {string} */
+            kind: "page" | "email";
+            /**
+             * @description The page's title, or the email's subject.
+             * @example Sign in
+             */
+            title: string;
+            /** @description The whole HTML document. A hosted page's styles are inline and its scripts are referred to by paths on the API's origin (`/auth/static/...`); every hosted page works without them, so it can be shown in a sandboxed frame that runs no scripts. */
+            html: string;
+        };
+        BrandingPreviewRequestDto: {
+            /**
+             * @description The hosted page or email to render, by the `id` the preview list returns.
+             * @example login
+             */
+            page: string;
+            /**
+             * @description One of that page's states, by the `id` the preview list returns. An email has a single state, `default`.
+             * @example WrongPassword
+             */
+            state: string;
+            /** @description Unsaved branding to render with, in the shape of a branding change: each field set here replaces the saved value, `null` clears it, and a field left out keeps the saved value. Leave it out to preview the saved branding. */
+            branding?: components["schemas"]["UpdateEnvironmentBrandingDto"];
+            /**
+             * @description The look to render a hosted page in, whatever the branding's `color_scheme`: the way to see both looks of a `system` scheme, which otherwise follows the device showing the preview. Leave it out to render the page as it is served. An email is always light.
+             * @enum {string}
+             */
+            scheme?: "light" | "dark";
         };
         TokenClaimEntryResponseDto: {
             /**
@@ -7933,6 +8412,13 @@ export interface components {
              * @description When the secret was last rotated. Null until the first rotation.
              */
             secret_rotated_at?: string | null;
+            /** @description The branding this client carries over its Environment's: each setting it changes, and `null` for each it leaves to the Environment. Null for a machine client, which has no hosted pages. */
+            branding: components["schemas"]["StoredBrandingDto"] | null;
+            /**
+             * @description How many settings this client changes from its Environment's branding, each reworded text counting as one. `0` when it wears the Environment's look.
+             * @example 3
+             */
+            branding_settings: number;
             /** @description Optimistic-lock version. Send it in `If-Match` on an update to refuse a stale write. */
             version: number;
             /** Format: date-time */
@@ -8034,6 +8520,13 @@ export interface components {
              * @description When the secret was last rotated. Null until the first rotation.
              */
             secret_rotated_at?: string | null;
+            /** @description The branding this client carries over its Environment's: each setting it changes, and `null` for each it leaves to the Environment. Null for a machine client, which has no hosted pages. */
+            branding: components["schemas"]["StoredBrandingDto"] | null;
+            /**
+             * @description How many settings this client changes from its Environment's branding, each reworded text counting as one. `0` when it wears the Environment's look.
+             * @example 3
+             */
+            branding_settings: number;
             /** @description Optimistic-lock version. Send it in `If-Match` on an update to refuse a stale write. */
             version: number;
             /** Format: date-time */
@@ -8067,6 +8560,8 @@ export interface components {
             invite_redirect_url?: string | null;
             /** @description The route in your application that starts a sign-in (OpenID Connect `initiate_login_uri`): it should send the person to Canopy's `/oauth/authorize`. Canopy's hosted pages that end with nothing to return to, such as an accepted invitation or a verified email, offer it as **Sign in**. Absolute `http` or `https` URL; `null` clears it. */
             initiate_login_uri?: string | null;
+            /** @description Changes to the branding this client carries over its Environment's, in the shape of a branding change: a setting set here is the client's own, `null` for a setting returns it to the Environment's, and a setting left out keeps what the client holds. `null` for the whole value returns every setting to the Environment's. A sign-in this client starts wears the result on the hosted pages and in the emails it sends. A web client only: a machine client answers `400` (`oauth.machine_client_branding_invalid`). Needs the `hosted_page_customization` plan feature to set. */
+            branding?: components["schemas"]["UpdateEnvironmentBrandingDto"] | null;
         };
         ApiKeyCreatedResponseDto: {
             id: string;
@@ -8277,6 +8772,8 @@ export interface components {
             scim?: boolean;
             /** @description External audit-log destinations. */
             audit_destinations?: boolean;
+            /** @description Hosted page customization beyond the product name, logo, favicon, the two colors and the three links: design settings, fonts, dark mode, layouts, text overrides, the customer's own content, custom CSS and page templates. */
+            hosted_page_customization?: boolean;
         };
         UsageSummaryResponseDto: {
             account_id: string;
@@ -30770,7 +31267,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, and a heading or body font a curated font's id or an https URL; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -30781,7 +31278,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, and the product name at most 60 characters; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, and a heading or body font a curated font's id or an https URL; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
@@ -30812,7 +31309,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment */
+            /** @description The caller lacks `branding.manage`, or the request sets a customization field and the Account's plan does not include hosted page customization (`plan_feature_unavailable`) */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -30823,10 +31320,10 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 403,
                      *         "code": "auth.forbidden",
-                     *         "message": "The bearer token is not an admin or platform token, or the caller lacks the permission this operation checks: a scoped API key without that scope, an admin without the Account capability that covers it, or, for a node-scoped check, a node outside this Environment",
+                     *         "message": "The caller lacks `branding.manage`, or the request sets a customization field and the Account's plan does not include hosted page customization (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
-                     *         "method": "GET"
+                     *         "method": "PATCH"
                      *       }
                      *     }
                      */
@@ -30848,6 +31345,362 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiBrandingController_getPreviewPages: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
+                "X-Canopy-Environment"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every hosted page and customer email, with its states */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BrandingPreviewPageDto"][];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": "request.invalid",
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": "auth.invalid_token",
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": "auth.forbidden",
+                     *         "message": "The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/preview-pages",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiBrandingController_getFonts: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
+                "X-Canopy-Environment"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every curated font */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BrandingFontDto"][];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": "request.invalid",
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": "auth.invalid_token",
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": "auth.forbidden",
+                     *         "message": "The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/fonts",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiBrandingController_getTextKeys: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
+                "X-Canopy-Environment"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every text that can be reworded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BrandingTextKeyDto"][];
+                    };
+                };
+            };
+            /** @description The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": "request.invalid",
+                     *         "message": "The request sent both an `X-API-Key` and an `Authorization` header (send one), or its `X-Canopy-Environment` header is missing for an account key (`api_key.environment_required`), names no Environment of the key's Account (`api_key.environment_not_found`), or names another Environment than an Environment key's own (`api_key.environment_mismatch`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": "auth.invalid_token",
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": "auth.forbidden",
+                     *         "message": "The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/text-keys",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiBrandingController_preview: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
+                "X-Canopy-Environment"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrandingPreviewRequestDto"];
+            };
+        };
+        responses: {
+            /** @description The rendered page or email */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BrandingPreviewResponseDto"];
+                    };
+                };
+            };
+            /** @description The page or state does not exist (`branding.preview_page_unknown`), or a branding value is malformed (`validation`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": "request.invalid",
+                     *         "message": "The page or state does not exist (`branding.preview_page_unknown`), or a branding value is malformed (`validation`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": "auth.invalid_token",
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": "auth.forbidden",
+                     *         "message": "The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/preview",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -44246,7 +45099,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The plan's feature map alone (`sso`, `scim`, `audit_destinations`), honoring the effective grace-period plan and Enterprise overrides. Membership-gated rather than `billing.view`: every member's dashboard needs it to decide which surfaces to render. */
+            /** @description The plan's feature map alone (`sso`, `scim`, `audit_destinations`, `hosted_page_customization`), honoring the effective grace-period plan and Enterprise overrides. Membership-gated rather than `billing.view`: every member's dashboard needs it to decide which surfaces to render. */
             200: {
                 headers: {
                     [name: string]: unknown;
