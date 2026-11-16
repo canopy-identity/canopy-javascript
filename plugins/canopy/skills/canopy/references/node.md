@@ -121,7 +121,7 @@ export async function provisionStaging(applicationId: string) {
 
 ## Branding the hosted pages
 
-`/api/v1/branding` sets how an Environment's hosted pages and emails look. The fonts, layout, dark look, text and card colors, corners, reworded texts and the header, notice and footer need a plan with hosted page customization (Starter and up): setting one on Free answers `403 plan_feature_unavailable`, and `customization_available` on `GET /api/v1/branding` says whether the Account has it. Read the lists before writing, and preview before saving:
+`/api/v1/branding` sets how an Environment's hosted pages and emails look. The fonts, layout, dark look, text and card colors, corners, reworded texts, the header, notice and footer and custom CSS need a plan with hosted page customization (Starter and up): setting one on Free answers `403 plan_feature_unavailable`, and `customization_available` on `GET /api/v1/branding` says whether the Account has it. Read the lists before writing, and preview before saving:
 
 ```ts
 import { Canopy, type ResponseBody, withConcurrency } from "@canopy-io/node";
@@ -184,6 +184,7 @@ export async function rebrandSignIn() {
 
 - Send only the fields that change; `null` clears one. A text set to `null` in `text_overrides` returns to its default.
 - `header_html`, `notice_html` and `footer_html` keep links, paragraphs, bold, italics, line breaks, lists and https images; everything else is removed when saved, so read the response for what was kept.
+- `custom_css` is the customer's own CSS for the hosted pages (not emails), applied after every other setting, up to 20,000 characters. It sets the published `--hp-*` tokens (`:root { --hp-field-height: 52px; }`) and styles the published `hp-*` classes; `[data-page="register"]` on `<body>` names one page and `[data-provider="google"]` one social button. Write the dark look as `@media (prefers-color-scheme: dark)`: it follows `color_scheme`. A save and a preview answer `400` with the line of each problem for `@import`, `@font-face`, `url()` and any other function that loads a file (set images and fonts with the branding fields), a selector on a field's `value`, a `--_hp-*` name, `</`, and CSS that does not parse. The tokens, classes and page names are listed at https://canopy-io.com/docs/authentication/branding#custom-css; a class that is not listed there may change.
 - `GET /api/v1/branding/preview-pages` lists every page and email the preview renders, with their states.
 - A web OAuth client can carry its own look over the Environment's: `branding` on `PATCH /api/v1/oauth-clients/:id` takes the same fields, and `null` gives one back to the Environment. A sign-in that client starts wears it, on every hosted page and in the emails it sends. A machine client takes none (`400 oauth.machine_client_branding_invalid`).
 
