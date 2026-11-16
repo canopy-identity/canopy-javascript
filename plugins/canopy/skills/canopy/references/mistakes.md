@@ -24,7 +24,7 @@ Signing people in with Google through `passport`, NextAuth or the provider's own
 
 ## A sign-in page built only to carry the product's look
 
-Moving from Hosted Login to the Direct API so the sign-in page can use the product's logo, colors, fonts or wording takes on MFA, passkeys, social sign-in, organization policy and account recovery, which the hosted pages already do. Brand the hosted pages instead (`/api/v1/branding`, [node.md](node.md)), per app where apps differ. Saving branding without reading the fonts and text keys lists, or without previewing, guesses at ids and wording the API then refuses.
+Moving from Hosted Login to the Direct API so the sign-in page can use the product's logo, colors, fonts, wording or its own CSS takes on MFA, passkeys, social sign-in, organization policy and account recovery, which the hosted pages already do. Brand the hosted pages instead (`/api/v1/branding`, [node.md](node.md)), per app where apps differ. Saving branding without reading the fonts and text keys lists, or without previewing, guesses at ids and wording the API then refuses.
 
 ## A sign-in `state` that is not tied to the browser
 
