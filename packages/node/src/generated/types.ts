@@ -4281,7 +4281,7 @@ export interface paths {
         put?: never;
         /**
          * Rotate an API key's secret
-         * @description Rotates the secret of an existing API key in place, minting a brand-new `cnpy_`-prefixed value for the same row while preserving its id, name, `scopes`, `access_mode`, expiry, and audit lineage. The previous secret is invalidated immediately and the new plaintext is returned exactly once in the `key` field. `is_active` is left untouched — rotating does not re-enable a disabled key. Returns `404` when no key with the given id exists in the active Environment. A scoped API key can act only on scoped keys whose scopes it holds itself; any other key is refused with `403`.
+         * @description Rotates the secret of an existing API key in place, minting a brand-new `cnpy_`-prefixed value for the same row while preserving its id, name, `scopes`, `access_mode`, expiry, and audit lineage. The previous secret is invalidated immediately and the new plaintext is returned exactly once in the `key` field. `is_active` is left untouched — rotating does not re-enable a disabled key. Returns `404` when no key with the given id exists in the active Environment. A scoped API key can act only on scoped keys whose scopes it holds itself; any other key is refused with `403`. A key that rotates itself cannot retry the call, with or without an `Idempotency-Key`, because its old secret no longer authenticates: rotate a key with another credential when the answer must not be lost.
          */
         post: operations["ApiApiKeysController_rotateSecret"];
         delete?: never;
@@ -4770,7 +4770,7 @@ export interface components {
             avatar_url?: string | null;
             external_id?: string | null;
             /**
-             * @description The language the person reads, as a language tag, or null when none is known. Set when they sign up, when they choose a language on the hosted pages, or through this API.
+             * @description The language the person reads, as a language tag, or null when none is known. Set when they sign up, from the language of the hosted page they signed up on, by an invitation that names one, or through this API.
              * @example fr
              */
             locale?: string | null;
@@ -4868,7 +4868,7 @@ export interface components {
             avatar_url?: string | null;
             external_id?: string | null;
             /**
-             * @description The language the person reads, as a language tag, or null when none is known. Set when they sign up, when they choose a language on the hosted pages, or through this API.
+             * @description The language the person reads, as a language tag, or null when none is known. Set when they sign up, from the language of the hosted page they signed up on, by an invitation that names one, or through this API.
              * @example fr
              */
             locale?: string | null;
@@ -11970,7 +11970,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional opaque string the server uses to deduplicate retried requests. When the same key is replayed within 24 hours, the original response (status + body) is returned without re-processing — eliminates duplicate writes from network blips between server commit and client receipt. Generate one per logical operation (UUIDv4 recommended). Max 255 characters. */
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
                 "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
@@ -12132,7 +12135,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -12143,7 +12146,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
-                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/bulk-create",
                      *         "method": "POST"
@@ -12758,6 +12761,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -12850,6 +12858,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "identity.not_found",
                      *         "message": "Identity not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/password/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/password/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/{id}/password/reset",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/{id}/password/reset",
                      *         "method": "POST"
@@ -14325,6 +14396,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -14411,7 +14487,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description A pending invite already exists for this email at this scope, the identity already has access to this Environment and the invitation joins no organization (`invite.identity_already_in_app`), or the identity is already an active member of the organization it joins (`organization.member_exists`) */
+            /** @description A pending invite already exists for this email at this scope, the identity already has access to this Environment and the invitation joins no organization (`invite.identity_already_in_app`), or the identity is already an active member of the organization it joins (`organization.member_exists`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -14422,7 +14498,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "A pending invite already exists for this email at this scope, the identity already has access to this Environment and the invitation joins no organization (`invite.identity_already_in_app`), or the identity is already an active member of the organization it joins (`organization.member_exists`)",
+                     *         "message": "A pending invite already exists for this email at this scope, the identity already has access to this Environment and the invitation joins no organization (`invite.identity_already_in_app`), or the identity is already an active member of the organization it joins (`organization.member_exists`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites",
                      *         "method": "POST"
@@ -14526,7 +14644,10 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Optional opaque string the server uses to deduplicate retried requests. When the same key is replayed within 24 hours, the original response (status + body) is returned without re-processing — eliminates duplicate writes from network blips between server commit and client receipt. Generate one per logical operation (UUIDv4 recommended). Max 255 characters. */
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
                 "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
@@ -14688,7 +14809,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -14699,7 +14820,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
-                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/bulk-create",
                      *         "method": "POST"
@@ -14736,6 +14857,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -14832,6 +14958,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "invite.not_found",
                      *         "message": "Invite not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/{id}/resend",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/{id}/resend",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/{id}/resend",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/{id}/resend",
                      *         "method": "POST"
@@ -15063,6 +15252,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -15149,7 +15343,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Root node already exists */
+            /** @description Root node already exists. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -15160,7 +15354,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "Root node already exists",
+                     *         "message": "Root node already exists. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/nodes",
                      *         "method": "POST"
@@ -18050,6 +18286,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -18150,6 +18391,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
                      *         "message": "The organization is not in this Environment, or the node is not inside it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/nodes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/nodes",
                      *         "method": "POST"
@@ -19016,6 +19320,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -19123,7 +19432,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description Organizations are not enabled on this Environment, another organization already holds this external_id, or the plan's organization limit is reached */
+            /** @description Organizations are not enabled on this Environment, another organization already holds this external_id, or the plan's organization limit is reached. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -19134,7 +19443,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "Organizations are not enabled on this Environment, another organization already holds this external_id, or the plan's organization limit is reached",
+                     *         "message": "Organizations are not enabled on this Environment, another organization already holds this external_id, or the plan's organization limit is reached. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations",
                      *         "method": "POST"
@@ -20098,6 +20449,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -20194,6 +20550,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "organization.not_found",
                      *         "message": "Organization not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/policy/sso-recovery-codes",
                      *         "method": "POST"
@@ -21984,6 +22403,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -22093,7 +22517,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description A pending invitation already exists for this email at this place, or the identity is already an active member of the organization (`organization.member_exists`); give a member a role through the assignment routes */
+            /** @description A pending invitation already exists for this email at this place, or the identity is already an active member of the organization (`organization.member_exists`); give a member a role through the assignment routes. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -22104,7 +22528,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "A pending invitation already exists for this email at this place, or the identity is already an active member of the organization (`organization.member_exists`); give a member a role through the assignment routes",
+                     *         "message": "A pending invitation already exists for this email at this place, or the identity is already an active member of the organization (`organization.member_exists`); give a member a role through the assignment routes. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/invites",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/invites",
                      *         "method": "POST"
@@ -23145,6 +23611,11 @@ export interface operations {
             header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
                 "If-Match"?: string;
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -23250,7 +23721,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`); or the organization requires single sign-on and this is its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first */
+            /** @description The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`); or the organization requires single sign-on and this is its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -23261,7 +23732,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`); or the organization requires single sign-on and this is its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first",
+                     *         "message": "The organization has no SSO connection bound to it, or its connection is developer-managed and is changed from the Console; the connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection in `data.current`); or the organization requires single sign-on and this is its only active connection (`organization.sso_requirement_needs_connection`): turn the requirement off first. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/sso-connection/disable",
                      *         "method": "POST"
@@ -24251,6 +24764,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -24360,7 +24878,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap */
+            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24371,7 +24889,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
+                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens",
                      *         "method": "POST"
@@ -24387,6 +24947,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -24497,7 +25062,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap */
+            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -24508,7 +25073,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
+                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/directory/tokens/{tokenId}/rotate",
                      *         "method": "POST"
@@ -25113,6 +25720,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -25222,7 +25834,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The Environment has no default audience, the organization already holds as many integrations as it may, another of its integrations has this name, or the plan's machine-credential allowance is reached */
+            /** @description The Environment has no default audience, the organization already holds as many integrations as it may, another of its integrations has this name, or the plan's machine-credential allowance is reached. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -25233,7 +25845,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The Environment has no default audience, the organization already holds as many integrations as it may, another of its integrations has this name, or the plan's machine-credential allowance is reached",
+                     *         "message": "The Environment has no default audience, the organization already holds as many integrations as it may, another of its integrations has this name, or the plan's machine-credential allowance is reached. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients",
                      *         "method": "POST"
@@ -25719,6 +26373,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -25820,6 +26479,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
                      *         "message": "No organization with that id exists in this Environment, or no integration with that `client_id` belongs to it",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/organizations/{id}/oauth-clients/{clientId}/rotate-secret",
                      *         "method": "POST"
@@ -30621,6 +31343,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -30701,6 +31428,69 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/audit-events",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/export",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/export",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/audit-events/export",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -32911,7 +33701,13 @@ export interface operations {
     ApiApplicationsController_createEnvironment: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 id: string;
             };
@@ -33018,7 +33814,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description An Environment with this slug already exists in the Application (`environment.slug_conflict`), or the Application already holds as many Environments as it may (`environment.limit`, `data.limit` naming the limit) */
+            /** @description An Environment with this slug already exists in the Application (`environment.slug_conflict`), or the Application already holds as many Environments as it may (`environment.limit`, `data.limit` naming the limit). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -33029,7 +33825,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "An Environment with this slug already exists in the Application (`environment.slug_conflict`), or the Application already holds as many Environments as it may (`environment.limit`, `data.limit` naming the limit)",
+                     *         "message": "An Environment with this slug already exists in the Application (`environment.slug_conflict`), or the Application already holds as many Environments as it may (`environment.limit`, `data.limit` naming the limit). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/applications/{id}/environments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/applications/{id}/environments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/applications/{id}/environments",
                      *         "method": "POST"
@@ -33503,6 +34341,11 @@ export interface operations {
             header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
                 "If-Match"?: string;
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
             };
             path: {
                 id: string;
@@ -33610,7 +34453,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`) */
+            /** @description The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -33621,7 +34464,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`)",
+                     *         "message": "The Environment changed since the version sent in `If-Match` was read (`version_mismatch`, with the Environment as it now stands in `data.current`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/environments/{id}/import",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/environments/{id}/import",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
                      *         "method": "POST"
@@ -34284,6 +35169,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -34364,6 +35254,69 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/signing-keys",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/signing-keys/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/signing-keys/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/signing-keys/rotate",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -34464,6 +35417,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -34550,7 +35508,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The Environment already holds as many live publishable keys as it may (`publishable_key.limit`, `data.limit` naming the limit); revoke one first */
+            /** @description The Environment already holds as many live publishable keys as it may (`publishable_key.limit`, `data.limit` naming the limit); revoke one first. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -34561,7 +35519,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The Environment already holds as many live publishable keys as it may (`publishable_key.limit`, `data.limit` naming the limit); revoke one first",
+                     *         "message": "The Environment already holds as many live publishable keys as it may (`publishable_key.limit`, `data.limit` naming the limit); revoke one first. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/publishable-keys",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/publishable-keys",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/publishable-keys",
                      *         "method": "POST"
@@ -35337,7 +36337,13 @@ export interface operations {
     ApiSsoController_create: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -35421,7 +36427,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The Account has reached its plan limit for end-user SSO connections. */
+            /** @description The Account has reached its plan limit for end-user SSO connections.. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -35432,7 +36438,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The Account has reached its plan limit for end-user SSO connections.",
+                     *         "message": "The Account has reached its plan limit for end-user SSO connections.. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/sso/connections",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/sso/connections",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections",
                      *         "method": "POST"
@@ -35951,6 +36999,11 @@ export interface operations {
             header?: {
                 /** @description Optimistic-lock version of the resource. Send the `version` field returned on read; the server rejects with 409 if the row has changed since. Leave it out to skip the check; a header that names no version (not a whole number) is refused with 400 `if_match.invalid`. */
                 "If-Match"?: string;
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
             };
             path: {
                 id: string;
@@ -36054,7 +37107,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`), or it is the only active connection of an organization that requires single sign-on (`organization.sso_requirement_needs_connection`): turn the requirement off first */
+            /** @description The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`), or it is the only active connection of an organization that requires single sign-on (`organization.sso_requirement_needs_connection`): turn the requirement off first. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -36065,7 +37118,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`), or it is the only active connection of an organization that requires single sign-on (`organization.sso_requirement_needs_connection`): turn the requirement off first",
+                     *         "message": "The connection changed since the version sent in `If-Match` was read (`version_mismatch`, with the connection as it now stands in `data.current`), or it is the only active connection of an organization that requires single sign-on (`organization.sso_requirement_needs_connection`): turn the requirement off first. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/sso/connections/{id}/disable",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/sso/connections/{id}/disable",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/sso/connections/{id}/disable",
                      *         "method": "POST"
@@ -38685,6 +39780,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -38771,7 +39871,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap */
+            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -38782,7 +39882,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
+                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens",
                      *         "method": "POST"
@@ -38886,6 +40028,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -38995,7 +40142,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap */
+            /** @description The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -39006,7 +40153,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap",
+                     *         "message": "The directory already holds 10 live tokens, the most it may (`scim.token_limit`, `data.limit` naming the limit); revoke one first. A rotation counts, since the old token stays live for its overlap. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens/{id}/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/scim-tokens/{id}/rotate",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/scim-tokens/{id}/rotate",
                      *         "method": "POST"
@@ -41099,6 +42288,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -41179,6 +42373,69 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -41758,6 +43015,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -41858,6 +43120,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "webhook.not_found",
                      *         "message": "Webhook subscription not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/webhooks/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/webhooks/{id}/rotate-secret",
                      *         "method": "POST"
@@ -41975,6 +43300,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -42082,7 +43412,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -42093,7 +43423,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
-                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "POST"
@@ -42579,6 +43909,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -42688,7 +44023,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The client is public and has no secret to rotate (`oauth.client_public_has_no_secret`) */
+            /** @description The client is public and has no secret to rotate (`oauth.client_public_has_no_secret`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -42699,7 +44034,49 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The client is public and has no secret to rotate (`oauth.client_public_has_no_secret`)",
+                     *         "message": "The client is public and has no secret to rotate (`oauth.client_public_has_no_secret`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
                      *         "method": "POST"
@@ -42838,6 +44215,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -42968,7 +44350,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -42979,7 +44361,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
-                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
                      *         "method": "POST"
@@ -43507,6 +44889,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -43614,7 +45001,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -43625,7 +45012,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
-                     *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "POST"
@@ -43928,6 +45315,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -44024,6 +45416,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "api_key.not_found",
                      *         "message": "API key not found",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys/{id}/rotate-secret",
                      *         "method": "POST"
@@ -44333,7 +45788,13 @@ export interface operations {
     ApiAccountWebhooksController_create: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -44411,6 +45872,69 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks",
                      *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/account-webhooks",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/account-webhooks",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/account-webhooks",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -45062,7 +46586,13 @@ export interface operations {
     ApiAccountWebhooksController_rotateSecret: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A key of your own, up to 255 characters, that makes this request safe to send again (a UUID is a good one). While the first request runs a repeat answers `409`; once it has succeeded a repeat with the same key and the same request is answered with the first response for 24 hours, and nothing is done twice. A request that failed gives the key back. Leave it out to send the request once.
+                 * @example 9f4e8c2a-1b3d-4f5e-8a7c-2d1e3b4c5d6e
+                 */
+                "Idempotency-Key"?: string;
+            };
             path: {
                 id: string;
             };
@@ -45160,6 +46690,69 @@ export interface operations {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
                      *         "message": "No webhook subscription with that id is in the Account",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/account-webhooks/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/account-webhooks/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 422,
+                     *         "code": "request.refused",
+                     *         "message": "The `Idempotency-Key` was already used by this caller for a different request: another method, path or body, another `If-Match`, or another Environment. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/account-webhooks/{id}/rotate-secret",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/account-webhooks/{id}/rotate-secret",
                      *         "method": "POST"
