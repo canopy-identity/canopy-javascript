@@ -62,6 +62,27 @@ export const recentEvents = () =>
 
 The client retries only what is safe to replay (idempotent methods on `5xx`, and any `429`). Do not wrap it in your own retry loop.
 
+A create that honours `Idempotency-Key` (API keys, OAuth clients and their role assignments, and the identity and invitation bulk creates) is safe to repeat with the same key: a repeat gets the first answer and creates nothing. Send a key you keep for that one operation and declare the call `idempotent`, and the client also retries it on a `5xx`, a dropped connection and `409 idempotency.request_in_progress`:
+
+```ts
+import { randomUUID } from "node:crypto";
+
+import { Canopy } from "@canopy-io/node";
+
+const canopy = new Canopy({ apiKey: process.env.CANOPY_API_KEY });
+
+export const createReportingKey = () =>
+  canopy.client.request("POST", "/api/v1/api-keys", {
+    body: { name: "Reporting", access_mode: "scoped", scopes: ["audit.view"] },
+    headers: { "Idempotency-Key": randomUUID() },
+    idempotent: true,
+  });
+```
+
+- `409 idempotency.outcome_unknown`: an earlier attempt started and its result was not recorded, so it is not run again. Check whether it took effect, then use a new key.
+- `422 idempotency.key_reused_with_different_request`: the key was used for a different request. Use one key per operation.
+- Never declare `idempotent` on a create that does not honour the key: a repeat there creates twice.
+
 Lists are paged: `{ items, pagination }`, 20 per page by default and at most 100 (`take`). Every list wrapper returns a `Paginator` (`for await`, `.all()`, `.first()`), including `identities.sessions` and `organizations.listDirectoryGroups`. A list read through `canopy.client.request`, such as `GET /api/v1/nodes`, answers one page; walk it with `paginate` rather than reading the first page as the whole. `permissions.evaluateBulk` takes 1 to 100 checks and refuses more with a `400`.
 
 ## Provisioning with an account key

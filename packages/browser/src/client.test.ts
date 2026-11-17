@@ -179,6 +179,21 @@ describe("signIn", () => {
     expect(h.storage.items.size).toBe(1);
   });
 
+  it("names the hosted pages' language with ui_locales, and sends none unless asked", async () => {
+    const asked = harness();
+    const plain = harness();
+
+    await asked.client.signIn({ uiLocales: "es fr" });
+    await plain.client.signIn();
+
+    expect(
+      new URL(asked.navigations[0] as string).searchParams.get("ui_locales"),
+    ).toBe("es fr");
+    expect(
+      new URL(plain.navigations[0] as string).searchParams.has("ui_locales"),
+    ).toBe(false);
+  });
+
   it("keeps no token in storage, only the verifier for the round trip", async () => {
     const h = harness();
     const { url } = await callback(h);

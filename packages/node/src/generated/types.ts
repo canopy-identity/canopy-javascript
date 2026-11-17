@@ -2564,7 +2564,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk-create role assignments. All-or-nothing: any failure rolls back the entire batch
+         * Bulk-create role assignments. Each item succeeds or fails on its own
          * @description Creates many role assignments in one request using partial-success semantics: each item is validated, authorized at its node, and saved independently. Successes and failures are returned together in a `{ summary, results }` envelope — `200` when every item succeeds, `207 Multi-Status` when some fail. Per-item duplicates (including repeats within the same batch), unauthorized nodes, and inactive/system roles fold into the `failures` array rather than aborting the request. Emits a single `assignment.bulk_created` audit summary.
          */
         post: operations["ApiAssignmentsController_bulkCreate"];
@@ -2778,8 +2778,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List the hosted page texts whose wording can be changed
-         * @description Lists the texts on hosted pages that `text_overrides` can reword: the headings, labels, button labels and helper text of the sign-in, sign-up, account recovery, email verification, invitation, multi-factor challenge and sign-out pages. Each entry has the `key` an override names it by, its `locale`, the `page` it shows on with that page's title and a `preview_state` that shows it, a plain `name`, its `kind`, its `default` wording, the `placeholders` an override must keep, and its `max_length`. Wording that tells a person what happened to their account (errors, refusals, expiry notices and warnings) is not listed and cannot be changed. Read this list before writing `text_overrides`. Returns `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         * List the hosted page and email texts whose wording can be changed
+         * @description Lists the texts on hosted pages and in emails that `text_overrides` can reword: the headings, labels, button labels and helper text of the sign-in, sign-up, account recovery, email verification, invitation, multi-factor challenge and sign-out pages, and the subject, heading, main sentence and button of the verification, password reset, sign-in code, two-step verification code, change confirmation and invitation emails. Each entry has the `key` an override names it by, its `locale`, the `page` or email it shows on, by the preview list's `id`, with its title and a `preview_state` that shows it, a plain `name`, its `kind`, its `default` wording, the `placeholders` an override must keep, and its `max_length`. Wording that tells a person what happened to their account (errors, refusals, expiry notices, warnings, and the security notice emails) is not listed and cannot be changed. Read this list before writing `text_overrides`. Returns `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
          */
         get: operations["ApiBrandingController_getTextKeys"];
         put?: never;
@@ -2801,7 +2801,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a hosted page or email in a branding
-         * @description Renders one hosted page, in one of its states, or one customer email, in the Environment's branding with the unsaved changes in `branding` laid over it, so a branding change can be checked before it is saved. Nothing is saved, and no session or person is involved: the page shows sample data. `page` and `state` are ids from the preview list, and `scheme` renders a page in its light or its dark look whatever the color scheme. Returns the whole HTML document, which works without scripts. Returns `400` (`branding.preview_page_unknown`) for a page or state that does not exist, or `validation` for a malformed branding value, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         * @description Renders one hosted page, in one of its states, or one customer email, in the Environment's branding with the unsaved changes in `branding` laid over it, so a branding change can be checked before it is saved. Nothing is saved, and no session or person is involved: the page shows sample data. `page` and `state` are ids from the preview list, and `scheme` renders a page in its light or its dark look whatever the color scheme. Returns the whole HTML document, which works without scripts. Returns `400` (`branding.preview_page_unknown`) for a page or state that does not exist, or `validation` for a malformed branding value, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization. `language` renders it in one of the languages Canopy writes the pages in, with the wording `text_overrides` holds for that language; left out, English.
          */
         post: operations["ApiBrandingController_preview"];
         delete?: never;
@@ -3017,7 +3017,7 @@ export interface paths {
         head?: never;
         /**
          * Change an Environment's sign-in settings
-         * @description Updates the sign-in settings of the request's Environment, applying any supplied fields (`mfa`, `allow_self_signup`, `self_signup_require_captcha`, `login_require_captcha`, `password_login_enabled`, `email_otp_login_enabled`, `passkey_login_enabled`, `self_signup_daily_cap`, `access_token_ttl_seconds`, `refresh_token_ttl_days`, `public_refresh_token_ttl_days`, `allowed_web_origins`, `sso_return_urls`, `auth_links_base_url`); omitted fields are left unchanged, `allowed_web_origins` are normalized and de-duplicated on save, and `auth_links_base_url` is canonicalized to a bare origin (send `null` to clear it). While `auth_links_base_url` is set, verification, password-reset and invitation emails link to that origin at `/verify-email`, `/reset-password` and `/accept-invite` instead of Canopy's hosted pages. Send the Environment's `version` (returned by the GET) in `If-Match` to refuse a stale save: a mismatch answers `409 version_mismatch`, and without the header the check is skipped. Emits an `environment.auth_settings_updated` audit event naming the settings whose value changed.
+         * @description Updates the sign-in settings of the request's Environment, applying any supplied fields (`mfa`, `allow_self_signup`, `self_signup_require_captcha`, `login_require_captcha`, `password_login_enabled`, `email_otp_login_enabled`, `passkey_login_enabled`, `default_language`, `self_signup_daily_cap`, `access_token_ttl_seconds`, `refresh_token_ttl_days`, `public_refresh_token_ttl_days`, `allowed_web_origins`, `sso_return_urls`, `auth_links_base_url`); omitted fields are left unchanged, `allowed_web_origins` are normalized and de-duplicated on save, and `auth_links_base_url` is canonicalized to a bare origin (send `null` to clear it). While `auth_links_base_url` is set, verification, password-reset and invitation emails link to that origin at `/verify-email`, `/reset-password` and `/accept-invite` instead of Canopy's hosted pages. Send the Environment's `version` (returned by the GET) in `If-Match` to refuse a stale save: a mismatch answers `409 version_mismatch`, and without the header the check is skipped. Emits an `environment.auth_settings_updated` audit event naming the settings whose value changed.
          */
         patch: operations["ApiAuthSettingsController_update"];
         trace?: never;
@@ -4129,7 +4129,7 @@ export interface paths {
         head?: never;
         /**
          * Update OAuth client
-         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`, and for a web client `branding`, the settings it carries over its Environment's branding; for a machine client `allowed_audiences` and `token_exchange`, which adds or removes the token-exchange grant in its `grant_types`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). Setting a `branding` value answers `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization, and `400` (`oauth.machine_client_branding_invalid`) on a machine client; returning one to the Environment's with `null` is always allowed. The secret is not rotated here.
+         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`, and for a web client `branding`, the settings it carries over its Environment's branding; for a machine client `allowed_audiences` and `token_exchange`, which adds or removes the token-exchange grant in its `grant_types`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). Setting a `branding` value answers `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization, `400` (`oauth.machine_client_branding_invalid`) on a machine client, and `400` (`oauth.client_page_template_invalid`) for `page_template` or `page_template_sources`, which belong to the Environment; returning one to the Environment's with `null` is always allowed. The secret is not rotated here.
          */
         patch: operations["ApiOAuthClientsController_update"];
         trace?: never;
@@ -4769,6 +4769,11 @@ export interface components {
             last_name: string;
             avatar_url?: string | null;
             external_id?: string | null;
+            /**
+             * @description The language the person reads, as a language tag, or null when none is known. Set when they sign up, when they choose a language on the hosted pages, or through this API.
+             * @example fr
+             */
+            locale?: string | null;
             is_active: boolean;
             /** Format: date-time */
             created_at: string;
@@ -4814,6 +4819,11 @@ export interface components {
             password?: string;
             external_id?: string;
             metadata?: Record<string, unknown>;
+            /**
+             * @description The language the person reads, as a language tag (`en`, `fr-CA`). Emails to them are written in it, and the hosted pages use it when the address names no `ui_locales`, wherever the hosted pages are written in it. Omit to leave it unknown until they sign in.
+             * @example fr
+             */
+            locale?: string;
             /** @description Role for an initial assignment — required if node_id is provided */
             role_id?: string;
             /** @description Node for an initial assignment — required if role_id is provided */
@@ -4857,6 +4867,11 @@ export interface components {
             last_name: string;
             avatar_url?: string | null;
             external_id?: string | null;
+            /**
+             * @description The language the person reads, as a language tag, or null when none is known. Set when they sign up, when they choose a language on the hosted pages, or through this API.
+             * @example fr
+             */
+            locale?: string | null;
             is_active: boolean;
             /** Format: date-time */
             created_at: string;
@@ -4873,6 +4888,11 @@ export interface components {
             name: string;
             avatar_url?: string | null;
             external_id?: string | null;
+            /**
+             * @description The language the person reads, as a language tag, or null when none is known.
+             * @example fr
+             */
+            locale?: string | null;
             metadata?: Record<string, unknown> | null;
             is_active: boolean;
             email_verified: boolean;
@@ -4890,6 +4910,11 @@ export interface components {
             first_name?: string;
             last_name?: string;
             metadata?: Record<string, unknown> | null;
+            /**
+             * @description The language the person reads, as a language tag (`en`, `fr-CA`). `null` forgets it. Emails to them are written in it, and the hosted pages use it when the address names no `ui_locales`, wherever the hosted pages are written in it.
+             * @example fr
+             */
+            locale?: string | null;
         };
         SetIdentityPasswordDto: {
             /** @description New password. 8-64 characters. No composition rules — NIST SP 800-63B aligned. A HaveIBeenPwned breach check runs server-side. The effective policy is published on `GET /v1/identity/auth/config`, so a client can state the rules before submit rather than after. */
@@ -5076,6 +5101,11 @@ export interface components {
             first_name: string;
             last_name: string;
             name: string;
+            /**
+             * @description The language the invitation named for the invitee, as a language tag, or null when it named none.
+             * @example fr
+             */
+            locale?: string | null;
             role_id?: string | null;
             node_id?: string | null;
             /** @description The name of the node at `node_id`, when it has one. */
@@ -5123,6 +5153,11 @@ export interface components {
             first_name: string;
             last_name: string;
             name: string;
+            /**
+             * @description The language the invitation named for the invitee, as a language tag, or null when it named none.
+             * @example fr
+             */
+            locale?: string | null;
             role_id?: string | null;
             node_id?: string | null;
             /** @description The name of the node at `node_id`, when it has one. */
@@ -5165,6 +5200,11 @@ export interface components {
             first_name?: string;
             /** @description Required for `activate`. Ignored for `add_to_app` and `password_reset`. */
             last_name?: string;
+            /**
+             * @description The language to write to the invitee in, as a language tag (`en`, `fr-CA`). The invitation email is written in it where the emails are written in that language, and the identity the invitation creates keeps it. Omit to use the language an existing identity already reads, or the Environment's default.
+             * @example fr
+             */
+            locale?: string;
             /** @description The role the invitation grants at `node_id`. Required with a `node_id`, except an organization node, where an invitation may admit a member with no role. */
             role_id?: string;
             /** @description Node ID — required if role_id is provided */
@@ -6957,6 +6997,14 @@ export interface components {
             notice_html: string | null;
             footer_html: string | null;
             custom_css: string | null;
+            /** @description The customer's own page around the hosted form, as stored, or null for none. Pages wear it only on `page_template_domain`. Always null in an OAuth client's own branding. */
+            page_template: string | null;
+            /**
+             * @description The https addresses the page template may load from, one a line, or null for none. Always null in an OAuth client's own branding.
+             * @example https://cdn.acme.example
+             *     https://analytics.acme.example
+             */
+            page_template_sources: string | null;
             /**
              * @description The customer's own wording for hosted page texts, by locale and then by the text's key. Empty where none is set.
              * @example {
@@ -7073,14 +7121,38 @@ export interface components {
             /** @description Whether the attribution mark stays on hosted pages and the portal. False only on a plan with brand removal. */
             attribution: boolean;
         };
+        AvailableLanguageDto: {
+            /**
+             * @description The language's tag.
+             * @example en
+             */
+            code: string;
+            /**
+             * @description The language's name, written in the language itself.
+             * @example English
+             */
+            name: string;
+        };
         EnvironmentBrandingResponseDto: {
             environment_slug: string;
             branding: components["schemas"]["StoredBrandingDto"];
             effective: components["schemas"]["EffectiveBrandingDto"];
             /** @description Whether the Account's plan removes the attribution mark. When false, the mark stays whatever the customer sets. */
             brand_removal_available: boolean;
-            /** @description Whether the Account's plan carries hosted page customization. When false, the color scheme, the dark colors and dark logo, the layout, the background style with its gradient and image, the panel, the header, notice and footer content, the texts' wording, `text_color`, `surface_color`, `corner_radius`, `card_style`, `card_shadow`, `heading_font` and `body_font` cannot be set and the pages ignore any already stored. */
+            /** @description Whether the Account's plan carries hosted page customization. When false, the color scheme, the dark colors and dark logo, the layout, the background style with its gradient and image, the panel, the header, notice and footer content, the custom CSS, the page template and its addresses, the texts' wording, `text_color`, `surface_color`, `corner_radius`, `card_style`, `card_shadow`, `heading_font` and `body_font` cannot be set and the pages ignore any already stored. */
             customization_available: boolean;
+            /**
+             * @description The Environment's active custom auth domain, which is the only address a `page_template` is served on, or null while it has none. Hosted pages wear a stored template only while this names a domain and the Account's plan carries hosted page customization; otherwise the template is kept and the pages are drawn without it.
+             * @example auth.acme.example
+             */
+            page_template_domain: string | null;
+            /** @description Every language the hosted pages and emails are written in, in the order they are listed. Every Environment offers all of them. `text_overrides` may reword the texts in each, and a preview may be asked for in any of them. */
+            languages: components["schemas"]["AvailableLanguageDto"][];
+            /**
+             * @description The language a page is shown in when nothing asks for another, one of `languages`.
+             * @example en
+             */
+            default_language: string;
             /** @description The Environment's optimistic-lock version; send it back as `If-Match` on PATCH. Any change to the Environment moves it. */
             version: number;
         };
@@ -7250,7 +7322,28 @@ export interface components {
              */
             custom_css?: string | null;
             /**
-             * @description Your own wording for texts on hosted pages, by locale and then by the text's `key` from `GET /api/v1/branding/text-keys`. Each text set here replaces the stored wording, `null` returns that text to its default, and a text left out keeps what is stored; `null` for the whole value returns every text to its default. Wording is plain text without `<` or `>`, no longer than the text's `max_length`, and keeps each of the text's `placeholders` in double braces. A locale the pages are not written in, a key outside the list, or wording that breaks these rules is refused. Needs the `hosted_page_customization` plan feature to set.
+             * @description Your own page around the hosted form: a whole HTML document holding `{{canopy:head}}` once inside `<head>`, where the page's title and styles go, and `{{canopy:form}}` once inside `<body>`, where the form goes with its alerts, your notice and footer content and the support, terms and privacy links. It is used only on pages served on the Environment's verified custom auth domain; on every other address, and in emails and the organization admin portal, the pages are drawn as they are without one, and the stored template waits. While it is used, `layout`, the background, the panel and `header_html` do not apply. It may hold scripts: one written in the template runs, and one loaded by address runs only from an address in `page_template_sources`. Such scripts run on the sign-in page and can read what people type, passwords included. Refused: a missing, repeated or misplaced placeholder (inside a tag, a comment, a script, a style, a link, a button, a form, or any element whose content a browser does not show as a page, such as `<xmp>`, `<noembed>`, `<canvas>` or `<dialog>`), `<base>`, `<meta http-equiv>`, `<iframe>`, `<frame>`, `<object>` and `<embed>`. Belongs to the Environment: an OAuth client's own branding cannot set it. Null removes it. Needs the `hosted_page_customization` plan feature to set.
+             * @example <!DOCTYPE html>
+             *     <html lang="en">
+             *     <head>
+             *     <meta charset="utf-8">
+             *     {{canopy:head}}
+             *     </head>
+             *     <body>
+             *     <header>Acme</header>
+             *     {{canopy:form}}
+             *     </body>
+             *     </html>
+             */
+            page_template?: string | null;
+            /**
+             * @description The addresses a page template may load scripts and stylesheets from and call, separated by spaces, commas or new lines: each an https address with no path, such as `https://cdn.acme.example`, whose host is letters, digits, dots and hyphens with an optional port, at most 20. On a page drawn with the template they are added to the page's content security policy for scripts, stylesheets and network calls; every other page keeps the standard policy. Stored one a line. Belongs to the Environment, as `page_template` does. Null lists none. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://cdn.acme.example
+             *     https://analytics.acme.example
+             */
+            page_template_sources?: string | null;
+            /**
+             * @description Your own wording for texts on hosted pages and in emails, by locale and then by the text's `key` from `GET /api/v1/branding/text-keys`. Each text set here replaces the stored wording, `null` returns that text to its default, and a text left out keeps what is stored; `null` for the whole value returns every text to its default. Wording is plain text without `<` or `>`, no longer than the text's `max_length`, and keeps each of the text's `placeholders` in double braces. A locale the pages are not written in, a key outside the list, or wording that breaks these rules is refused. Needs the `hosted_page_customization` plan feature to set.
              * @example {
              *       "en": {
              *         "authHosted.login.signInHeading": "Sign in to Acme"
@@ -7315,12 +7408,12 @@ export interface components {
              */
             locale: string;
             /**
-             * @description The hosted page the text shows on, by the `id` the preview list returns.
+             * @description The hosted page or email the text shows on, by the `id` the preview list returns.
              * @example login
              */
             page: string;
             /**
-             * @description That page's title.
+             * @description That page's or email's title.
              * @example Sign in
              */
             page_title: string;
@@ -7386,6 +7479,12 @@ export interface components {
              * @enum {string}
              */
             scheme?: "light" | "dark";
+            /**
+             * @description The language to render the page or email in, with the wording `text_overrides` holds for it. Leave it out to render it in English.
+             * @example es
+             * @enum {string}
+             */
+            language?: "en" | "es";
         };
         TokenClaimEntryResponseDto: {
             /**
@@ -7546,6 +7645,11 @@ export interface components {
             email_otp_login_enabled?: boolean;
             /** @description Enable passkey sign-in for this Environment. Off by default (opt-in); persisted under `env.settings.passkey_login_enabled`. When on, an identity holding a passkey signs in with it alone via /login/passkey/*, and the passkey counts as its second factor. */
             passkey_login_enabled?: boolean;
+            /**
+             * @description The language a page or email is written in when nothing names one the hosted pages are written in: no `ui_locales`, no stored language for the person, and no match in the browser's languages. Must be one of `available_languages` in the response. Unset, `en`.
+             * @example en
+             */
+            default_language?: string;
             /** @description Maximum self-signup registrations allowed per UTC day for this Environment. 0 (the default) means no cap. When exceeded, registration returns 429. Persisted under `env.settings.self_signup_daily_cap`. */
             self_signup_daily_cap?: number;
             /** @description Lifetime in seconds of the access tokens (JWTs) this Environment issues to identities. Defaults to 900 (15 minutes). Persisted under `env.settings.access_token_ttl_seconds`; applies to tokens minted after the change. */
@@ -7636,6 +7740,13 @@ export interface components {
             password_login_enabled?: boolean;
             email_otp_login_enabled?: boolean;
             passkey_login_enabled?: boolean;
+            /**
+             * @description The language a page or email is written in when nothing names one the hosted pages are written in. Always one of `available_languages`.
+             * @example en
+             */
+            default_language: string;
+            /** @description Every language the hosted pages and emails are written in. Every Environment offers all of them: a page or email follows `ui_locales`, then the person's stored language, then the browser's, then `default_language`. */
+            available_languages: components["schemas"]["AvailableLanguageDto"][];
             self_signup_daily_cap?: number;
             access_token_ttl_seconds?: number;
             refresh_token_ttl_days?: number;
@@ -7713,6 +7824,11 @@ export interface components {
             email_otp_login_enabled?: boolean;
             /** @description Enable passkey sign-in for this Environment. Off by default (opt-in); persisted under `env.settings.passkey_login_enabled`. When on, an identity holding a passkey signs in with it alone via /login/passkey/*, and the passkey counts as its second factor. */
             passkey_login_enabled?: boolean;
+            /**
+             * @description The language a page or email is written in when nothing names one the hosted pages are written in: no `ui_locales`, no stored language for the person, and no match in the browser's languages. Must be one of `available_languages` in the response. Unset, `en`.
+             * @example en
+             */
+            default_language?: string;
             /** @description Maximum self-signup registrations allowed per UTC day for this Environment. 0 (the default) means no cap. When exceeded, registration returns 429. Persisted under `env.settings.self_signup_daily_cap`. */
             self_signup_daily_cap?: number;
             /** @description Lifetime in seconds of the access tokens (JWTs) this Environment issues to identities. Defaults to 900 (15 minutes). Persisted under `env.settings.access_token_ttl_seconds`; applies to tokens minted after the change. */
@@ -8569,7 +8685,7 @@ export interface components {
             invite_redirect_url?: string | null;
             /** @description The route in your application that starts a sign-in (OpenID Connect `initiate_login_uri`): it should send the person to Canopy's `/oauth/authorize`. Canopy's hosted pages that end with nothing to return to, such as an accepted invitation or a verified email, offer it as **Sign in**. Absolute `http` or `https` URL; `null` clears it. */
             initiate_login_uri?: string | null;
-            /** @description Changes to the branding this client carries over its Environment's, in the shape of a branding change: a setting set here is the client's own, `null` for a setting returns it to the Environment's, and a setting left out keeps what the client holds. `null` for the whole value returns every setting to the Environment's. A sign-in this client starts wears the result on the hosted pages and in the emails it sends. A web client only: a machine client answers `400` (`oauth.machine_client_branding_invalid`). Needs the `hosted_page_customization` plan feature to set. */
+            /** @description Changes to the branding this client carries over its Environment's, in the shape of a branding change: a setting set here is the client's own, `null` for a setting returns it to the Environment's, and a setting left out keeps what the client holds. `null` for the whole value returns every setting to the Environment's. A sign-in this client starts wears the result on the hosted pages and in the emails it sends. A web client only: a machine client answers `400` (`oauth.machine_client_branding_invalid`). `page_template` and `page_template_sources` belong to the Environment and answer `400` here (`oauth.client_page_template_invalid`). Needs the `hosted_page_customization` plan feature to set. */
             branding?: components["schemas"]["UpdateEnvironmentBrandingDto"] | null;
         };
         ApiKeyCreatedResponseDto: {
@@ -11995,6 +12111,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
             422: {
                 headers: {
@@ -12007,6 +12144,27 @@ export interface operations {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identities/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identities/bulk-create",
                      *         "method": "POST"
@@ -14509,6 +14667,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
+            /** @description A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 409,
+                     *         "code": "request.conflict",
+                     *         "message": "A request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly, and once it finishes the retry is answered with its response. Or one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
             /** @description The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key. */
             422: {
                 headers: {
@@ -14521,6 +14700,27 @@ export interface operations {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/identity-invites/bulk-create",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/identity-invites/bulk-create",
                      *         "method": "POST"
@@ -31276,7 +31476,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`, `page_template` a document of at most 100,000 characters holding `{{canopy:head}}` once inside `<head>` and `{{canopy:form}}` once inside `<body>` with no `<base>`, `<meta http-equiv>`, frame, `<object>` or `<embed>`, and `page_template_sources` at most 20 https addresses with no path; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -31287,7 +31487,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`, `page_template` a document of at most 100,000 characters holding `{{canopy:head}}` once inside `<head>` and `{{canopy:form}}` once inside `<body>` with no `<base>`, `<meta http-equiv>`, frame, `<object>` or `<embed>`, and `page_template_sources` at most 20 https addresses with no path; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
@@ -33550,7 +33750,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or `default_language` names a language outside `available_languages` (`environment.default_language_invalid`); or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -33561,7 +33761,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or `default_language` names a language outside `available_languages` (`environment.default_language_invalid`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
                      *         "method": "PATCH"
@@ -41861,7 +42061,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description A machine client: the account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`, API keys and machine clients together); `data` carries the limit, the usage and an upgrade URL */
+            /** @description A machine client: the account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`, API keys and machine clients together); `data` carries the limit, the usage and an upgrade URL. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -41872,7 +42072,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "A machine client: the account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`, API keys and machine clients together); `data` carries the limit, the usage and an upgrade URL",
+                     *         "message": "A machine client: the account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`, API keys and machine clients together); `data` carries the limit, the usage and an upgrade URL. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "POST"
@@ -41894,6 +42094,27 @@ export interface operations {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients",
                      *         "method": "POST"
@@ -42247,7 +42468,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`), or `branding` holds a value a branding change would refuse (`validation`) or is sent for a machine client (`oauth.machine_client_branding_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`), or `branding` holds a value a branding change would refuse (`validation`) or is sent for a machine client (`oauth.machine_client_branding_invalid`), or `branding` sets `page_template` or `page_template_sources`, which belong to the Environment (`oauth.client_page_template_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -42258,7 +42479,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`), or `branding` holds a value a branding change would refuse (`validation`) or is sent for a machine client (`oauth.machine_client_branding_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range, `backchannel_logout_uri` names an address Canopy's servers will not call, `initiate_login_uri` is malformed or not `https` (loopback hosts excepted), `scopes` names a scope Canopy does not issue (`oauth.client_scope_unknown`), a machine client names an `organization_node_id` that is not a live organization of this Environment (`oauth.client_organization_invalid`), takes a web client's field or a scope other than `permissions` (`oauth.machine_client_fields_invalid`) or is asked to be public (`oauth.machine_client_public_invalid`), a web client sends `allowed_audiences` (`oauth.web_client_audiences_invalid`) or `token_exchange` (`oauth.web_client_token_exchange_invalid`), or a confidential client registers a private-use scheme redirect (`oauth.redirect_uri_not_allowed_for_client`), or `branding` holds a value a branding change would refuse (`validation`) or is sent for a machine client (`oauth.machine_client_branding_invalid`), or `branding` sets `page_template` or `page_template_sources`, which belong to the Environment (`oauth.client_page_template_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "PATCH"
@@ -42726,7 +42947,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`) */
+            /** @description The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -42737,7 +42958,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`)",
+                     *         "message": "The client already holds this role at this node (`rbac.assignment_conflict`), the client is pinned to an organization and the node is outside it (`oauth.client_outside_organization`), the caller's `If-Match` is stale (`assignment.version_mismatch`), or the change would leave an organization without an administrator (`organization.last_admin`). Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
                      *         "method": "POST"
@@ -42759,6 +42980,27 @@ export interface operations {
                      *         "statusCode": 422,
                      *         "code": "request.refused",
                      *         "message": "The `Idempotency-Key` was already used by this caller for a request with a different method, path or body. A replay must repeat the original request exactly; a new request takes a new key.",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/oauth-clients/{id}/assignments",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
                      *         "method": "POST"
@@ -43351,7 +43593,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description The account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`: API keys and machine clients); `data` carries the limit, the usage and an upgrade URL */
+            /** @description The account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`: API keys and machine clients); `data` carries the limit, the usage and an upgrade URL. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -43362,7 +43604,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 409,
                      *         "code": "request.conflict",
-                     *         "message": "The account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`: API keys and machine clients); `data` carries the limit, the usage and an upgrade URL",
+                     *         "message": "The account has reached its plan's monthly limit on active machine credentials (`m2m_tokens`: API keys and machine clients); `data` carries the limit, the usage and an upgrade URL. Also when a request with the same `Idempotency-Key` is still being processed (`idempotency.request_in_progress`): retry shortly. Or when one started and never recorded its outcome (`idempotency.outcome_unknown`): it is not run again, so check whether it took effect and use a new key",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "POST"
@@ -43405,6 +43647,27 @@ export interface operations {
                      *         "statusCode": 429,
                      *         "code": "request.rate_limited",
                      *         "message": "More than 20 create requests in a minute from this caller (`x-canopy-rate-limit`); retry after the window",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/api-keys",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 503,
+                     *         "code": "server.error",
+                     *         "message": "The request carried an `Idempotency-Key` and the key could not be checked (`idempotency.unavailable`), so the request was not run. Retry shortly",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/api-keys",
                      *         "method": "POST"
