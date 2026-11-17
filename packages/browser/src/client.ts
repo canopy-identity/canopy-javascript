@@ -45,6 +45,13 @@ export interface SignInOptions {
   organization?: string;
   /** An email address to put in the sign-in form. */
   loginHint?: string;
+  /**
+   * The languages to show the hosted pages in, most preferred first, as
+   * language tags separated by spaces (`"es fr"`): usually your app's own
+   * language. Sent as `ui_locales`. The first one the pages are written in
+   * wins; with none, the person's stored language, then the browser's.
+   */
+  uiLocales?: string;
   /** Your app's path or URL to go back to after sign-in; returned by `handleRedirect()`. */
   returnTo?: string;
 }
@@ -207,6 +214,7 @@ export class CanopyBrowserClient {
       ...(signIn.prompt ? { prompt: signIn.prompt } : {}),
       ...(signIn.organization ? { organization: signIn.organization } : {}),
       ...(signIn.loginHint ? { login_hint: signIn.loginHint } : {}),
+      ...(signIn.uiLocales ? { ui_locales: signIn.uiLocales } : {}),
     }).toString();
 
     this.#navigate(authorize.toString());
