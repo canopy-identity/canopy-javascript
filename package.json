@@ -26,8 +26,7 @@
     "generate": "npm run generate --workspaces --if-present",
     "check:packaging": "attw --pack packages/node && attw --pack packages/nestjs && attw --pack packages/browser",
     "generate:check": "npm run generate:check --workspaces --if-present",
-    "check:skill": "node scripts/check-skill-snippets.mjs",
-    "verify": "npm run build && npm run lint && npm run typecheck && npm run generate:check && npm run check:skill && npm run test",
+    "verify": "npm run build && npm run lint && npm run typecheck && npm run generate:check && npm run test",
     "changeset": "changeset",
     "release": "npm run build && changeset publish"
   },

@@ -176,7 +176,8 @@ jobs:
 
       # The published packages are proven against a live Canopy by the skill
       # harness in the canopy repository (its `apps/_sandbox-skill`), which
-      # runs the skill's code blocks with the versions just published. A
+      # runs the agent skill's code blocks (canopy-identity/canopy-plugins)
+      # with the versions just published. A
       # repository_dispatch starts that run as soon as npm has them. Needs a
       # fine-grained token for canopy-identity/canopy with Contents: read and
       # write (GitHub refuses a dispatch without it, with 403) and Actions:
