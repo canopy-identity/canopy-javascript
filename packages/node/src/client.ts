@@ -161,7 +161,8 @@ export interface RequestOptions {
    */
   environmentId?: string | null;
   /**
-   * Declares this call safe to repeat, which allows retrying a 5xx.
+   * Declares this call safe to repeat, which allows retrying a 5xx, a dropped
+   * connection, and a `409 idempotency.request_in_progress`.
    *
    * Needed because the generated types carry no idempotency marker, so the
    * spec cannot drive this. GET, HEAD, PUT and DELETE are treated as
@@ -170,7 +171,11 @@ export interface RequestOptions {
    *
    * Set it where a POST is a read in disguise — the permission evaluations
    * take a body and so must be POSTs, but they compute an answer and write
-   * nothing. Do not set it on anything that creates.
+   * nothing. Set it on a create only together with an `Idempotency-Key`
+   * header, and only on a route that honours one (it declares the
+   * `idempotency.*` answers): a repeat then returns the first answer instead
+   * of creating twice, and a `409 idempotency.request_in_progress` is asked
+   * again until the first attempt finishes. On any other create, do not set it.
    */
   idempotent?: boolean;
 }
@@ -197,6 +202,9 @@ const DEFAULT_MAX_BACKOFF_MS = 30_000;
 
 /** Idempotent by HTTP definition (RFC 9110 §9.2.2). */
 const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE"]);
+
+/** The 409 Canopy answers while an attempt with the same Idempotency-Key runs. */
+const IDEMPOTENCY_IN_PROGRESS = "idempotency.request_in_progress";
 
 /** `304`. A success for a conditional read, and not a 2xx. */
 const NOT_MODIFIED = 304;
@@ -351,6 +359,20 @@ export class CanopyClient {
 
         if (this.shouldRetry(response.status, retryable, attempt, maxRetries)) {
           lastError = await this.toError(response, upper, path);
+          continue;
+        }
+
+        // An earlier attempt with the same Idempotency-Key is still running:
+        // the server answers it once it finishes, so asking again is the way
+        // to get the answer. Only for a call declared safe to repeat.
+        if (response.status === 409 && retryable && attempt < maxRetries) {
+          const conflict = await this.toError(response, upper, path);
+
+          if (conflict.code !== IDEMPOTENCY_IN_PROGRESS) {
+            throw conflict;
+          }
+
+          lastError = conflict;
           continue;
         }
 

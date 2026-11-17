@@ -32,6 +32,7 @@ For either:
 
 - Register a client in the Console: a `client_id`, for a confidential client a secret shown once, exact-match redirect URIs, and scopes.
 - Redirect to `/oauth/authorize` with PKCE (S256), `state` and optionally `nonce`. Canopy redirects back with a `code`; a confidential client's backend exchanges it at `/oauth/token` with the client secret, a public client with its `client_id` and the PKCE verifier.
+- The application names the language of the hosted pages and emails: pass `ui_locales` (your app's language, `ui_locales=es`) on the authorize URL. The pages have no language links. Without it they follow the person's stored language, then the browser's, then the Environment's **Default Language**. Store a person's language on the identity or invitation with `locale` so the emails sent outside a sign-in use it too.
 - A browser still signed in to Canopy gets a code back with no form. `prompt=login` always shows the form; `prompt=none` shows no page and answers `login_required` or `interaction_required` when it cannot sign in silently.
 - The token response is plain OAuth: `access_token`, `id_token` and an opaque `refresh_token`. Both JWTs carry `aud`, your `client_id`: verify the access token's issuer, audience and `type`.
 - Refresh with `grant_type=refresh_token` at `/oauth/token`. Sign out with both `/oauth/revoke` and the `end_session_endpoint` (with `id_token_hint`).

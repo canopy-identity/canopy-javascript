@@ -498,6 +498,83 @@ describe("retry policy", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("asks again while an attempt with the same Idempotency-Key is still running", async () => {
+    const { fetch, calls } = stubFetch([
+      json(
+        {
+          error: {
+            statusCode: 409,
+            code: "idempotency.request_in_progress",
+            message: "still running",
+          },
+        },
+        { status: 409 },
+      ),
+      json({ data: { id: "key_1" } }, { status: 201 }),
+    ]);
+
+    const created = await client(fetch).request<{ id: string }>(
+      "POST",
+      "/api/v1/api-keys",
+      { headers: { "Idempotency-Key": "create-1" }, idempotent: true },
+    );
+
+    expect(created).toEqual({ id: "key_1" });
+    expect(calls).toHaveLength(2);
+    expect(
+      (calls[1]?.init.headers as Record<string, string>)["Idempotency-Key"],
+    ).toBe("create-1");
+  });
+
+  it("does not ask again when the first attempt's outcome is unknown", async () => {
+    const { fetch, calls } = stubFetch([
+      json(
+        {
+          error: {
+            statusCode: 409,
+            code: "idempotency.outcome_unknown",
+            message: "check whether it took effect",
+          },
+        },
+        { status: 409 },
+      ),
+    ]);
+
+    const error = (await client(fetch)
+      .request("POST", "/api/v1/api-keys", {
+        headers: { "Idempotency-Key": "create-1" },
+        idempotent: true,
+      })
+      .catch((e: unknown) => e)) as CanopyError;
+
+    expect(error.code).toBe("idempotency.outcome_unknown");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not ask again on a 409 for a call not declared safe to repeat", async () => {
+    const { fetch, calls } = stubFetch([
+      json(
+        {
+          error: {
+            statusCode: 409,
+            code: "idempotency.request_in_progress",
+            message: "still running",
+          },
+        },
+        { status: 409 },
+      ),
+    ]);
+
+    const error = (await client(fetch)
+      .request("POST", "/api/v1/api-keys", {
+        headers: { "Idempotency-Key": "create-1" },
+      })
+      .catch((e: unknown) => e)) as CanopyError;
+
+    expect(error.statusCode).toBe(409);
+    expect(calls).toHaveLength(1);
+  });
+
   it("gives up after maxRetries and reports the last failure", async () => {
     const { fetch, calls } = stubFetch([
       json(
