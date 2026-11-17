@@ -24,16 +24,14 @@ These are the only official SDKs. That specification is published so a generator
 
 ## For AI coding assistants
 
-The [Canopy agent skill](plugins/canopy/skills/canopy/SKILL.md) teaches an assistant to integrate Canopy correctly: which sign-in shape to choose, verifying tokens, authorizing locally, failing closed, and the mistakes to avoid. Every code block in it is compiled against these packages in CI.
+The Canopy agent skill, in [canopy-identity/canopy-plugins](https://github.com/canopy-identity/canopy-plugins), teaches an assistant to integrate Canopy correctly: which sign-in shape to choose, verifying tokens, authorizing locally, failing closed, and the mistakes to avoid. Every code block in it is compiled against these packages as published.
 
 In Claude Code:
 
 ```
-/plugin marketplace add canopy-identity/canopy-javascript
-/plugin install canopy@canopy-javascript
+/plugin marketplace add canopy-identity/canopy-plugins
+/plugin install canopy@canopy
 ```
-
-Other assistants can read the same Markdown files directly, starting from [`SKILL.md`](plugins/canopy/skills/canopy/SKILL.md). [`AGENTS.md`](AGENTS.md) points there too.
 
 ## Contributing
 
