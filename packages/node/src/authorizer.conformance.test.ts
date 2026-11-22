@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { LocalAuthorizer } from "./authorizer.js";
-import type { CanopyClient } from "./client.js";
 import { CanopyError, isCanopyAuthorizerError } from "./errors.js";
+import { fakeClient } from "./testing/fake-client.js";
 
 /**
  * Canopy's authorization conformance vectors, replayed through the local
@@ -166,10 +166,9 @@ function authorizerFor(vector: Vector): LocalAuthorizer {
     ),
   });
 
-  return new LocalAuthorizer(
-    { request, requestConditional } as unknown as CanopyClient,
-    { now: () => NOW },
-  );
+  return new LocalAuthorizer(fakeClient({ request, requestConditional }), {
+    now: () => NOW,
+  });
 }
 
 /**
@@ -312,10 +311,12 @@ describe("LocalAuthorizer — the model version", () => {
   const check = vector.checks.find((c) => c.scope === "node" && c.allowed);
 
   it("refuses grant roots that describe a model it does not know", async () => {
-    const authorizer = new LocalAuthorizer({
-      request: vi.fn().mockResolvedValue({ ...page([]), model_version: 99 }),
-      requestConditional: vi.fn(),
-    } as unknown as CanopyClient);
+    const authorizer = new LocalAuthorizer(
+      fakeClient({
+        request: vi.fn().mockResolvedValue({ ...page([]), model_version: 99 }),
+        requestConditional: vi.fn(),
+      }),
+    );
 
     const error = await authorizer
       .evaluate({
@@ -337,25 +338,27 @@ describe("LocalAuthorizer — the model version", () => {
     }
 
     const roots = vector.grants[check.identity] ?? [];
-    const authorizer = new LocalAuthorizer({
-      request: vi
-        .fn()
-        .mockResolvedValue(
-          page(
-            roots.map((r) => ({ permission: r.permission, node_id: r.node })),
+    const authorizer = new LocalAuthorizer(
+      fakeClient({
+        request: vi
+          .fn()
+          .mockResolvedValue(
+            page(
+              roots.map((r) => ({ permission: r.permission, node_id: r.node })),
+            ),
           ),
-        ),
-      requestConditional: vi.fn().mockResolvedValue({
-        modified: true,
-        etag: null,
-        data: {
-          ...page(
-            vector.tree.map((n) => ({ id: n.id, parent_node_id: n.parent })),
-          ),
-          model_version: 99,
-        },
+        requestConditional: vi.fn().mockResolvedValue({
+          modified: true,
+          etag: null,
+          data: {
+            ...page(
+              vector.tree.map((n) => ({ id: n.id, parent_node_id: n.parent })),
+            ),
+            model_version: 99,
+          },
+        }),
       }),
-    } as unknown as CanopyClient);
+    );
 
     // A grant at a node beneath the root's, so the answer needs the tree.
     const deeper = vector.tree.find(
