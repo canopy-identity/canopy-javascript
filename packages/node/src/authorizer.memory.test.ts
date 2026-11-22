@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { LocalAuthorizer } from "./authorizer.js";
-import type { CanopyClient, RequestOptions } from "./client.js";
+import type { RequestOptions } from "./client.js";
+import { fakeClient } from "./testing/fake-client.js";
 
 /**
  * What the authorizer's copy of the hierarchy costs in memory, the figure the
@@ -84,7 +85,7 @@ describe("LocalAuthorizer memory", () => {
     const childId = nodeId(1);
     // Plain functions rather than mocks: a mock keeps every result it
     // returned, which would hold the parsed responses alive and count them.
-    const client = {
+    const client = fakeClient({
       request: (_method: string, path: string, options: RequestOptions) =>
         Promise.resolve(
           path.endsWith("/grants")
@@ -111,7 +112,7 @@ describe("LocalAuthorizer memory", () => {
             ? { modified: true, data: edgePage(NODES, 1), etag: '"tree-1"' }
             : { modified: false },
         ),
-    } as unknown as CanopyClient;
+    });
     const authorizer = new LocalAuthorizer(client);
 
     const before = heapUsed();

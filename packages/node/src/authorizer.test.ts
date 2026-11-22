@@ -5,6 +5,7 @@ import { describe, expect, it, type Mock, vi } from "vitest";
 import { LocalAuthorizer } from "./authorizer.js";
 import { isCanopyAuthorizerError } from "./errors.js";
 import type { CanopyClient } from "./client.js";
+import { fakeClient } from "./testing/fake-client.js";
 
 /** The `pagination` block of one page of `item_count` rows, 100 to a page. */
 function meta(page: number, itemCount: number, take = 100) {
@@ -93,7 +94,7 @@ function makeAuthorizer(
     .fn<(...args: never[]) => Promise<unknown>>()
     .mockResolvedValue({ modified: true, data: TREE, etag: 'W/"v1"' });
 
-  const client = { request, requestConditional } as unknown as CanopyClient;
+  const client = fakeClient({ request, requestConditional });
 
   const authorizer = new LocalAuthorizer(client, {
     ...(overrides.ttlMs === undefined ? {} : { ttlMs: overrides.ttlMs }),
@@ -264,7 +265,7 @@ describe("LocalAuthorizer — caching", () => {
    */
   it("starts a new instance empty, reading both the grants and the tree", async () => {
     const { authorizer, request, requestConditional } = makeAuthorizer();
-    const client = { request, requestConditional } as unknown as CanopyClient;
+    const client = fakeClient({ request, requestConditional });
 
     await authorizer.evaluate(check("frontend"));
 
@@ -353,6 +354,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
     expect(authorizer.snapshot()).toEqual({
       grantFetches: 2,
       grantPages: 2,
+      grantNotModified: 0,
       treeRequests: 2,
       treePages: 2,
       treeNotModified: 1,
@@ -372,7 +374,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
       .mockResolvedValue({ modified: true, data: TREE, etag: 'W/"v1"' });
 
     const authorizer = new LocalAuthorizer(
-      { request, requestConditional } as unknown as CanopyClient,
+      fakeClient({ request, requestConditional }),
       { timeoutMs: 750, maxRetries: 0, now: () => clock },
     );
 
@@ -403,12 +405,14 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
         }),
     );
 
-    const authorizer = new LocalAuthorizer({
-      request,
-      requestConditional: vi
-        .fn()
-        .mockResolvedValue({ modified: true, data: TREE, etag: 'W/"v1"' }),
-    } as unknown as CanopyClient);
+    const authorizer = new LocalAuthorizer(
+      fakeClient({
+        request,
+        requestConditional: vi
+          .fn()
+          .mockResolvedValue({ modified: true, data: TREE, etag: 'W/"v1"' }),
+      }),
+    );
 
     const controller = new AbortController();
 
@@ -476,10 +480,12 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
       .fn()
       .mockResolvedValue({ modified: true, data: EMPTY_TREE, etag: null });
 
-    const authorizer = new LocalAuthorizer({
-      request,
-      requestConditional,
-    } as unknown as CanopyClient);
+    const authorizer = new LocalAuthorizer(
+      fakeClient({
+        request,
+        requestConditional,
+      }),
+    );
 
     const error = await authorizer
       .evaluate(check("frontend"))
@@ -501,10 +507,12 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
       .fn()
       .mockResolvedValue({ modified: true, data: EMPTY_TREE, etag: null });
 
-    const authorizer = new LocalAuthorizer({
-      request,
-      requestConditional,
-    } as unknown as CanopyClient);
+    const authorizer = new LocalAuthorizer(
+      fakeClient({
+        request,
+        requestConditional,
+      }),
+    );
 
     // A direct grant needs no lineage, so an unreadable hierarchy must not
     // turn it into an error either.
@@ -573,7 +581,7 @@ describe("LocalAuthorizer — revalidating the hierarchy", () => {
    */
   it("invalidates only its own instance, leaving another's cache warm", async () => {
     const { authorizer, request, requestConditional } = makeAuthorizer();
-    const client = { request, requestConditional } as unknown as CanopyClient;
+    const client = fakeClient({ request, requestConditional });
     const otherInstance = new LocalAuthorizer(client);
 
     await authorizer.evaluate(check("frontend"));
@@ -660,7 +668,7 @@ function pagedCanopy(options: {
   );
 
   return {
-    client: { request, requestConditional } as unknown as CanopyClient,
+    client: fakeClient({ request, requestConditional }),
     request,
     requestConditional,
     /** Moves the hierarchy to the next version. */
@@ -669,6 +677,211 @@ function pagedCanopy(options: {
     },
   };
 }
+
+/**
+ * A fake Canopy whose grants answer conditionally the way the API does: the
+ * first page with the subject's current validator, a `304` when the request
+ * names it, and every later page plainly. `change` gives the subject new rows
+ * and a new validator.
+ */
+function versionedGrants(
+  versions: { permission: string; node_id: string; effective_to?: string }[][],
+  take = 100,
+) {
+  let version = 0;
+  const etag = () => `W/"g${version + 1}"`;
+  const rows = () => versions[version] ?? [];
+
+  const request = vi.fn(
+    (_method: string, path: string, opts: { query: { page: number } }) =>
+      Promise.resolve(
+        path.endsWith("/grants")
+          ? paged(rows(), take)[opts.query.page - 1]
+          : paged(EDGES)[opts.query.page - 1],
+      ),
+  );
+
+  const requestConditional = vi.fn(
+    (_method: string, path: string, sent: string | undefined) => {
+      if (!path.endsWith("/grants")) {
+        return Promise.resolve({ modified: true, data: TREE, etag: 'W/"t1"' });
+      }
+
+      if (sent !== undefined && sent === etag()) {
+        return Promise.resolve({ modified: false });
+      }
+
+      return Promise.resolve({
+        modified: true,
+        data: paged(rows(), take)[0],
+        etag: etag(),
+      });
+    },
+  );
+
+  const grantCalls = () =>
+    requestConditional.mock.calls.filter(([, path]) =>
+      path.endsWith("/grants"),
+    );
+
+  return {
+    client: { request, requestConditional } as unknown as CanopyClient,
+    request,
+    /** The validator each conditional grants request sent, in order. */
+    sentValidators: () => grantCalls().map(([, , sent]) => sent),
+    change: () => {
+      version += 1;
+    },
+  };
+}
+
+describe("LocalAuthorizer — revalidating the grants", () => {
+  const ENGINEERING = [{ permission: "reports.view", node_id: "engineering" }];
+
+  function harness(
+    versions: {
+      permission: string;
+      node_id: string;
+      effective_to?: string;
+    }[][],
+    take?: number,
+  ) {
+    let clock = 1_000;
+    const canopy = versionedGrants(versions, take);
+    const authorizer = new LocalAuthorizer(canopy.client, {
+      ttlMs: 60_000,
+      now: () => clock,
+    });
+
+    return {
+      ...canopy,
+      authorizer,
+      advance: (ms: number) => {
+        clock += ms;
+      },
+      at: () => clock,
+    };
+  }
+
+  it("sends the held validator and keeps the grants on 304", async () => {
+    const { authorizer, advance, sentValidators } = harness([ENGINEERING]);
+
+    await authorizer.evaluate(check("frontend"));
+    advance(61_000);
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: true,
+      reason: null,
+    });
+    expect(sentValidators()).toEqual([undefined, 'W/"g1"']);
+    expect(authorizer.snapshot()).toMatchObject({
+      grantFetches: 2,
+      grantPages: 2,
+      grantNotModified: 1,
+    });
+  });
+
+  it("holds the grants for another TTL after a 304", async () => {
+    const { authorizer, advance, sentValidators } = harness([ENGINEERING]);
+
+    await authorizer.evaluate(check("frontend"));
+    advance(61_000);
+    await authorizer.evaluate(check("frontend"));
+    advance(59_000);
+    await authorizer.evaluate(check("frontend"));
+
+    expect(sentValidators()).toHaveLength(2);
+  });
+
+  it("reads the new grants in full when the validator no longer matches", async () => {
+    const { authorizer, advance, change, sentValidators } = harness([
+      ENGINEERING,
+      [],
+    ]);
+
+    await authorizer.evaluate(check("frontend"));
+    change();
+    advance(61_000);
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: false,
+      reason: "permission_not_held",
+    });
+
+    advance(61_000);
+    await authorizer.evaluate(check("frontend"));
+
+    expect(sentValidators()).toEqual([undefined, 'W/"g1"', 'W/"g2"']);
+    expect(authorizer.snapshot().grantNotModified).toBe(1);
+  });
+
+  it("sends no validator after the subject is invalidated", async () => {
+    const { authorizer, sentValidators } = harness([ENGINEERING]);
+
+    await authorizer.evaluate(check("frontend"));
+    authorizer.invalidate("id-1");
+    await authorizer.evaluate(check("frontend"));
+
+    expect(sentValidators()).toEqual([undefined, undefined]);
+  });
+
+  it("still ends a grant at its window's edge when a 304 renews it", async () => {
+    const { authorizer, advance, at, sentValidators } = harness([
+      [
+        {
+          permission: "reports.view",
+          node_id: "engineering",
+          effective_to: new Date(1_000 + 90_000).toISOString(),
+        },
+      ],
+    ]);
+
+    await authorizer.evaluate(check("frontend"));
+    advance(61_000);
+    await authorizer.evaluate(check("frontend"));
+
+    // Renewed at 62,000 for a minute, but the window closes at 91,000.
+    advance(91_000 - at());
+
+    expect(await authorizer.evaluate(check("frontend"))).toEqual({
+      allowed: false,
+      reason: "expired",
+    });
+    expect(sentValidators()).toHaveLength(3);
+  });
+
+  it("revalidates a paged read with its first page alone, reading later pages plainly on a change", async () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      permission: `perm.${i}`,
+      node_id: "engineering",
+    }));
+    const { authorizer, advance, change, request, sentValidators } = harness(
+      [many, many.slice(0, 3)],
+      2,
+    );
+    const grantPagesRead = () =>
+      request.mock.calls.filter(([, path]) => path.endsWith("/grants")).length;
+
+    await authorizer.evaluate({ ...check("frontend"), permission: "perm.4" });
+
+    // Page 1 conditionally; pages 2 and 3 plainly.
+    expect(grantPagesRead()).toBe(2);
+
+    advance(61_000);
+    await authorizer.evaluate({ ...check("frontend"), permission: "perm.4" });
+
+    expect(grantPagesRead()).toBe(2);
+
+    change();
+    advance(61_000);
+
+    expect(
+      await authorizer.evaluate({ ...check("frontend"), permission: "perm.4" }),
+    ).toEqual({ allowed: false, reason: "permission_not_held" });
+    expect(grantPagesRead()).toBe(3);
+    expect(sentValidators()).toEqual([undefined, 'W/"g1"', 'W/"g1"']);
+  });
+});
 
 describe("LocalAuthorizer — paged reads", () => {
   it("reads every page of grant roots and joins a permission's nodes", async () => {
@@ -860,7 +1073,7 @@ describe("LocalAuthorizer — paged reads", () => {
       },
     );
     const authorizer = new LocalAuthorizer(
-      { request, requestConditional } as unknown as CanopyClient,
+      fakeClient({ request, requestConditional }),
       { ttlMs: 60_000, now: () => clock },
     );
 

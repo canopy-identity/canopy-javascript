@@ -86,7 +86,7 @@ const SRC = resolve(import.meta.dirname);
 // Before that, 134 when a developer's backend could open an organization's
 // directory sync, and 143 before `GET /api/v1/identities/:id/accessible-nodes`
 // answered where an identity may act with a permission, for list queries.
-const EXPECTED_OPERATION_COUNT = 303;
+const EXPECTED_OPERATION_COUNT = 305;
 
 /**
  * Operations reachable through a typed resource method. Only ever goes up;

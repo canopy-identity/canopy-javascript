@@ -250,10 +250,15 @@ export interface AccessibleNodes {
 }
 
 export interface LocalAuthorizerStats {
-  /** Reads of an identity's grant roots, one per refresh however many pages it took. */
+  /** Reads of an identity's grant roots, one per refresh however many pages it took, including revalidations. */
   grantFetches: number;
-  /** Page requests those reads made: at least one per read, one more per further 100 grants. */
+  /**
+   * Page requests those reads made: one for a revalidation the server answers
+   * `304`, otherwise one per page of 100 grants.
+   */
   grantPages: number;
+  /** Revalidations the server answered `304`, so no grants were transferred. */
+  grantNotModified: number;
   /** Reads of the hierarchy, one per refresh, including revalidations. */
   treeRequests: number;
   /**
@@ -292,6 +297,8 @@ interface Holdings {
 
 interface GrantEntry {
   holdings: Holdings;
+  /** The validator the read came with, sent as `If-None-Match` on the next refresh. */
+  etag: string | null;
   expiresAt: number;
 }
 
@@ -372,6 +379,23 @@ const GRANTS_PATH = (type: PrincipalType, id: string): string =>
 const subjectKey = (type: PrincipalType, id: string): string => `${type}:${id}`;
 
 const PARENTS_PATH = "/api/v1/nodes/parents";
+
+/** The nearest window edge after `now` among a subject's grants, or infinity. */
+function nextWindowEdge(holdings: Holdings, now: number): number {
+  let edge = Number.POSITIVE_INFINITY;
+
+  for (const windows of holdings.roots.values()) {
+    for (const window of windows) {
+      for (const at of [window.from, window.to]) {
+        if (at !== null && at > now && at < edge) {
+          edge = at;
+        }
+      }
+    }
+  }
+
+  return edge;
+}
 
 /** Whether a grant window is in effect at `now`. */
 function inEffect(window: GrantWindow, now: number): boolean {
@@ -467,6 +491,7 @@ export class LocalAuthorizer {
   private stats: LocalAuthorizerStats = {
     grantFetches: 0,
     grantPages: 0,
+    grantNotModified: 0,
     treeRequests: 0,
     treePages: 0,
     treeNotModified: 0,
@@ -1321,6 +1346,19 @@ export class LocalAuthorizer {
    *
    * Every page carries the subject's deny roots whole, beside its rows; they
    * are gathered from each page, so a read is one snapshot of both.
+   *
+   * Revalidate rather than re-read. The first page is asked for with the
+   * validator the held grants came with, and a `304` means nothing that
+   * decides this subject's access has changed: the grants stay in memory and
+   * only their expiry moves. Canopy answers it after reading the subject's
+   * access versions alone, so the common refresh costs one small read on both
+   * sides. Only the first page is conditional; its validator covers every
+   * page.
+   *
+   * A read over several pages is not confirmed the way the hierarchy's is.
+   * The validator kept is the first page's, taken before any later page was
+   * read, so a change made during the walk moves the subject's version past
+   * it, and the next refresh reads every page again.
    */
   private async fetchGrantRoots(
     identityId: string,
@@ -1329,58 +1367,91 @@ export class LocalAuthorizer {
   ): Promise<Holdings> {
     this.stats.grantFetches += 1;
 
+    const key = subjectKey(type, identityId);
+    const held = this.grants.get(key);
     const path = GRANTS_PATH(type, identityId);
     const denies: DenyRoots = new Map();
-    const rows = paginate<GrantRow>(
-      (query) => {
-        this.stats.grantPages += 1;
+    const query = { take: PAGE_SIZE, include: "windows" };
 
-        return this.client
-          .request<GrantPage>("GET", path, {
-            ...this.readOptions,
-            query: { ...query, include: "windows" },
-          })
-          .then((page) => {
-            // A version 1 answer comes from a Canopy that predates denies,
-            // which sends no `denies` at all.
-            const read: GrantPage["denies"] | undefined = understood(
-              page,
-              path,
-            ).denies;
+    const gather = (page: GrantPage): GrantPage => {
+      // A version 1 answer comes from a Canopy that predates denies,
+      // which sends no `denies` at all.
+      const read: GrantPage["denies"] | undefined = understood(
+        page,
+        path,
+      ).denies;
 
-            for (const deny of read ?? []) {
-              const nodes = denies.get(deny.permission);
+      for (const deny of read ?? []) {
+        const nodes = denies.get(deny.permission);
 
-              if (nodes) {
-                nodes.add(deny.node_id);
-              } else {
-                denies.set(deny.permission, new Set([deny.node_id]));
-              }
-            }
+        if (nodes) {
+          nodes.add(deny.node_id);
+        } else {
+          denies.set(deny.permission, new Set([deny.node_id]));
+        }
+      }
 
-            return page;
-          });
-      },
-      { page: 1, take: PAGE_SIZE },
-      { maxPages: MAX_PAGES },
+      return page;
+    };
+
+    this.stats.grantPages += 1;
+
+    const first = await this.client.requestConditional<GrantPage>(
+      "GET",
+      path,
+      held?.etag ?? undefined,
+      { ...this.readOptions, query: { ...query, page: 1 } },
     );
 
-    const roots: GrantRoots = new Map();
-    const now = this.now();
-    let boundary = Number.POSITIVE_INFINITY;
+    if (!first.modified) {
+      if (held) {
+        this.stats.grantNotModified += 1;
 
-    for await (const row of rows) {
+        return this.keepGrants(key, held.holdings, held.etag, stillCurrent);
+      }
+
+      // A `304` to a request that carried no validator has nothing to keep.
+      return this.keepGrants(
+        key,
+        { roots: new Map(), denies },
+        null,
+        stillCurrent,
+      );
+    }
+
+    const rows: GrantRow[] = [...gather(first.data).items];
+
+    if (spansPages(first.data)) {
+      const rest = paginate<GrantRow>(
+        (pageQuery: PageParams) => {
+          this.stats.grantPages += 1;
+
+          return this.client
+            .request<GrantPage>("GET", path, {
+              ...this.readOptions,
+              query: { ...pageQuery, include: query.include },
+            })
+            .then(gather);
+        },
+        { page: first.data.pagination.page + 1, take: PAGE_SIZE },
+        { maxPages: MAX_PAGES - 1 },
+      );
+
+      for await (const page of rest.pages()) {
+        for (const row of page.items) {
+          rows.push(row);
+        }
+      }
+    }
+
+    const roots: GrantRoots = new Map();
+
+    for (const row of rows) {
       const window: GrantWindow = {
         node: row.node_id,
         from: row.effective_from ? Date.parse(row.effective_from) : null,
         to: row.effective_to ? Date.parse(row.effective_to) : null,
       };
-
-      for (const edge of [window.from, window.to]) {
-        if (edge !== null && edge > now && edge < boundary) {
-          boundary = edge;
-        }
-      }
 
       const windows = roots.get(row.permission);
 
@@ -1391,14 +1462,29 @@ export class LocalAuthorizer {
       }
     }
 
-    const holdings: Holdings = { roots, denies };
+    return this.keepGrants(key, { roots, denies }, first.etag, stillCurrent);
+  }
+
+  /**
+   * Hold a subject's grants until the TTL, or until the nearest window edge
+   * still ahead when that comes sooner, so a grant takes effect or ends on
+   * time.
+   */
+  private keepGrants(
+    key: string,
+    holdings: Holdings,
+    etag: string | null,
+    stillCurrent: () => boolean,
+  ): Holdings {
+    const now = this.now();
 
     // Invalidated while it was read: the answer goes to the caller that was
     // waiting, but is not kept, since it may predate the change.
     if (stillCurrent()) {
-      this.grants.set(subjectKey(type, identityId), {
+      this.grants.set(key, {
         holdings,
-        expiresAt: Math.min(now + this.ttlMs, boundary),
+        etag,
+        expiresAt: Math.min(now + this.ttlMs, nextWindowEdge(holdings, now)),
       });
     }
 
@@ -1607,6 +1693,9 @@ export class LocalAuthorizer {
  * Whether a first page says more follow. An empty page ends the walk however
  * the server describes it, as the paginator's own loop does.
  */
-function spansPages(first: ParentPage): boolean {
+function spansPages(first: {
+  items: unknown[];
+  pagination: { has_next_page: boolean };
+}): boolean {
   return first.pagination.has_next_page && first.items.length > 0;
 }

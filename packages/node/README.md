@@ -410,13 +410,18 @@ everything beneath it_, so the roots are never expanded into their descendants.
 
 Both reads are paged, and the authorizer reads every page, 100 rows at a time:
 `GET /api/v1/identities/:id/grants` answers one row per permission and node
-it was granted at, and the hierarchy arrives 100 parent edges to a page. Only
-the hierarchy's first page is revalidated: its `ETag` covers the whole
-hierarchy, so a `304` keeps the copy held without reading any other page. When
-the hierarchy has changed, every page is read again and the copy rebuilt; a
-rebuild over several pages is then confirmed against the first page's `ETag`,
-and read again if the hierarchy changed while its pages were being read. At
-50,000 nodes a rebuild is 501 requests, and a revalidation is one.
+it was granted at, and the hierarchy arrives 100 parent edges to a page. Both
+are revalidated rather than re-read: the first page is asked for with the
+`ETag` the held copy came with, and its `ETag` covers every page, so a `304`
+keeps the copy held without reading any other page. Canopy answers an unchanged
+identity's grants with a `304` after reading only its access versions, so the
+usual refresh is one small request on both sides. When the hierarchy has
+changed, every page is read again and the copy rebuilt; a rebuild over several
+pages is then confirmed against the first page's `ETag`, and read again if the
+hierarchy changed while its pages were being read. At 50,000 nodes a rebuild is
+501 requests, and a revalidation is one. Changed grants are read in full, and
+`snapshot()` counts the revalidations answered `304` as `grantNotModified` and
+`treeNotModified`.
 
 Both are held for at most 60 seconds, which is the delay between an access
 change and it taking effect, including a moved node, unless a webhook or the
