@@ -2725,9 +2725,29 @@ export interface paths {
         head?: never;
         /**
          * Change an Environment's branding
-         * @description Sets the Environment's branding. Every field is optional and stands on its own: send only what you want to change, send `null` to clear a field (the primary color then returns to the default blue). The product name shows in the browser tab, as the logo's alt text and in place of a missing logo; the logo shows at the top and the favicon in the tab; the primary color drives buttons and links, and the hover, link and focus shades are derived from it; the background color paints the page behind the card; the text and card colors set the card and what is written on it, with secondary text, lines and field borders derived from the pair; the color scheme chooses the light look, the dark look or whichever the visitor's device asks for, and the dark colors and dark logo describe the dark look, each with a default; the layout is one centred card or a split page with a panel beside the card, which holds a heading, a short text and an image; the background style paints the background color, a two-color gradient or an image behind the card; the corner radius rounds the card, its panels, fields and buttons together; the card style gives the card a border or none, and the card shadow sets the shadow under it; the body font sets the text and the heading font the headings, each a curated font from the fonts list or the https URL of a WOFF2 file, with the system font behind it; the support, terms and privacy links show as "Need help?", "Terms" and "Privacy" under every hosted page; `header_html`, `notice_html` and `footer_html` place your own content in a bar across the top of the page, above the card and under it, kept to links, paragraphs, bold, italics, line breaks, lists and images with https addresses, everything else being removed when it is saved, so the response shows what was kept; `text_overrides` rewords the hosted page texts the text keys list names, one text at a time; `custom_css` is your own CSS for hosted pages, applied after every other setting, which may set the published `--hp-*` tokens and style the published `hp-*` classes, and is refused when it loads a file from anywhere (`@import`, `@font-face`, `url()`), selects on a field's `value` or does not parse. Returns `400` (`validation`) for a malformed value, and `403` (`plan_feature_unavailable`) when the request sets `custom_css`, `color_scheme`, `logo_dark_url`, a dark color, `layout`, `background_style`, a gradient color, a background or panel image, `panel_heading`, `panel_text`, a text in `text_overrides`, `header_html`, `notice_html`, `footer_html`, `text_color`, `surface_color`, `corner_radius`, `card_style`, `card_shadow`, `heading_font` or `body_font` and the Account's plan does not include hosted page customization; clearing one with `null` is always allowed. Emits `environment.branding_updated`, which records the fields that changed.
+         * @description Sets the Environment's branding. Every field is optional and stands on its own: send only what you want to change, send `null` to clear a field (the primary color then returns to the default blue). The product name shows in the browser tab, as the logo's alt text and in place of a missing logo; the logo shows at the top and the favicon in the tab; the primary color drives buttons and links, and the hover, link and focus shades are derived from it; the background color paints the page behind the card; the text and card colors set the card and what is written on it, with secondary text, lines and field borders derived from the pair; the color scheme chooses the light look, the dark look or whichever the visitor's device asks for, and the dark colors and dark logo describe the dark look, each with a default; the layout is one centred card or a split page with a panel beside the card, which holds a heading, a short text and an image; the background style paints the background color, a two-color gradient or an image behind the card; the corner radius rounds the card, its panels, fields and buttons together; the card style gives the card a border or none, and the card shadow sets the shadow under it; the body font sets the text and the heading font the headings, each a curated font from the fonts list or the https URL of a WOFF2 file, with the system font behind it; the support, terms and privacy links show as "Need help?", "Terms" and "Privacy" under every hosted page; `header_html`, `notice_html` and `footer_html` place your own content in a bar across the top of the page, above the card and under it, kept to links, paragraphs, bold, italics, line breaks, lists and images with https addresses, everything else being removed when it is saved, so the response shows what was kept; `text_overrides` rewords the hosted page texts the text keys list names, one text at a time; `custom_css` is your own CSS for hosted pages, applied after every other setting, which may set the published `--hp-*` tokens and style the published `hp-*` classes, and is refused when it loads a file from anywhere (`@import`, `@font-face`, `url()`), selects on a field's `value` or does not parse. Returns `400` (`request.validation_failed`) for a malformed value, an image field whose address is not shaped like an image upload of its kind included, or `branding.image_not_uploaded` for an upload's address on another host or one Canopy does not store, and `403` (`plan_feature_unavailable`) when the request sets `custom_css`, `color_scheme`, `logo_dark_url`, a dark color, `layout`, `background_style`, a gradient color, a background or panel image, `panel_heading`, `panel_text`, a text in `text_overrides`, `header_html`, `notice_html`, `footer_html`, `text_color`, `surface_color`, `corner_radius`, `card_style`, `card_shadow`, `heading_font` or `body_font` and the Account's plan does not include hosted page customization; clearing one with `null` is always allowed. Emits `environment.branding_updated`, which records the fields that changed.
          */
         patch: operations["ApiBrandingController_updateBranding"];
+        trace?: never;
+    };
+    "/api/v1/branding/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a logo, favicon, background or panel image
+         * @description Stores an image for the hosted pages and answers the address Canopy serves it at, which is the only value an image field (`logo_url`, `logo_dark_url`, `favicon_url`, `background_image_url`, `background_image_dark_url`, `panel_image_url`, `panel_image_dark_url`) takes. Send the file base64-encoded in `image`, or the public https address of the image in `url` for Canopy to fetch once, with its `slot`: `logo`, `favicon`, `background` or `panel`. A PNG, JPEG, WebP or SVG is accepted; it is decoded and drawn again, so the stored image carries no metadata and an SVG is drawn into pixels. A logo or favicon may be at most 1 MB and must be at least 32 by 32 pixels; a logo is stored as a PNG of at most 1200 by 600 and a favicon as a 64 by 64 PNG. A background or panel image may be at most 3 MB and must be at least 600 by 600 pixels; it is stored as a WebP of at most 2560 on either side. The address names the file by its content and size, so the same image always answers the same address, and it is served from Canopy's own origin, cached for a year. Uploading saves nothing to the branding: save the address with the branding update. An image no branding names is deleted after a day. Returns `400` with `branding.image_unreadable` for a file that is not one of those formats, `branding.image_too_large` or `branding.image_too_small` for one outside its kind's limits, `branding.image_svg_external` for an SVG that refers to a file or address outside itself, `branding.image_source` unless exactly one of `image` and `url` is sent, `request.validation_failed` for an address that is not https, `branding.image_url_refused` for one that is not public (a private or loopback host, credentials or a fragment), and `branding.image_url_unreachable` when the address does not answer `200` with the file within 5 seconds (Canopy follows no redirect). Returns `429` after 30 uploads in a minute.
+         */
+        post: operations["ApiBrandingController_uploadImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/branding/preview-pages": {
@@ -2801,9 +2821,29 @@ export interface paths {
         put?: never;
         /**
          * Preview a hosted page or email in a branding
-         * @description Renders one hosted page, in one of its states, or one customer email, in the Environment's branding with the unsaved changes in `branding` laid over it, so a branding change can be checked before it is saved. Nothing is saved, and no session or person is involved: the page shows sample data. `page` and `state` are ids from the preview list, and `scheme` renders a page in its light or its dark look whatever the color scheme. Returns the whole HTML document, which works without scripts. Returns `400` (`branding.preview_page_unknown`) for a page or state that does not exist, or `validation` for a malformed branding value, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization. `language` renders it in one of the languages Canopy writes the pages in, with the wording `text_overrides` holds for that language; left out, English.
+         * @description Renders one hosted page, in one of its states, or one customer email, in the Environment's branding with the unsaved changes in `branding` laid over it, so a branding change can be checked before it is saved. Nothing is saved, and no session or person is involved: the page shows sample data. `page` and `state` are ids from the preview list, and `scheme` renders a page in its light or its dark look whatever the color scheme. Returns the whole HTML document, which works without scripts. Returns `400` (`branding.preview_page_unknown`) for a page or state that does not exist, `validation` for a malformed branding value, or `branding.image_not_uploaded` for an image field that holds anything but an uploaded image, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization. `language` renders it in one of the languages Canopy writes the pages in, with the wording `text_overrides` holds for that language; left out, English.
          */
         post: operations["ApiBrandingController_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/branding/preview-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a link that opens a hosted page in a branding
+         * @description Makes a link that opens one hosted page, in one of its states, in the Environment's branding with the unsaved changes in `branding` laid over it, so a person can see a look in their own browser before it is saved. Takes what the preview takes; `page` must be a hosted page, not an email. Nothing is saved, and the page shows sample data. The link opens for two minutes, on the API's own origin; open it in a browser rather than reading it, and make a new one once it has expired. The page runs with `sandbox allow-scripts` and `form-action 'none'`, so its forms submit nowhere and a page template's scripts reach no cookie or storage. Returns `400` (`branding.preview_link_page_unknown`) for a page or state that is not a hosted page's, `validation` for a malformed branding value, or `branding.image_not_uploaded` for an image field that holds anything but an uploaded image, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         */
+        post: operations["ApiBrandingController_previewLink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7159,16 +7199,25 @@ export interface components {
         UpdateEnvironmentBrandingDto: {
             /** @description The product name hosted pages and the organization admin portal show: in the browser tab title, beside the logo when `logo_kind` is `icon`, as a full logo's alt text, and in place of a logo when none is set. Null clears it, and the pages then show no name. */
             product_name?: string | null;
-            /** @description Absolute https URL of the logo shown at the top of hosted pages, the portal and emails to the Environment's users. Emails show it only when the image is a PNG, JPEG or GIF, which every email client displays; with any other format they show the product name. Null clears it. */
+            /**
+             * @description The logo shown at the top of hosted pages, the portal and emails to the Environment's users. The address `POST /api/v1/branding/images` answered for an image with `slot` `logo`; any other value is refused. Null clears it.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-480x120.png
+             */
             logo_url?: string | null;
-            /** @description Absolute https URL of the logo the dark look of hosted pages shows in place of `logo_url`: a version of the same logo that reads on a dark card. It is used only when `logo_url` is set, and `logo_kind` describes both. Emails never show it. Null shows `logo_url` in both looks. Needs the `hosted_page_customization` plan feature to set. */
+            /**
+             * @description The logo the dark look of hosted pages shows in place of `logo_url`: a version of the same logo that reads on a dark card. It is used only when `logo_url` is set, and `logo_kind` describes both. Emails never show it. The address `POST /api/v1/branding/images` answered for an image with `slot` `logo`; any other value is refused. Null shows `logo_url` in both looks. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-480x120.png
+             */
             logo_dark_url?: string | null;
             /**
              * @description What the logo image is. `full`: a complete logo that already carries the product name, shown alone. `icon`: a square mark, shown at icon size with the product name beside it. Null returns to `full`.
              * @enum {string|null}
              */
             logo_kind?: "full" | "icon" | null;
-            /** @description Absolute https URL of the browser-tab icon on hosted pages: a square PNG or ICO of at least 32 px. Null clears it. */
+            /**
+             * @description The browser-tab icon on hosted pages. The address `POST /api/v1/branding/images` answered for an image with `slot` `favicon`; any other value is refused. Null clears it.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-64x64.png
+             */
             favicon_url?: string | null;
             /**
              * @description Which look hosted pages wear. `light`: the look the colour fields describe. `dark`: the look their dark counterparts describe (`primary_dark_color`, `background_dark_color`, `text_dark_color`, `surface_dark_color`, `logo_dark_url`), each with a default. `system`: whichever the visitor's device asks for, chosen by the browser with no script. A QR code and the CAPTCHA keep a light ground in both, and emails are always light. Null returns to `light`. Needs the `hosted_page_customization` plan feature to set.
@@ -7246,13 +7295,13 @@ export interface components {
              */
             gradient_end_dark_color?: string | null;
             /**
-             * @description The image behind the card when `background_style` is `image`. An absolute https URL holding no quote, bracket or space. Null shows the background colour. Needs the `hosted_page_customization` plan feature to set.
-             * @example https://cdn.example.com/brand/background-image.jpg
+             * @description The image behind the card when `background_style` is `image`. The address `POST /api/v1/branding/images` answered for an image with `slot` `background`; any other value is refused. Null shows the background colour. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-1920x1080.webp
              */
             background_image_url?: string | null;
             /**
-             * @description The image the dark look shows behind the card. Null dims `background_image_url`. An absolute https URL holding no quote, bracket or space. Needs the `hosted_page_customization` plan feature to set.
-             * @example https://cdn.example.com/brand/background-image-dark.jpg
+             * @description The image the dark look shows behind the card. Null dims `background_image_url`. The address `POST /api/v1/branding/images` answered for an image with `slot` `background`; any other value is refused. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-1920x1080.webp
              */
             background_image_dark_url?: string | null;
             /** @description The heading on the `split` layout's panel, as plain text. Null shows none. Needs the `hosted_page_customization` plan feature to set. */
@@ -7260,13 +7309,13 @@ export interface components {
             /** @description A short paragraph under the panel's heading, as plain text; hidden on a narrow screen. Null shows none. Needs the `hosted_page_customization` plan feature to set. */
             panel_text?: string | null;
             /**
-             * @description The image that fills the `split` layout's panel, darkened under the heading and text so they stay readable. An absolute https URL holding no quote, bracket or space. Null fills the panel from the primary colour. Needs the `hosted_page_customization` plan feature to set.
-             * @example https://cdn.example.com/brand/panel-image.jpg
+             * @description The image that fills the `split` layout's panel, darkened under the heading and text so they stay readable. The address `POST /api/v1/branding/images` answered for an image with `slot` `panel`; any other value is refused. Null fills the panel from the primary colour. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-1200x1600.webp
              */
             panel_image_url?: string | null;
             /**
-             * @description The image the dark look shows on the panel. Null shows `panel_image_url`. An absolute https URL holding no quote, bracket or space. Needs the `hosted_page_customization` plan feature to set.
-             * @example https://cdn.example.com/brand/panel-image-dark.jpg
+             * @description The image the dark look shows on the panel. Null shows `panel_image_url`. The address `POST /api/v1/branding/images` answered for an image with `slot` `panel`; any other value is refused. Needs the `hosted_page_customization` plan feature to set.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-1200x1600.webp
              */
             panel_image_dark_url?: string | null;
             /**
@@ -7355,6 +7404,46 @@ export interface components {
                     [key: string]: string | null;
                 };
             } | null;
+        };
+        BrandingImageResponseDto: {
+            /**
+             * @description Where Canopy serves the image. Save it in a branding field of the image's kind; the same file always answers the same address.
+             * @example https://auth.canopy-io.com/branding-images/3f9a1c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f-480x120.png
+             */
+            url: string;
+            /**
+             * @description Its width in pixels.
+             * @example 480
+             */
+            width: number;
+            /**
+             * @description Its height in pixels.
+             * @example 120
+             */
+            height: number;
+            /**
+             * @description The format it is stored and served in.
+             * @example image/png
+             */
+            content_type: string;
+        };
+        UploadBrandingImageDto: {
+            /**
+             * @description The kind of image, which sets its rules and the fields that take it. `logo`: for `logo_url` and `logo_dark_url`; at most 1 MB, at least 32 by 32 pixels, stored as a PNG of at most 1200 by 600. `favicon`: for `favicon_url`; at most 1 MB, at least 32 by 32 pixels, stored as a 64 by 64 PNG. `background`: for `background_image_url` and `background_image_dark_url`; at most 3 MB, at least 600 by 600 pixels, stored as a WebP of at most 2560 on either side. `panel`: the same, for `panel_image_url` and `panel_image_dark_url`.
+             * @example logo
+             * @enum {string}
+             */
+            slot: "logo" | "favicon" | "background" | "panel";
+            /**
+             * @description The file, base64-encoded: a PNG, JPEG, WebP or SVG. Send this or `url`, not both. It is decoded and drawn again, so the stored image carries no metadata, and an SVG is drawn into pixels; an SVG that refers to any file or address outside itself is refused.
+             * @example iVBORw0KGgoAAAANSUhEUgAA…
+             */
+            image?: string;
+            /**
+             * @description A public https address Canopy fetches the file from once, in place of `image`: the address of the image itself, which must answer `200` within 5 seconds, since Canopy follows no redirect. The same formats and limits apply, and the stored copy is Canopy's own; the address is not kept.
+             * @example https://www.fernleaf.example/brand/logo.svg
+             */
+            url?: string;
         };
         BrandingPreviewStateDto: {
             /** @example WrongPassword */
@@ -7485,6 +7574,23 @@ export interface components {
              * @enum {string}
              */
             language?: "en" | "es";
+        };
+        BrandingPreviewLinkResponseDto: {
+            /**
+             * @description The page's title.
+             * @example Sign in
+             */
+            title: string;
+            /**
+             * @description The page, on the API's own origin. Load it in a frame with `sandbox="allow-scripts"` and never `allow-same-origin`.
+             * @example https://auth.canopy-io.com/branding-preview/0b7Yc9vQm3kTq1sXr8LpZf2uWn5aEhJd
+             */
+            url: string;
+            /**
+             * Format: date-time
+             * @description When the link stops opening.
+             */
+            expires_at: string;
         };
         TokenClaimEntryResponseDto: {
             /**
@@ -9586,6 +9692,31 @@ export interface components {
                     succeeded: number;
                     /** @description How many were refused. */
                     failed: number;
+                    /** @description Who was given which role, and where. */
+                    affected: {
+                        /**
+                         * Format: uuid
+                         * @description The identity holding the assignment; null when a machine client holds it.
+                         */
+                        identity_id: string | null;
+                        /**
+                         * Format: uuid
+                         * @description The machine OAuth client holding the assignment; null when a person holds it.
+                         */
+                        oauth_client_id?: string | null;
+                        /** @description That machine client's `client_id`: its token's `sub`, the id its grants route takes and an SDK cache names it by. Null when a person holds the assignment. */
+                        client_id?: string | null;
+                        /**
+                         * Format: uuid
+                         * @description The hierarchy node the role is held at.
+                         */
+                        node_id: string;
+                        /**
+                         * Format: uuid
+                         * @description The role assigned.
+                         */
+                        role_id: string;
+                    }[];
                     /**
                      * @description Set when directory sync made the change rather than somebody directly.
                      * @enum {string}
@@ -14178,6 +14309,8 @@ export interface operations {
                 include?: "windows";
             };
             header?: {
+                /** @description The `ETag` of a previous response for the same page, page size and `include`. Answers `304 Not Modified` while nothing that decides these grants has changed, so a client holding them revalidates without the grants being worked out again. */
+                "If-None-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -14203,6 +14336,13 @@ export interface operations {
                         denies: components["schemas"]["DenyRootResponseDto"][];
                     };
                 };
+            };
+            /** @description The grants are unchanged since the supplied `ETag`. No body; keep using the held copy. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
             400: {
@@ -32266,7 +32406,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`, `page_template` a document of at most 100,000 characters holding `{{canopy:head}}` once inside `<head>` and `{{canopy:form}}` once inside `<body>` with no `<base>`, `<meta http-equiv>`, frame, `<object>` or `<embed>`, and `page_template_sources` at most 20 https addresses with no path; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description A value is malformed: the logo, favicon, background and panel images must each be an address an image upload of their kind answered (`request.validation_failed`, or `branding.image_not_uploaded` for an upload's address Canopy does not store), the terms and privacy links https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`, `page_template` a document of at most 100,000 characters holding `{{canopy:head}}` once inside `<head>` and `{{canopy:form}}` once inside `<body>` with no `<base>`, `<meta http-equiv>`, frame, `<object>` or `<embed>`, and `page_template_sources` at most 20 https addresses with no path; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -32277,7 +32417,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "A value is malformed: the logo, favicon, terms and privacy links must be https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, a background or panel image an https URL holding no quote, bracket or space, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`, `page_template` a document of at most 100,000 characters holding `{{canopy:head}}` once inside `<head>` and `{{canopy:form}}` once inside `<body>` with no `<base>`, `<meta http-equiv>`, frame, `<object>` or `<embed>`, and `page_template_sources` at most 20 https addresses with no path; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "A value is malformed: the logo, favicon, background and panel images must each be an address an image upload of their kind answered (`request.validation_failed`, or `branding.image_not_uploaded` for an upload's address Canopy does not store), the terms and privacy links https URLs, the colors six-digit hex, the support link an https URL or a mailto: address, the product name at most 60 characters, the color scheme, layout, background style, corner radius, card style and card shadow one of their listed values, the panel heading at most 80 characters and its text at most 240, `text_overrides` texts from the text keys list, each plain text within its length that keeps its placeholders, the header, notice and footer content at most 2,000 characters each, a heading or body font a curated font's id or an https URL, and `custom_css` CSS of at most 20,000 characters that parses, loads no file (`@import`, `@font-face`, `url()`), selects on no field's `value` and names no `--_hp-*` property or `</`, `page_template` a document of at most 100,000 characters holding `{{canopy:head}}` once inside `<head>` and `{{canopy:form}}` once inside `<body>` with no `<base>`, `<meta http-equiv>`, frame, `<object>` or `<embed>`, and `page_template_sources` at most 20 https addresses with no path; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
@@ -32344,6 +32484,119 @@ export interface operations {
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding",
                      *         "method": "PATCH"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiBrandingController_uploadImage: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
+                "X-Canopy-Environment"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadBrandingImageDto"];
+            };
+        };
+        responses: {
+            /** @description The stored image, and the address to save in a branding field */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BrandingImageResponseDto"];
+                    };
+                };
+            };
+            /** @description The file is not a PNG, JPEG, WebP or SVG (`branding.image_unreadable`), is outside its kind's limits (`branding.image_too_large`, `branding.image_too_small`), is an SVG that refers to something outside itself (`branding.image_svg_external`), the request sends neither or both of `image` and `url` (`branding.image_source`), the address is refused or cannot be fetched (`branding.image_url_refused`, `branding.image_url_unreachable`), or the body is malformed (`validation`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": "request.invalid",
+                     *         "message": "The file is not a PNG, JPEG, WebP or SVG (`branding.image_unreadable`), is outside its kind's limits (`branding.image_too_large`, `branding.image_too_small`), is an SVG that refers to something outside itself (`branding.image_svg_external`), the request sends neither or both of `image` and `url` (`branding.image_source`), the address is refused or cannot be fetched (`branding.image_url_refused`, `branding.image_url_unreachable`), or the body is malformed (`validation`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/images",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": "auth.invalid_token",
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller lacks `branding.manage` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": "auth.forbidden",
+                     *         "message": "The caller lacks `branding.manage`",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/images",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description More than 30 image uploads in a minute from this caller; wait and retry */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 429,
+                     *         "code": "request.rate_limited",
+                     *         "message": "More than 30 image uploads in a minute from this caller; wait and retry",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/images",
+                     *         "method": "POST"
                      *       }
                      *     }
                      */
@@ -32643,7 +32896,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The page or state does not exist (`branding.preview_page_unknown`), or a branding value is malformed (`validation`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            /** @description The page or state does not exist (`branding.preview_page_unknown`), a branding value is malformed (`validation`), or an image field holds anything but an uploaded image (`branding.image_not_uploaded`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -32654,7 +32907,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "The page or state does not exist (`branding.preview_page_unknown`), or a branding value is malformed (`validation`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "message": "The page or state does not exist (`branding.preview_page_unknown`), a branding value is malformed (`validation`), or an image field holds anything but an uploaded image (`branding.image_not_uploaded`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding/preview",
                      *         "method": "POST"
@@ -32699,6 +32952,98 @@ export interface operations {
                      *         "message": "The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/branding/preview",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+        };
+    };
+    ApiBrandingController_previewLink: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
+                "X-Canopy-Environment"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrandingPreviewRequestDto"];
+            };
+        };
+        responses: {
+            /** @description A short-lived link to the page, and its title */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BrandingPreviewLinkResponseDto"];
+                    };
+                };
+            };
+            /** @description The page or state is not a hosted page's (`branding.preview_link_page_unknown`), a branding value is malformed (`validation`), or an image field holds anything but an uploaded image (`branding.image_not_uploaded`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 400,
+                     *         "code": "request.invalid",
+                     *         "message": "The page or state is not a hosted page's (`branding.preview_link_page_unknown`), a branding value is malformed (`validation`), or an image field holds anything but an uploaded image (`branding.image_not_uploaded`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/preview-link",
+                     *         "method": "POST"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description Invalid or expired token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 401,
+                     *         "code": "auth.invalid_token",
+                     *         "message": "Invalid or expired token",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding",
+                     *         "method": "GET"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponseDto"];
+                };
+            };
+            /** @description The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "statusCode": 403,
+                     *         "code": "auth.forbidden",
+                     *         "message": "The caller lacks `branding.view`, or the Account's plan does not include hosted page customization (`plan_feature_unavailable`)",
+                     *         "timestamp": "2026-04-20T12:00:00.000Z",
+                     *         "path": "/api/v1/branding/preview-link",
                      *         "method": "POST"
                      *       }
                      *     }
@@ -44673,6 +45018,8 @@ export interface operations {
                 include?: "windows";
             };
             header?: {
+                /** @description The `ETag` of a previous response for the same page, page size and `include`. Answers `304 Not Modified` while nothing that decides these grants has changed, so a client holding them revalidates without the grants being worked out again. */
+                "If-None-Match"?: string;
                 /** @description The id of the Environment this request acts in. Required with an account API key, which belongs to the Account and names its Environment per request; an Environment key may send it only to name its own Environment. A missing header for an account key answers `400` (`api_key.environment_required`), one naming no Environment of the key's Account `400` (`api_key.environment_not_found`), and one naming another Environment than an Environment key's own `400` (`api_key.environment_mismatch`). */
                 "X-Canopy-Environment"?: string;
             };
@@ -44698,6 +45045,13 @@ export interface operations {
                         denies: components["schemas"]["DenyRootResponseDto"][];
                     };
                 };
+            };
+            /** @description The grants are unchanged since the supplied `ETag`. No body; keep using the held copy. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request failed validation: a body field, a query parameter or an id in the path is missing, malformed or out of range; the client is a web client (`oauth.client_not_machine`); the role is a system role (`rbac.system_role_not_assignable`) or inactive; the role belongs to another organization (`rbac.role_outside_organization`), or a role carrying `canopy:roles.manage` is placed beneath the organization node (`rbac.roles_manage_below_organization`); the window runs backwards (`auth.effective_date_invalid`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own */
             400: {

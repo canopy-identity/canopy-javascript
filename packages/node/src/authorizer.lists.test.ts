@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LocalAuthorizer, type LocalDecisionEvent } from "./authorizer.js";
 import type { CanopyClient } from "./client.js";
 import { isCanopyAuthorizerError } from "./errors.js";
+import { fakeClient } from "./testing/fake-client.js";
 
 /**
  * The list side of the authorizer: where an identity may act, the
@@ -75,7 +76,7 @@ function makeAuthorizer(
   });
 
   const authorizer = new LocalAuthorizer(
-    { request, requestConditional } as unknown as CanopyClient,
+    fakeClient({ request, requestConditional }),
     {
       now: () => clock,
       ...(options.ttlMs === undefined ? {} : { ttlMs: options.ttlMs }),
