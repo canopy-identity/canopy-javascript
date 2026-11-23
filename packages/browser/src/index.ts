@@ -1,10 +1,13 @@
 export {
+  type AccessTokenClaims,
   CanopyBrowserClient,
   createCanopyBrowserClient,
   type CanopyBrowserClientOptions,
   type PendingStorage,
+  type SessionSnapshot,
   type SignInOptions,
   type SignInResult,
+  type StartOptions,
 } from "./client.js";
 export {
   CanopyAuthError,
@@ -18,3 +21,4 @@ export type {
   CanopyCaptchaTokenDetail,
 } from "./captcha.js";
 export type { IdTokenClaims } from "./id-token.js";
+export type { PermissionCheck, PermissionState } from "./permissions.js";

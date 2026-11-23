@@ -19,7 +19,11 @@ const NEEDS_SIGN_IN = new Set([
   "consent_required",
 ]);
 
-/** Canopy answered with an OAuth error. Branch on `code`, never `message`. */
+/**
+ * Canopy answered with an error: an OAuth error from the redirect or the
+ * token endpoint, or a refusal from the API a permission check calls. Branch
+ * on `code`, never `message`.
+ */
 export class CanopyAuthError extends Error {
   override readonly name = "CanopyAuthError";
   /** The OAuth `error`, e.g. `login_required` or `invalid_grant`. */
@@ -28,13 +32,21 @@ export class CanopyAuthError extends Error {
   readonly description: string | undefined;
   /** The HTTP status, when the error came from an endpoint rather than the redirect. */
   readonly status: number | undefined;
+  /** Seconds to wait before asking again, from a `429`'s `Retry-After`. */
+  readonly retryAfterSeconds: number | undefined;
 
-  constructor(code: string, description?: string, status?: number) {
+  constructor(
+    code: string,
+    description?: string,
+    status?: number,
+    retryAfterSeconds?: number,
+  ) {
     super(description ? `${code}: ${description}` : code);
 
     this.code = code;
     this.description = description;
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 
   /**
