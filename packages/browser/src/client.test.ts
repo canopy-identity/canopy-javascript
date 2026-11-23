@@ -46,6 +46,14 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function urlOf(input: string | URL | Request): string {
+  return typeof input === "string"
+    ? input
+    : input instanceof URL
+      ? input.href
+      : input.url;
+}
+
 class MemoryStorage {
   readonly items = new Map<string, string>();
 
@@ -313,7 +321,7 @@ describe("handleRedirect", () => {
 describe("start", () => {
   it("resumes Canopy's session with prompt=none when nothing is in memory", async () => {
     const h = harness();
-    const result = await h.client.start("https://app.test/");
+    const result = await h.client.start({ url: "https://app.test/" });
 
     expect(result).toEqual({ status: "redirecting" });
     expect(new URL(h.navigations[0] as string).searchParams.get("prompt")).toBe(
@@ -325,7 +333,168 @@ describe("start", () => {
     const h = harness();
     const { url } = await callback(h);
 
-    expect((await h.client.start(url)).status).toBe("signed-in");
+    expect((await h.client.start({ url })).status).toBe("signed-in");
+  });
+
+  it("comes back to the page a silent resume left", async () => {
+    const h = harness();
+
+    await h.client.start({ url: "https://app.test/reports/42?tab=2#notes" });
+
+    const authorize = new URL(h.navigations[0] as string);
+    const back = new URL(REDIRECT_URI);
+
+    back.search = new URLSearchParams({
+      code: "code-1",
+      state: authorize.searchParams.get("state") as string,
+    }).toString();
+
+    const fresh = createCanopyBrowserClient({
+      issuer: ISSUER,
+      clientId: CLIENT_ID,
+      redirectUri: REDIRECT_URI,
+      storage: h.storage,
+      navigate: () => undefined,
+      replaceUrl: () => undefined,
+      fetch: (input) =>
+        Promise.resolve(
+          urlOf(input).endsWith("/.well-known/openid-configuration")
+            ? json(DISCOVERY)
+            : tokens({
+                id_token: idToken({
+                  nonce: authorize.searchParams.get("nonce"),
+                }),
+              }),
+        ),
+      now: () => NOW,
+    });
+
+    expect(await fresh.start({ url: back.toString() })).toEqual({
+      status: "signed-in",
+      returnTo: "/reports/42?tab=2#notes",
+    });
+  });
+
+  /** React's StrictMode runs an effect twice; the code must be spent once. */
+  it("exchanges the code once and never redirects when called twice", async () => {
+    const h = harness();
+    const { url } = await callback(h);
+    const navigated = h.navigations.length;
+
+    const [first, second] = await Promise.all([
+      h.client.start({ url }),
+      h.client.start({ url }),
+    ]);
+    const exchanges = h.calls.filter(
+      (call) => call.body?.get("grant_type") === "authorization_code",
+    );
+
+    expect(first).toBe(second);
+    expect(first.status).toBe("signed-in");
+    expect(exchanges).toHaveLength(1);
+    expect(h.navigations).toHaveLength(navigated);
+    expect(await h.client.start({ url })).toBe(first);
+  });
+
+  it("does not send a public page's visitor to Canopy when resume is off", async () => {
+    const h = harness();
+
+    expect(
+      await h.client.start({ url: "https://app.test/pricing", resume: false }),
+    ).toEqual({ status: "signed-out" });
+    expect(h.navigations).toHaveLength(0);
+    expect(h.client.getSnapshot().status).toBe("signed-out");
+  });
+
+  it("still finishes a sign-in with resume off", async () => {
+    const h = harness();
+    const { url } = await callback(h);
+
+    expect((await h.client.start({ url, resume: false })).status).toBe(
+      "signed-in",
+    );
+  });
+});
+
+describe("construction", () => {
+  it("touches no browser global, so it can run during server rendering", () => {
+    expect(typeof sessionStorage).toBe("undefined");
+    expect(() =>
+      createCanopyBrowserClient({
+        issuer: ISSUER,
+        clientId: CLIENT_ID,
+        redirectUri: REDIRECT_URI,
+        fetch: vi.fn(),
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("snapshot", () => {
+  it("is loading until start settles, then signed in with the ID token's claims", async () => {
+    const h = harness();
+    const seen: string[] = [];
+
+    h.client.subscribe(() => seen.push(h.client.getSnapshot().status));
+
+    expect(h.client.getSnapshot()).toEqual({
+      status: "loading",
+      claims: null,
+      error: null,
+    });
+
+    const { url } = await callback(h);
+
+    await h.client.start({ url });
+
+    expect(h.client.getSnapshot().status).toBe("signed-in");
+    expect(h.client.getSnapshot().claims?.sub).toBe("identity-1");
+    expect(seen).toContain("signed-in");
+  });
+
+  it("stays the same object until something changes", async () => {
+    const h = harness();
+    const { url } = await callback(h);
+
+    await h.client.start({ url });
+
+    const first = h.client.getSnapshot();
+
+    await h.client.getAccessToken();
+
+    expect(h.client.getSnapshot()).toBe(first);
+
+    await h.client.refresh();
+
+    expect(h.client.getSnapshot()).not.toBe(first);
+    expect(h.client.getSnapshot().status).toBe("signed-in");
+  });
+
+  it("carries the error when Canopy refuses, and is signed out", async () => {
+    const h = harness();
+    const { url } = await callback(h, { error: "login_required" });
+
+    await h.client.start({ url });
+
+    expect(h.client.getSnapshot().status).toBe("signed-out");
+    expect(h.client.getSnapshot().error?.needsSignIn).toBe(true);
+  });
+
+  it("is signed out after sign-out, and stops calling a listener that left", async () => {
+    const h = harness();
+    const { url } = await callback(h);
+    const listener = vi.fn();
+
+    await h.client.start({ url });
+
+    const stop = h.client.subscribe(listener);
+
+    await h.client.signOut();
+    stop();
+    await h.client.refresh().catch(() => undefined);
+
+    expect(h.client.getSnapshot().status).toBe("signed-out");
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });
 
