@@ -1,5 +1,15 @@
 import { CanopyAuthError, CanopyConnectionError } from "./errors.js";
-import { checkIdToken, type IdTokenClaims } from "./id-token.js";
+import {
+  checkIdToken,
+  decodeJwtPayload,
+  type IdTokenClaims,
+} from "./id-token.js";
+import {
+  type PermissionCheck,
+  PermissionChecks,
+  type PermissionClaims,
+  type PermissionState,
+} from "./permissions.js";
 import { createPkcePair, randomString } from "./pkce.js";
 
 /** The storage this package keeps a sign-in's PKCE verifier in across the redirect. */
@@ -26,7 +36,11 @@ export interface CanopyBrowserClientOptions {
   refreshLeewaySeconds?: number;
   /** Called once when the session ends on its own: its lifetime ran out, or it was revoked. */
   onSessionEnd?: (error: CanopyAuthError) => void;
-  /** Defaults to `sessionStorage`. Holds only the verifier for the round trip, never a token. */
+  /**
+   * Defaults to `sessionStorage`, read on first use, so the client can be
+   * constructed where there is none (server rendering). Holds only the
+   * verifier for the round trip, never a token.
+   */
   storage?: PendingStorage;
   /** Defaults to `location.assign`. */
   navigate?: (url: string) => void;
@@ -54,6 +68,55 @@ export interface SignInOptions {
   uiLocales?: string;
   /** Your app's path or URL to go back to after sign-in; returned by `handleRedirect()`. */
   returnTo?: string;
+}
+
+export interface StartOptions {
+  /** The page's URL. Defaults to `location.href`. */
+  url?: string;
+  /**
+   * `false` finishes a sign-in Canopy has just sent the browser back from,
+   * but never sends the browser to Canopy to resume one: for a public page
+   * that should not bounce an anonymous visitor. Default `true`.
+   */
+  resume?: boolean;
+}
+
+/**
+ * The session as a page renders it. The same object until something changes:
+ * a sign-in, a refresh, an organization switch or the end of the session.
+ * Shaped for `useSyncExternalStore` and for Angular signals.
+ */
+export interface SessionSnapshot {
+  /**
+   * `loading` until `start()` settles, and while it is sending the browser to
+   * Canopy; then `signed-in` or `signed-out`.
+   */
+  status: "loading" | "signed-in" | "signed-out";
+  /** The ID token's claims while signed in, else `null`. */
+  claims: IdTokenClaims | null;
+  /** Why the last sign-in failed, when it did. `error.needsSignIn` means show your sign-in button. */
+  error: CanopyAuthError | null;
+}
+
+/**
+ * The claims of the current access token, read for display and gating only:
+ * the browser cannot check the token's signature, and your API must verify
+ * every token it receives (`@canopy-io/node`).
+ */
+export interface AccessTokenClaims extends PermissionClaims {
+  sub: string;
+  iss: string;
+  exp: number;
+  /** With the `permissions` scope. */
+  permissions?: string[];
+  permissions_overflow?: boolean;
+  /** When the session is inside an organization. */
+  org_id?: string;
+  org_roles?: string[];
+  /** With the `permissions` scope, inside an organization: what the person holds there. */
+  org_permissions?: string[];
+  org_permissions_overflow?: boolean;
+  [claim: string]: unknown;
 }
 
 /** What `handleRedirect()` and `start()` found. */
@@ -93,6 +156,7 @@ interface Pending {
 
 interface Session {
   accessToken: string;
+  accessClaims: AccessTokenClaims | null;
   /** Epoch milliseconds. */
   expiresAt: number;
   refreshToken: string | undefined;
@@ -133,15 +197,24 @@ export class CanopyBrowserClient {
   readonly #postLogoutRedirectUri: string | undefined;
   readonly #leewayMs: number;
   readonly #onSessionEnd: ((error: CanopyAuthError) => void) | undefined;
-  readonly #storage: PendingStorage;
+  readonly #storageOption: PendingStorage | undefined;
   readonly #navigate: (url: string) => void;
   readonly #replaceUrl: (url: string) => void;
   readonly #fetch: typeof globalThis.fetch;
   readonly #now: () => number;
 
+  readonly #listeners = new Set<() => void>();
+  readonly #permissions: PermissionChecks;
+
   #discovery: Promise<Discovery> | undefined;
   #session: Session | undefined;
   #refreshing: Promise<void> | undefined;
+  #starting: Promise<SignInResult> | undefined;
+  #snapshot: SessionSnapshot = Object.freeze({
+    status: "loading",
+    claims: null,
+    error: null,
+  });
 
   constructor(options: CanopyBrowserClientOptions) {
     if (!options.issuer || !options.clientId || !options.redirectUri) {
@@ -157,22 +230,48 @@ export class CanopyBrowserClient {
     this.#postLogoutRedirectUri = options.postLogoutRedirectUri;
     this.#leewayMs = (options.refreshLeewaySeconds ?? 60) * 1000;
     this.#onSessionEnd = options.onSessionEnd;
-    this.#storage = options.storage ?? sessionStorage;
+    this.#storageOption = options.storage;
     this.#navigate = options.navigate ?? ((url) => location.assign(url));
     this.#replaceUrl =
       options.replaceUrl ??
       ((url) => history.replaceState(history.state, "", url));
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#now = options.now ?? Date.now;
+    this.#permissions = new PermissionChecks({
+      apiOrigin: () => new URL(this.#issuer).origin,
+      accessToken: () => this.getAccessToken(),
+      claims: () => this.#session?.accessClaims ?? null,
+      fetch: this.#fetch,
+      now: this.#now,
+      changed: () => this.#emit(),
+    });
   }
 
   /**
-   * Run once when the app loads. Finishes a sign-in when Canopy has just sent
-   * the browser back, and otherwise tries to resume Canopy's session without
-   * showing a page. Show your sign-in button on `signed-out`, and on `error`
-   * when `error.needsSignIn`.
+   * Run when the app loads. Finishes a sign-in when Canopy has just sent the
+   * browser back, and otherwise tries to resume Canopy's session without
+   * showing a page, coming back to the page it left. Show your sign-in button
+   * on `signed-out`, and on `error` when `error.needsSignIn`.
+   *
+   * Calls share one run: a second call while the first is under way, or
+   * after it settled, returns the same result, so a framework that runs its
+   * effects twice exchanges the code once and redirects never.
    */
-  async start(url: string = location.href): Promise<SignInResult> {
+  start(options: StartOptions = {}): Promise<SignInResult> {
+    // A run that failed to reach Canopy settles nothing, so the next call
+    // tries again.
+    this.#starting ??= this.#start(options).catch((caught: unknown) => {
+      this.#starting = undefined;
+
+      throw caught;
+    });
+
+    return this.#starting;
+  }
+
+  async #start(options: StartOptions): Promise<SignInResult> {
+    const url = options.url ?? location.href;
+
     if (hasResponse(url)) {
       return this.handleRedirect(url);
     }
@@ -181,7 +280,18 @@ export class CanopyBrowserClient {
       return { status: "signed-in", returnTo: undefined };
     }
 
-    await this.signIn({ prompt: "none" });
+    if (options.resume === false) {
+      this.#setSnapshot("signed-out", null);
+
+      return { status: "signed-out" };
+    }
+
+    const page = new URL(url);
+
+    await this.signIn({
+      prompt: "none",
+      returnTo: `${page.pathname}${page.search}${page.hash}`,
+    });
 
     return { status: "redirecting" };
   }
@@ -198,7 +308,7 @@ export class CanopyBrowserClient {
       pending.returnTo = signIn.returnTo;
     }
 
-    this.#storage.setItem(this.#pendingKey(state), JSON.stringify(pending));
+    this.#storage().setItem(this.#pendingKey(state), JSON.stringify(pending));
 
     const authorize = new URL(discovery.authorization_endpoint);
 
@@ -231,6 +341,8 @@ export class CanopyBrowserClient {
     const state = params.get("state");
 
     if (!hasResponse(url)) {
+      this.#setSnapshot("signed-out", null);
+
       return { status: "signed-out" };
     }
 
@@ -239,27 +351,25 @@ export class CanopyBrowserClient {
     const pending = state ? this.#takePending(state) : undefined;
 
     if (!pending) {
-      return {
-        status: "error",
-        error: new CanopyAuthError(
+      return this.#failed(
+        new CanopyAuthError(
           "state_mismatch",
           "The response does not answer a sign-in this browser started.",
         ),
-        returnTo: undefined,
-      };
+        undefined,
+      );
     }
 
     const error = params.get("error");
 
     if (error) {
-      return {
-        status: "error",
-        error: new CanopyAuthError(
+      return this.#failed(
+        new CanopyAuthError(
           error,
           params.get("error_description") ?? undefined,
         ),
-        returnTo: pending.returnTo,
-      };
+        pending.returnTo,
+      );
     }
 
     try {
@@ -275,11 +385,28 @@ export class CanopyBrowserClient {
       return { status: "signed-in", returnTo: pending.returnTo };
     } catch (caught) {
       if (caught instanceof CanopyAuthError) {
-        return { status: "error", error: caught, returnTo: pending.returnTo };
+        return this.#failed(caught, pending.returnTo);
       }
 
       throw caught;
     }
+  }
+
+  /**
+   * Listen for the session changing, and for a permission answer arriving or
+   * the held answers clearing. Returns the function that stops listening.
+   */
+  subscribe(listener: () => void): () => void {
+    this.#listeners.add(listener);
+
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+
+  /** The session now. The same object until it changes; see `subscribe`. */
+  getSnapshot(): SessionSnapshot {
+    return this.#snapshot;
   }
 
   /** Whether tokens are in memory. */
@@ -338,6 +465,65 @@ export class CanopyBrowserClient {
   }
 
   /**
+   * The current access token's claims, or `null`: its `permissions`,
+   * `org_id`, `org_roles`, `org_permissions` and custom claims. For display
+   * and gating only; the browser cannot check the token's signature.
+   */
+  getAccessTokenClaims<TCustom extends object = object>():
+    (AccessTokenClaims & TCustom) | null {
+    return (
+      (this.#session?.accessClaims as
+        (AccessTokenClaims & TCustom) | undefined) ?? null
+    );
+  }
+
+  /**
+   * Whether the signed-in person holds `permission`: at `nodeId` (walking its
+   * ancestors), or anywhere in the Environment without one. For deciding what
+   * a page shows; your API still authorizes every request.
+   *
+   * Answered from the access token when it can say (an Environment-wide check
+   * from `permissions`, a check at the session's organization from
+   * `org_permissions`), else by the API. Checks asked for in the same tick go
+   * in one request, and an answer is held until the token is refreshed, the
+   * organization changes or the person signs out.
+   */
+  checkPermission(
+    permission: string,
+    options: { nodeId?: string } = {},
+  ): Promise<boolean> {
+    return this.#permissions.check(checkOf(permission, options.nodeId));
+  }
+
+  /** `checkPermission` for several checks at once, answered in their order. */
+  checkPermissions(checks: readonly PermissionCheck[]): Promise<boolean[]> {
+    return Promise.all(
+      checks.map((check) =>
+        this.#permissions.check(checkOf(check.permission, check.nodeId)),
+      ),
+    );
+  }
+
+  /**
+   * What is known about a check now, without asking for it: `loading` until
+   * an answer arrives. Stable until it changes; `subscribe` says when.
+   */
+  getPermissionState(
+    permission: string,
+    options: { nodeId?: string } = {},
+  ): PermissionState {
+    return this.#permissions.state(checkOf(permission, options.nodeId));
+  }
+
+  /**
+   * Every permission key the signed-in person holds anywhere in the
+   * Environment, held like a check. Empty when nobody is signed in.
+   */
+  listPermissions(): Promise<string[]> {
+    return this.#permissions.list();
+  }
+
+  /**
    * Sign out of the app and of Canopy: revoke the refresh token, forget the
    * tokens, then send the browser to Canopy's end-session endpoint with the
    * ID token as the hint. Skipping the second half would let the next
@@ -347,7 +533,7 @@ export class CanopyBrowserClient {
     const session = this.#session;
     const discovery = await this.#discover();
 
-    this.#session = undefined;
+    this.#ended(null);
 
     if (session?.refreshToken && discovery.revocation_endpoint) {
       try {
@@ -399,7 +585,7 @@ export class CanopyBrowserClient {
       this.#keep(tokens, undefined, session);
     } catch (caught) {
       if (caught instanceof CanopyAuthError) {
-        this.#session = undefined;
+        this.#ended(caught);
         this.#onSessionEnd?.(caught);
       }
 
@@ -431,11 +617,53 @@ export class CanopyBrowserClient {
 
     this.#session = {
       accessToken: tokens.access_token,
+      accessClaims: accessClaimsOf(tokens.access_token),
       expiresAt: this.#now() + (tokens.expires_in ?? 0) * 1000,
       refreshToken: tokens.refresh_token ?? previous?.refreshToken,
       idToken,
       claims,
     };
+
+    // A new token can carry other permissions: answers held for the old one
+    // no longer stand.
+    this.#permissions.clear();
+    this.#setSnapshot("signed-in", null);
+  }
+
+  /** The session is over: nobody is signed in, and nothing held stands. */
+  #ended(error: CanopyAuthError | null): void {
+    this.#session = undefined;
+    this.#starting = undefined;
+    this.#permissions.clear();
+    this.#setSnapshot("signed-out", error);
+  }
+
+  #failed(error: CanopyAuthError, returnTo: string | undefined): SignInResult {
+    this.#setSnapshot(this.#session ? "signed-in" : "signed-out", error);
+
+    return { status: "error", error, returnTo };
+  }
+
+  #setSnapshot(
+    status: SessionSnapshot["status"],
+    error: CanopyAuthError | null,
+  ): void {
+    this.#snapshot = Object.freeze({
+      status,
+      claims: status === "signed-in" ? (this.#session?.claims ?? null) : null,
+      error,
+    });
+    this.#emit();
+  }
+
+  #emit(): void {
+    for (const listener of [...this.#listeners]) {
+      listener();
+    }
+  }
+
+  #storage(): PendingStorage {
+    return this.#storageOption ?? sessionStorage;
   }
 
   async #token(body: Record<string, string>): Promise<TokenResponse> {
@@ -521,9 +749,10 @@ export class CanopyBrowserClient {
 
   #takePending(state: string): Pending | undefined {
     const key = this.#pendingKey(state);
-    const raw = this.#storage.getItem(key);
+    const storage = this.#storage();
+    const raw = storage.getItem(key);
 
-    this.#storage.removeItem(key);
+    storage.removeItem(key);
 
     return raw ? (JSON.parse(raw) as Pending) : undefined;
   }
@@ -542,6 +771,26 @@ function withoutTrailingSlashes(value: string): string {
   }
 
   return value.slice(0, end);
+}
+
+function checkOf(
+  permission: string,
+  nodeId: string | undefined,
+): PermissionCheck {
+  return nodeId === undefined ? { permission } : { permission, nodeId };
+}
+
+/**
+ * The access token's claims, or null when it is not a JWT this client can
+ * read. Read for gating only, so a token it cannot read is not an error:
+ * checks are then asked of the API.
+ */
+function accessClaimsOf(token: string): AccessTokenClaims | null {
+  try {
+    return decodeJwtPayload(token) as AccessTokenClaims;
+  } catch {
+    return null;
+  }
 }
 
 function hasResponse(url: string): boolean {
