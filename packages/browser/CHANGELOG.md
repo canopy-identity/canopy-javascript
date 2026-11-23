@@ -1,5 +1,11 @@
 # @canopy-io/browser
 
+## 0.4.0
+
+### Minor Changes
+
+- a5b221a: Ready for a framework layer, with a permission client. `start()` takes `{ url, resume }`: a silent resume comes back to the page it left (`returnTo` is the path, query and hash), calls share one run so a framework that runs its effects twice exchanges the code once and never redirects, and `resume: false` finishes a sign-in without sending a public page's visitor to Canopy. `subscribe(listener)` and `getSnapshot()` (`status`, `claims`, `error`) report the session as a stable object replaced only when it changes, for `useSyncExternalStore` and Angular signals. The constructor reads no browser global, so the client can be built during server rendering. `getAccessTokenClaims()` reads the access token's claims (`permissions`, `org_id`, `org_roles`, `org_permissions`, custom claims) for display and gating. `checkPermission(permission, { nodeId })`, `checkPermissions(checks)`, `getPermissionState()` and `listPermissions()` answer what the signed-in person may do: from the token when it can say (an Environment-wide check from `permissions`, a check at the session's organization from `org_permissions`), else from `POST /v1/identity/auth/me/permissions/evaluate`, with the checks of one tick in one request and every answer held until the token is refreshed, the organization changes or the person signs out. `CanopyAuthError` gains `retryAfterSeconds`. Breaking: `start(url)` is now `start({ url })`.
+
 ## 0.3.0
 
 ### Minor Changes
