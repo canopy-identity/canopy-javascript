@@ -66,6 +66,8 @@ jobs:
       # @canopy-io/react and @canopy-io/angular ship there too and wrap the
       # browser client, so it is the one dependency they may have (and tslib,
       # which every Angular library's compiled output imports).
+      # @canopy-io/nextjs runs on the app's server over the node SDK, which is
+      # the one dependency it may have.
       - name: No runtime dependencies beyond the allowed ones
         run: |
           node - <<'JS'
@@ -75,6 +77,7 @@ jobs:
             ["browser", "@canopy-io/browser", []],
             ["react", "@canopy-io/react", ["@canopy-io/browser"]],
             ["angular", "@canopy-io/angular", ["@canopy-io/browser", "tslib"]],
+            ["nextjs", "@canopy-io/nextjs", ["@canopy-io/node"]],
           ];
           for (const [dir, name, allowed] of packages) {
             const pkg = JSON.parse(readFileSync(`packages/${dir}/package.json`, "utf8"));
