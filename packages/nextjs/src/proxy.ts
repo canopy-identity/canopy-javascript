@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import {
   resolveConfig,
+  withoutTrailingSlash,
   type CanopyNextConfig,
   type CanopyNextOptions,
 } from "./config";
@@ -304,7 +305,7 @@ function isProtected(
   }
 
   return protect.some((prefix) => {
-    const base = prefix.replace(/\/+$/, "");
+    const base = withoutTrailingSlash(prefix);
 
     return base === "" || pathname === base || pathname.startsWith(`${base}/`);
   });

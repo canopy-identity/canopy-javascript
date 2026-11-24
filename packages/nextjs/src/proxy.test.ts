@@ -364,3 +364,30 @@ describe("signing out", () => {
     ).toBe(true);
   });
 });
+
+describe("protect", () => {
+  it("covers a path and everything under it, with or without a trailing slash", async () => {
+    const proxy = canopyProxy({ protect: ["/reports///"] });
+
+    for (const path of ["/reports", "/reports/2026"]) {
+      const response = await proxy(requestTo(path));
+
+      expect(new URL(response.headers.get("location") ?? "").pathname).toBe(
+        "/auth/sign-in",
+      );
+    }
+
+    expect(
+      (await proxy(requestTo("/reportsx"))).headers.get("location"),
+    ).toBeNull();
+  });
+
+  it("trims a long run of slashes quickly", async () => {
+    const proxy = canopyProxy({ protect: [`/reports${"/".repeat(100_000)}x`] });
+    const started = performance.now();
+
+    await proxy(requestTo(`/${"/".repeat(100_000)}`));
+
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});
