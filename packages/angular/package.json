@@ -1,6 +1,6 @@
 {
   "name": "@canopy-io/angular",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Official Angular SDK for Canopy: providers, signals, a guard, an interceptor and directives over @canopy-io/browser for signing a single-page app in through Canopy's hosted login and deciding what it shows.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
