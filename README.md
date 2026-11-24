@@ -6,18 +6,19 @@ This repository is the whole family. Each package is published independently to 
 
 ## Packages
 
-| Package                                      | What it is                                                                                                                                                                  |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **[`@canopy-io/node`](packages/node)**       | The server client. Calls the API, verifies access tokens, and has zero runtime dependencies.                                                                                |
-| **[`@canopy-io/nestjs`](packages/nestjs)**   | The NestJS integration. Wraps the client in a module and turns an authorization check into a decorator on the route.                                                        |
-| **[`@canopy-io/browser`](packages/browser)** | The browser client. Signs a single-page app in through Canopy's hosted login as a public OAuth client, with PKCE and tokens kept in memory.                                 |
-| **[`@canopy-io/react`](packages/react)**     | The React SDK. A provider, hooks and components over `@canopy-io/browser`: the session, the access token, the organization, and permission checks that decide what renders. |
+| Package                                      | What it is                                                                                                                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[`@canopy-io/node`](packages/node)**       | The server client. Calls the API, verifies access tokens, and has zero runtime dependencies.                                                                                                                       |
+| **[`@canopy-io/nestjs`](packages/nestjs)**   | The NestJS integration. Wraps the client in a module and turns an authorization check into a decorator on the route.                                                                                               |
+| **[`@canopy-io/browser`](packages/browser)** | The browser client. Signs a single-page app in through Canopy's hosted login as a public OAuth client, with PKCE and tokens kept in memory.                                                                        |
+| **[`@canopy-io/react`](packages/react)**     | The React SDK. A provider, hooks and components over `@canopy-io/browser`: the session, the access token, the organization, and permission checks that decide what renders.                                        |
+| **[`@canopy-io/angular`](packages/angular)** | The Angular SDK. Providers, signals, a route guard, an HTTP interceptor and directives over `@canopy-io/browser`: the session, the access token, the organization, and permission checks that decide what renders. |
 
 `@canopy-io/nestjs` depends on `@canopy-io/node` and installs it for you. A NestJS application needs only the integration package; anything else needs the client.
 
 ## What they have in common
 
-Everything here is TypeScript and ships both ESM and CommonJS. The server packages require Node 18 or later; `@canopy-io/browser` runs in any browser with the Web Crypto API, and `@canopy-io/react` with React 18 or 19.
+Everything here is TypeScript and ships both ESM and CommonJS. The server packages require Node 18 or later; `@canopy-io/browser` runs in any browser with the Web Crypto API, `@canopy-io/react` with React 18 or 19, and `@canopy-io/angular` with Angular 20, 21 or 22.
 
 Every request and response type is generated from the same [OpenAPI document](https://canopy-io.com/openapi/api.json) that renders Canopy's API reference, and CI fails when the committed types no longer match it — so a package cannot silently describe an API that has moved on.
 
