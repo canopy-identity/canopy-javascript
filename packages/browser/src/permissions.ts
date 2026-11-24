@@ -1,4 +1,7 @@
-import { CanopyAuthError, CanopyConnectionError } from "./errors.js";
+import { apiRequest, asCanopyError, retryAtFor, type ApiDeps } from "./api.js";
+import type { CanopyAuthError, CanopyConnectionError } from "./errors.js";
+
+export { FAILED_CHECK_RETRY_MS } from "./api.js";
 
 /** One question about the signed-in person's own permission. */
 export interface PermissionCheck {
@@ -31,15 +34,8 @@ export interface PermissionClaims {
   org_permissions_overflow?: boolean;
 }
 
-interface Deps {
-  /** The API origin: the issuer's. */
-  apiOrigin: () => string;
-  /** A current access token, or null when nobody is signed in. */
-  accessToken: () => Promise<string | null>;
+interface Deps extends ApiDeps {
   claims: () => PermissionClaims | null;
-  fetch: typeof globalThis.fetch;
-  now: () => number;
-  changed: () => void;
 }
 
 interface Decision {
@@ -49,13 +45,6 @@ interface Decision {
 
 /** The most checks one evaluate request carries; the API refuses more. */
 export const EVALUATE_MAX_CHECKS = 100;
-
-/**
- * How long a failed check waits before a new call may ask again. A failure is
- * kept rather than retried on every render, so a page that renders often
- * cannot turn an outage or a rate limit into a stream of requests.
- */
-export const FAILED_CHECK_RETRY_MS = 30_000;
 
 const LOADING: PermissionState = Object.freeze({ status: "loading" });
 const ALLOWED: PermissionState = Object.freeze({ status: "allowed" });
@@ -327,15 +316,7 @@ export class PermissionChecks {
   }
 
   #failAll(batch: Queued[], caught: unknown, generation: number): void {
-    const error =
-      caught instanceof CanopyAuthError ||
-      caught instanceof CanopyConnectionError
-        ? caught
-        : new CanopyAuthError("server_error", String(caught));
-    const retryAfterMs =
-      error instanceof CanopyAuthError && error.retryAfterSeconds !== undefined
-        ? error.retryAfterSeconds * 1000
-        : 0;
+    const error = asCanopyError(caught);
 
     for (const queued of batch) {
       queued.fail(error);
@@ -348,8 +329,7 @@ export class PermissionChecks {
 
       if (held) {
         held.state = Object.freeze({ status: "error", error });
-        held.retryAt =
-          this.#deps.now() + Math.max(FAILED_CHECK_RETRY_MS, retryAfterMs);
+        held.retryAt = retryAtFor(error, this.#deps.now());
       }
     }
 
@@ -374,45 +354,12 @@ export class PermissionChecks {
     return body.items;
   }
 
-  async #request(
+  #request(
     path: string,
     token: string,
     init: { method: string; body?: string },
   ): Promise<unknown> {
-    const url = `${this.#deps.apiOrigin()}${path}`;
-    let response: Response;
-
-    try {
-      response = await this.#deps.fetch(url, {
-        method: init.method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(init.body ? { "Content-Type": "application/json" } : {}),
-        },
-        ...(init.body ? { body: init.body } : {}),
-      });
-    } catch (caught) {
-      throw new CanopyConnectionError(url, caught);
-    }
-
-    const text = await response.text();
-    const parsed: unknown = text ? JSON.parse(text) : {};
-
-    if (!response.ok) {
-      const failure = (
-        parsed as { error?: { code?: string; message?: string } }
-      ).error;
-      const retryAfter = Number(response.headers.get("retry-after"));
-
-      throw new CanopyAuthError(
-        failure?.code ?? "server_error",
-        failure?.message,
-        response.status,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
-      );
-    }
-
-    return parsed;
+    return apiRequest(this.#deps, path, token, init);
   }
 }
 

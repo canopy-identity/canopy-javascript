@@ -10,6 +10,7 @@ const REDIRECT_URI = "https://app.test/callback";
 const NOW = 1_800_000_000_000;
 const EVALUATE = "https://auth.test/v1/identity/auth/me/permissions/evaluate";
 const LIST = "https://auth.test/v1/identity/auth/me/permissions";
+const ORGANIZATIONS = "https://auth.test/v1/identity/auth/organizations";
 
 const DISCOVERY = {
   issuer: ISSUER,
@@ -71,6 +72,7 @@ async function signedIn(
     decide?: (check: { permission: string; node_id?: string }) => boolean;
     evaluate?: (body: Evaluated) => Response | undefined;
     list?: string[];
+    organizations?: (url: URL) => Response;
   } = {},
 ) {
   let clock = NOW;
@@ -79,6 +81,7 @@ async function signedIn(
 
   const evaluated: Evaluated[] = [];
   const listed: string[] = [];
+  const organizationReads: URL[] = [];
   const navigations: string[] = [];
   const storage = new MemoryStorage();
   const refreshed = [...(options.refreshed ?? [])];
@@ -167,6 +170,17 @@ async function signedIn(
       return json({ items: options.list ?? [] });
     }
 
+    if (url.startsWith(ORGANIZATIONS)) {
+      const read = new URL(url);
+
+      organizationReads.push(read);
+
+      return (
+        options.organizations?.(read) ??
+        json({ items: [], pagination: { page: 1, page_count: 1 } })
+      );
+    }
+
     throw new Error(`unexpected request to ${url}`);
   }
 
@@ -185,6 +199,7 @@ async function signedIn(
     client,
     evaluated,
     listed,
+    organizationReads,
     advance: (ms: number) => {
       clock += ms;
     },
@@ -452,5 +467,111 @@ describe("listPermissions", () => {
     await h.client.listPermissions();
 
     expect(h.listed).toHaveLength(2);
+  });
+});
+
+describe("the person's organizations", () => {
+  const ACME = {
+    id: "org-1",
+    name: "Acme",
+    slug: "acme",
+    roles: [{ id: "role-1", name: "Admin" }],
+    administers: true,
+    portal_access: true,
+  };
+  const GLOBEX = { ...ACME, id: "org-2", name: "Globex", slug: "globex" };
+
+  it("reads every page once, by name, and holds the list", async () => {
+    const h = await signedIn({
+      organizations: (url) =>
+        json({
+          items: url.searchParams.get("page") === "1" ? [ACME] : [GLOBEX],
+          pagination: {
+            page: Number(url.searchParams.get("page")),
+            page_count: 2,
+          },
+        }),
+    });
+
+    expect(h.client.getOrganizationsState()).toEqual({ status: "loading" });
+
+    const [first, second] = await Promise.all([
+      h.client.listOrganizations(),
+      h.client.listOrganizations(),
+    ]);
+
+    expect(first).toEqual([ACME, GLOBEX]);
+    expect(second).toBe(first);
+    expect(h.organizationReads.map((url) => url.search)).toEqual([
+      "?page=1&take=100&sort_by=name&order=asc",
+      "?page=2&take=100&sort_by=name&order=asc",
+    ]);
+    expect(h.client.getOrganizationsState()).toEqual({
+      status: "loaded",
+      organizations: [ACME, GLOBEX],
+    });
+
+    h.advance(10 * 60 * 1000);
+    await h.client.listOrganizations();
+
+    expect(h.organizationReads).toHaveLength(2);
+  });
+
+  it("reads again once the token changes, and tells subscribers", async () => {
+    const h = await signedIn({
+      organizations: () =>
+        json({ items: [ACME], pagination: { page: 1, page_count: 1 } }),
+    });
+    let changes = 0;
+
+    h.client.subscribe(() => {
+      changes += 1;
+    });
+    await h.client.listOrganizations();
+    await h.client.refresh();
+
+    expect(h.client.getOrganizationsState()).toEqual({ status: "loading" });
+
+    await h.client.listOrganizations();
+
+    expect(h.organizationReads).toHaveLength(2);
+    expect(changes).toBeGreaterThanOrEqual(3);
+  });
+
+  it("holds a failure before asking again", async () => {
+    let refuse = true;
+    const h = await signedIn({
+      organizations: () =>
+        refuse
+          ? json({ error: { code: "rate_limited" } }, 429, {
+              "retry-after": "45",
+            })
+          : json({ items: [ACME], pagination: { page: 1, page_count: 1 } }),
+    });
+
+    await expect(h.client.listOrganizations()).rejects.toBeInstanceOf(
+      CanopyAuthError,
+    );
+    expect(h.client.getOrganizationsState().status).toBe("error");
+
+    refuse = false;
+    h.advance(FAILED_CHECK_RETRY_MS);
+    await expect(h.client.listOrganizations()).rejects.toBeInstanceOf(
+      CanopyAuthError,
+    );
+    expect(h.organizationReads).toHaveLength(1);
+
+    h.advance(15_000);
+    await expect(h.client.listOrganizations()).resolves.toEqual([ACME]);
+    expect(h.organizationReads).toHaveLength(2);
+  });
+
+  it("is empty after sign-out, with no request", async () => {
+    const h = await signedIn();
+
+    await h.client.signOut();
+
+    await expect(h.client.listOrganizations()).resolves.toEqual([]);
+    expect(h.organizationReads).toHaveLength(0);
   });
 });

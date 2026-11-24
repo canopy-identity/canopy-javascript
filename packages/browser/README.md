@@ -72,6 +72,7 @@ canopy.getPermissionState("deals.update", { nodeId: team.id });
 - `checkPermission(permission, { nodeId })` answers whether the signed-in person holds `permission` at `nodeId` (walking its ancestors), or anywhere in the Environment without one. `checkPermissions(checks)` asks several. `listPermissions()` returns every key the person holds anywhere.
 - An Environment-wide check is answered from the token's `permissions` claim, and a check at the session's organization from `org_permissions`, with no request, whenever the token carries them (ask for the `permissions` scope). Other checks go to Canopy, those made in the same tick in one request.
 - Answers are held until the access token is refreshed (about 15 minutes), the organization changes or the person signs out. Time passing alone sends nothing, and a check already held or on its way is never sent again. A failed check is held for 30 seconds, or as long as `Retry-After` says, before a call may ask again.
+- `listOrganizations()` returns the organizations the person belongs to, by name, for an organization switcher (`signIn({ organization })` moves the session into one). It is read once, one request per 100 organizations, and held like an answer; `getOrganizationsState()` reads it without asking.
 - These checks decide what a page shows. A permission removed meanwhile can leave a control showing until the token is refreshed; your API still authorizes every request it receives.
 
 ## Sessions
