@@ -1,6 +1,6 @@
 {
   "name": "@canopy-io/react",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Official React SDK for Canopy: a provider, hooks and components over @canopy-io/browser for signing a single-page app in through Canopy's hosted login and deciding what it shows.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
@@ -57,7 +57,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@canopy-io/browser": "^0.4.0"
+    "@canopy-io/browser": "^0.5.0"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"
