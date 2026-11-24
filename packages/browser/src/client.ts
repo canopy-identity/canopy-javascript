@@ -10,6 +10,11 @@ import {
   type PermissionClaims,
   type PermissionState,
 } from "./permissions.js";
+import {
+  OrganizationList,
+  type Organization,
+  type OrganizationsState,
+} from "./organizations.js";
 import { createPkcePair, randomString } from "./pkce.js";
 
 /** The storage this package keeps a sign-in's PKCE verifier in across the redirect. */
@@ -205,6 +210,7 @@ export class CanopyBrowserClient {
 
   readonly #listeners = new Set<() => void>();
   readonly #permissions: PermissionChecks;
+  readonly #organizations: OrganizationList;
 
   #discovery: Promise<Discovery> | undefined;
   #session: Session | undefined;
@@ -237,14 +243,19 @@ export class CanopyBrowserClient {
       ((url) => history.replaceState(history.state, "", url));
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.#now = options.now ?? Date.now;
-    this.#permissions = new PermissionChecks({
+    const api = {
       apiOrigin: () => new URL(this.#issuer).origin,
       accessToken: () => this.getAccessToken(),
-      claims: () => this.#session?.accessClaims ?? null,
       fetch: this.#fetch,
       now: this.#now,
       changed: () => this.#emit(),
+    };
+
+    this.#permissions = new PermissionChecks({
+      ...api,
+      claims: () => this.#session?.accessClaims ?? null,
     });
+    this.#organizations = new OrganizationList(api);
   }
 
   /**
@@ -393,8 +404,8 @@ export class CanopyBrowserClient {
   }
 
   /**
-   * Listen for the session changing, and for a permission answer arriving or
-   * the held answers clearing. Returns the function that stops listening.
+   * Listen for the session changing, for a permission answer or the
+   * organizations arriving, and for what is held clearing. Returns the function that stops listening.
    */
   subscribe(listener: () => void): () => void {
     this.#listeners.add(listener);
@@ -524,6 +535,25 @@ export class CanopyBrowserClient {
   }
 
   /**
+   * The organizations the signed-in person belongs to, by name, for an
+   * organization switcher; empty when nobody is signed in. Read once and held
+   * like a permission answer, until the token is refreshed, the organization
+   * changes or the person signs out.
+   */
+  listOrganizations(): Promise<Organization[]> {
+    return this.#organizations.list();
+  }
+
+  /**
+   * What is known about the person's organizations now, without asking:
+   * `loading` until `listOrganizations()` answers. Stable until it changes;
+   * `subscribe` says when.
+   */
+  getOrganizationsState(): OrganizationsState {
+    return this.#organizations.state();
+  }
+
+  /**
    * Sign out of the app and of Canopy: revoke the refresh token, forget the
    * tokens, then send the browser to Canopy's end-session endpoint with the
    * ID token as the hint. Skipping the second half would let the next
@@ -624,9 +654,10 @@ export class CanopyBrowserClient {
       claims,
     };
 
-    // A new token can carry other permissions: answers held for the old one
-    // no longer stand.
+    // A new token can carry other permissions and memberships: answers held
+    // for the old one no longer stand.
     this.#permissions.clear();
+    this.#organizations.clear();
     this.#setSnapshot("signed-in", null);
   }
 
@@ -635,6 +666,7 @@ export class CanopyBrowserClient {
     this.#session = undefined;
     this.#starting = undefined;
     this.#permissions.clear();
+    this.#organizations.clear();
     this.#setSnapshot("signed-out", error);
   }
 
