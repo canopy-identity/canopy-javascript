@@ -63,8 +63,9 @@ jobs:
       # package it is meant to guard ever stops being found.
       # @canopy-io/browser is held to the same rule: it ships into every
       # customer's page, where a dependency is also bytes on every load.
-      # @canopy-io/react ships there too and wraps the browser client, so the
-      # browser client is the one dependency it may have.
+      # @canopy-io/react and @canopy-io/angular ship there too and wrap the
+      # browser client, so it is the one dependency they may have (and tslib,
+      # which every Angular library's compiled output imports).
       - name: No runtime dependencies beyond the allowed ones
         run: |
           node - <<'JS'
@@ -73,6 +74,7 @@ jobs:
             ["node", "@canopy-io/node", []],
             ["browser", "@canopy-io/browser", []],
             ["react", "@canopy-io/react", ["@canopy-io/browser"]],
+            ["angular", "@canopy-io/angular", ["@canopy-io/browser", "tslib"]],
           ];
           for (const [dir, name, allowed] of packages) {
             const pkg = JSON.parse(readFileSync(`packages/${dir}/package.json`, "utf8"));

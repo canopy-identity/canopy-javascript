@@ -1,0 +1,76 @@
+{
+  "name": "@canopy-io/angular",
+  "version": "0.0.0",
+  "description": "Official Angular SDK for Canopy: providers, signals, a guard, an interceptor and directives over @canopy-io/browser for signing a single-page app in through Canopy's hosted login and deciding what it shows.",
+  "license": "MIT",
+  "author": "Canopy Identity Inc.",
+  "homepage": "https://github.com/canopy-identity/canopy-javascript#readme",
+  "bugs": "https://github.com/canopy-identity/canopy-javascript/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/canopy-identity/canopy-javascript.git",
+    "directory": "packages/angular"
+  },
+  "keywords": [
+    "canopy",
+    "angular",
+    "signals",
+    "oauth",
+    "oidc",
+    "pkce",
+    "spa",
+    "authentication",
+    "authorization",
+    "permissions"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/fesm2022/canopy-io-angular.mjs",
+  "typings": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/fesm2022/canopy-io-angular.mjs"
+    },
+    "./package.json": {
+      "default": "./package.json"
+    }
+  },
+  "files": [
+    "dist/fesm2022",
+    "dist/index.d.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "ng-packagr -p ng-package.json -c tsconfig.lib.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@canopy-io/browser": "^0.5.0",
+    "tslib": "^2.3.0"
+  },
+  "peerDependencies": {
+    "@angular/common": "^20.0.0 || ^21.0.0 || ^22.0.0",
+    "@angular/core": "^20.0.0 || ^21.0.0 || ^22.0.0",
+    "@angular/router": "^20.0.0 || ^21.0.0 || ^22.0.0",
+    "rxjs": "^7.4.0"
+  },
+  "devDependencies": {
+    "@angular/common": "20.3.35",
+    "@angular/compiler": "20.3.35",
+    "@angular/compiler-cli": "20.3.35",
+    "@angular/core": "20.3.35",
+    "@angular/platform-browser": "20.3.35",
+    "@angular/router": "20.3.35",
+    "jsdom": "30.1.3",
+    "ng-packagr": "20.3.2",
+    "rxjs": "7.8.2"
+  }
+}
