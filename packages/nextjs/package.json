@@ -1,6 +1,6 @@
 {
   "name": "@canopy-io/nextjs",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Official Next.js SDK for Canopy: sign in on the server through Canopy's hosted login, keep the session in an encrypted cookie, and check permissions in server components, route handlers and server actions.",
   "license": "MIT",
   "author": "Canopy Identity Inc.",
