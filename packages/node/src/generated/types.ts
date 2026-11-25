@@ -3057,7 +3057,7 @@ export interface paths {
         head?: never;
         /**
          * Change an Environment's sign-in settings
-         * @description Updates the sign-in settings of the request's Environment, applying any supplied fields (`mfa`, `allow_self_signup`, `self_signup_require_captcha`, `login_require_captcha`, `password_login_enabled`, `email_otp_login_enabled`, `passkey_login_enabled`, `default_language`, `self_signup_daily_cap`, `access_token_ttl_seconds`, `refresh_token_ttl_days`, `public_refresh_token_ttl_days`, `allowed_web_origins`, `sso_return_urls`, `auth_links_base_url`); omitted fields are left unchanged, `allowed_web_origins` are normalized and de-duplicated on save, and `auth_links_base_url` is canonicalized to a bare origin (send `null` to clear it). While `auth_links_base_url` is set, verification, password-reset and invitation emails link to that origin at `/verify-email`, `/reset-password` and `/accept-invite` instead of Canopy's hosted pages. Send the Environment's `version` (returned by the GET) in `If-Match` to refuse a stale save: a mismatch answers `409 version_mismatch`, and without the header the check is skipped. Emits an `environment.auth_settings_updated` audit event naming the settings whose value changed.
+         * @description Updates the sign-in settings of the request's Environment, applying any supplied fields (`mfa`, `allow_self_signup`, `self_signup_require_captcha`, `login_require_captcha`, `password_login_enabled`, `email_otp_login_enabled`, `passkey_login_enabled`, `languages`, `default_language`, `self_signup_daily_cap`, `access_token_ttl_seconds`, `refresh_token_ttl_days`, `public_refresh_token_ttl_days`, `allowed_web_origins`, `sso_return_urls`, `auth_links_base_url`); omitted fields are left unchanged, `allowed_web_origins` are normalized and de-duplicated on save, and `auth_links_base_url` is canonicalized to a bare origin (send `null` to clear it). While `auth_links_base_url` is set, verification, password-reset and invitation emails link to that origin at `/verify-email`, `/reset-password` and `/accept-invite` instead of Canopy's hosted pages. Send the Environment's `version` (returned by the GET) in `If-Match` to refuse a stale save: a mismatch answers `409 version_mismatch`, and without the header the check is skipped. Emits an `environment.auth_settings_updated` audit event naming the settings whose value changed.
          */
         patch: operations["ApiAuthSettingsController_update"];
         trace?: never;
@@ -7186,7 +7186,7 @@ export interface components {
              * @example auth.acme.example
              */
             page_template_domain: string | null;
-            /** @description Every language the hosted pages and emails are written in, in the order they are listed. Every Environment offers all of them. `text_overrides` may reword the texts in each, and a preview may be asked for in any of them. */
+            /** @description The languages this Environment offers, in the order they are listed. `text_overrides` may reword the texts in each, and a preview may be asked for in any of them. */
             languages: components["schemas"]["AvailableLanguageDto"][];
             /**
              * @description The language a page is shown in when nothing asks for another, one of `languages`.
@@ -7573,7 +7573,7 @@ export interface components {
              * @example es
              * @enum {string}
              */
-            language?: "en" | "es";
+            language?: "en" | "es" | "fr" | "de" | "pt-br" | "it" | "nl" | "ja" | "ko" | "zh-hans" | "ar" | "he";
         };
         BrandingPreviewLinkResponseDto: {
             /**
@@ -7752,7 +7752,16 @@ export interface components {
             /** @description Enable passkey sign-in for this Environment. Off by default (opt-in); persisted under `env.settings.passkey_login_enabled`. When on, an identity holding a passkey signs in with it alone via /login/passkey/*, and the passkey counts as its second factor. */
             passkey_login_enabled?: boolean;
             /**
-             * @description The language a page or email is written in when nothing names one the hosted pages are written in: no `ui_locales`, no stored language for the person, and no match in the browser's languages. Must be one of `available_languages` in the response. Unset, `en`.
+             * @description The languages this Environment offers on the hosted pages and in the emails it sends, as language tags. Each must be one of `available_languages` in the response, and the list must hold `default_language`. An Environment that has never saved a list offers `default_language` alone, and a new `default_language` sent without `languages` replaces it. A page or email is only ever written in an offered language.
+             * @example [
+             *       "en",
+             *       "es",
+             *       "fr"
+             *     ]
+             */
+            languages?: string[];
+            /**
+             * @description The language a page or email is written in when nothing names one the Environment offers: no `ui_locales`, no stored language for the person, and no match in the browser's languages. Must be one of `languages`. Unset, `en`.
              * @example en
              */
             default_language?: string;
@@ -7781,7 +7790,7 @@ export interface components {
             hierarchy_schema: {
                 [key: string]: unknown;
             } | null;
-            /** @description The sign-in policy: MFA, sign-in methods, CAPTCHA, self-signup, token lifetimes and organization signup. Settings that name one deployment or the source's roles are left out. */
+            /** @description The sign-in policy: MFA, sign-in methods, CAPTCHA, self-signup, languages, token lifetimes and organization signup. Settings that name one deployment or the source's roles are left out. */
             auth_settings: components["schemas"]["EnvironmentExportAuthSettingsDto"];
             /** @description The custom claims the Environment adds to its tokens */
             token_claims: components["schemas"]["TokenClaimEntryResponseDto"][];
@@ -7847,11 +7856,20 @@ export interface components {
             email_otp_login_enabled?: boolean;
             passkey_login_enabled?: boolean;
             /**
-             * @description The language a page or email is written in when nothing names one the hosted pages are written in. Always one of `available_languages`.
+             * @description The languages this Environment offers on the hosted pages and in its emails, in the order of `available_languages`. Only `default_language` when the Environment has not chosen.
+             * @example [
+             *       "en",
+             *       "es",
+             *       "fr"
+             *     ]
+             */
+            languages: string[];
+            /**
+             * @description The language a page or email is written in when nothing names one the Environment offers. Always one of `languages`.
              * @example en
              */
             default_language: string;
-            /** @description Every language the hosted pages and emails are written in. Every Environment offers all of them: a page or email follows `ui_locales`, then the person's stored language, then the browser's, then `default_language`. */
+            /** @description Every language the hosted pages and emails are written in, which is what `languages` may hold. A page or email follows `ui_locales`, then the person's stored language, then the browser's, then `default_language`, taking only a language in `languages`. */
             available_languages: components["schemas"]["AvailableLanguageDto"][];
             self_signup_daily_cap?: number;
             access_token_ttl_seconds?: number;
@@ -7931,7 +7949,16 @@ export interface components {
             /** @description Enable passkey sign-in for this Environment. Off by default (opt-in); persisted under `env.settings.passkey_login_enabled`. When on, an identity holding a passkey signs in with it alone via /login/passkey/*, and the passkey counts as its second factor. */
             passkey_login_enabled?: boolean;
             /**
-             * @description The language a page or email is written in when nothing names one the hosted pages are written in: no `ui_locales`, no stored language for the person, and no match in the browser's languages. Must be one of `available_languages` in the response. Unset, `en`.
+             * @description The languages this Environment offers on the hosted pages and in the emails it sends, as language tags. Each must be one of `available_languages` in the response, and the list must hold `default_language`. An Environment that has never saved a list offers `default_language` alone, and a new `default_language` sent without `languages` replaces it. A page or email is only ever written in an offered language.
+             * @example [
+             *       "en",
+             *       "es",
+             *       "fr"
+             *     ]
+             */
+            languages?: string[];
+            /**
+             * @description The language a page or email is written in when nothing names one the Environment offers: no `ui_locales`, no stored language for the person, and no match in the browser's languages. Must be one of `languages`. Unset, `en`.
              * @example en
              */
             default_language?: string;
@@ -34714,7 +34741,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`). Its languages are checked as a save on the auth settings is: a default with no catalogue (`environment.default_language_invalid`), a list naming a language twice or one with no catalogue (`environment.languages_invalid`), or a default the list leaves out (`environment.default_language_not_offered`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -34725,7 +34752,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "The request failed validation, or the payload cannot be applied: an unsupported `format_version`, an organizations setting that differs from the target Environment's, nested nodes in an Environment with organizations, not exactly one root node, a role or role template naming a permission key the payload lacks, orphaned or cyclic `parent_ref` chains, or duplicate keys. Its role templates must also be importable: a template named like one of the payload's roles (`role_template.name_taken`), more than one default admin or default member (`environment.import_duplicate_role_template_default`), a default admin without `canopy:organization.manage` (`role_template.admin_requires_organization_manage`), or no default admin while the target creates organizations at sign-up (`role_template.default_admin_required`). Its languages are checked as a save on the auth settings is: a default with no catalogue (`environment.default_language_invalid`), a list naming a language twice or one with no catalogue (`environment.languages_invalid`), or a default the list leaves out (`environment.default_language_not_offered`); or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/environments/{id}/import",
                      *         "method": "POST"
@@ -34980,7 +35007,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or `default_language` names a language outside `available_languages` (`environment.default_language_invalid`); or its `If-Match` header names no version (`if_match.invalid`) */
+            /** @description A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or `default_language` names a language outside `available_languages` (`environment.default_language_invalid`), `languages` is empty, names a language twice or names one outside `available_languages` (`environment.languages_invalid`), or `default_language` is not one of `languages` (`environment.default_language_not_offered`); or its `If-Match` header names no version (`if_match.invalid`) */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -34991,7 +35018,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 400,
                      *         "code": "request.invalid",
-                     *         "message": "A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or `default_language` names a language outside `available_languages` (`environment.default_language_invalid`); or its `If-Match` header names no version (`if_match.invalid`)",
+                     *         "message": "A setting is out of range or malformed, the passkey relying party is incomplete — `webauthn_rp_id` and `webauthn_origins` must be set together, and every origin must be on the id or a subdomain of it — `auth_links_base_url` is not a bare https origin, an entry in `allowed_web_origins` is not a bare http or https origin, or `organizations_create_on_signup` is on while no organization role template is the default admin (`role_template.default_admin_missing`); the role a sign-up's creator receives, and each identity provider arrival role, must be one every organization shares, not one organization's own; or the request sent both an `X-API-Key` and an `Authorization` header, or its `X-Canopy-Environment` header is missing for an account key, names no Environment of the key's Account, or names another Environment than an Environment key's own; or `default_language` names a language outside `available_languages` (`environment.default_language_invalid`), `languages` is empty, names a language twice or names one outside `available_languages` (`environment.languages_invalid`), or `default_language` is not one of `languages` (`environment.default_language_not_offered`); or its `If-Match` header names no version (`if_match.invalid`)",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/auth-settings",
                      *         "method": "PATCH"
