@@ -1,5 +1,17 @@
 # @canopy-io/node
 
+## 0.26.2
+
+### Patch Changes
+
+- 658e24d: Follows Canopy's release that splits the Console's Authentication page and lets a directory refuse clearing its roles. The generated types add `environment_grantable_roles_set` to an organization's directory (whether the Environment sets a list the organization falls back to; without one, clearing the organization's list while its directory is connected is refused), add `sample` to each branding preview state and `client_id` to the preview, and say that the single-client OAuth routes take the client's `client_id` in their path.
+
+## 0.26.1
+
+### Patch Changes
+
+- 00db823: Follows Canopy's release that lets each Environment choose the languages its hosted pages and emails are offered in, and adds ten languages. The generated types add `languages` to the sign-in settings and their change (a new Environment offers its default language alone until a list is saved), widen the branding preview's `language` to the twelve languages, and name the refusals `environment.languages_invalid`, `environment.default_language_invalid` and `environment.default_language_not_offered`.
+
 ## 0.26.0
 
 ### Minor Changes
