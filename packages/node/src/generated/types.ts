@@ -2759,7 +2759,7 @@ export interface paths {
         };
         /**
          * List the hosted pages and emails a preview can render
-         * @description Lists every hosted page and every customer email the branding preview can render, in the order to show them: each with its `id`, its `kind` (`page` or `email`), the `group` it sits in, its `title`, and its states. An email has one state, `default`. Returns `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         * @description Lists every hosted page and every customer email the branding preview can render, in the order to show them: each with its `id`, its `kind` (`page` or `email`), the `group` it sits in, its `title`, and its states. Each state has an `id`, a `label` and `sample`: `false` for `YourPage`, the first state of the sign-in and sign-up pages, which shows the page as the Environment serves it, with the sign-in methods, social providers, self sign-up and CAPTCHA it has on, and single sign-on when a connection is linked to one of its OAuth clients, or to the one `client_id` names, and `true` for every other state, which shows sample data, the same in every Environment. An email has one state, `default`. Returns `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
          */
         get: operations["ApiBrandingController_getPreviewPages"];
         put?: never;
@@ -2821,7 +2821,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a hosted page or email in a branding
-         * @description Renders one hosted page, in one of its states, or one customer email, in the Environment's branding with the unsaved changes in `branding` laid over it, so a branding change can be checked before it is saved. Nothing is saved, and no session or person is involved: the page shows sample data. `page` and `state` are ids from the preview list, and `scheme` renders a page in its light or its dark look whatever the color scheme. Returns the whole HTML document, which works without scripts. Returns `400` (`branding.preview_page_unknown`) for a page or state that does not exist, `validation` for a malformed branding value, or `branding.image_not_uploaded` for an image field that holds anything but an uploaded image, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization. `language` renders it in one of the languages Canopy writes the pages in, with the wording `text_overrides` holds for that language; left out, English.
+         * @description Renders one hosted page, in one of its states, or one customer email, in the Environment's branding with the unsaved changes in `branding` laid over it, so a branding change can be checked before it is saved. Nothing is saved, and no session or person is involved. The sign-in and sign-up pages open on `YourPage`, which shows the page as the Environment serves it, with the sign-in methods, social providers, self sign-up and CAPTCHA it has on, and single sign-on when a connection is linked to one of its OAuth clients, or to the one `client_id` names; every other state shows sample data, the same in every Environment. `page` and `state` are ids from the preview list, and `scheme` renders a page in its light or its dark look whatever the color scheme. Returns the whole HTML document, which works without scripts. Returns `400` (`branding.preview_page_unknown`) for a page or state that does not exist, `validation` for a malformed branding value, or `branding.image_not_uploaded` for an image field that holds anything but an uploaded image, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization. `language` renders it in one of the languages Canopy writes the pages in, with the wording `text_overrides` holds for that language; left out, English.
          */
         post: operations["ApiBrandingController_preview"];
         delete?: never;
@@ -2841,7 +2841,7 @@ export interface paths {
         put?: never;
         /**
          * Make a link that opens a hosted page in a branding
-         * @description Makes a link that opens one hosted page, in one of its states, in the Environment's branding with the unsaved changes in `branding` laid over it, so a person can see a look in their own browser before it is saved. Takes what the preview takes; `page` must be a hosted page, not an email. Nothing is saved, and the page shows sample data. The link opens for two minutes, on the API's own origin; open it in a browser rather than reading it, and make a new one once it has expired. The page runs with `sandbox allow-scripts` and `form-action 'none'`, so its forms submit nowhere and a page template's scripts reach no cookie or storage. Returns `400` (`branding.preview_link_page_unknown`) for a page or state that is not a hosted page's, `validation` for a malformed branding value, or `branding.image_not_uploaded` for an image field that holds anything but an uploaded image, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
+         * @description Makes a link that opens one hosted page, in one of its states, in the Environment's branding with the unsaved changes in `branding` laid over it, so a person can see a look in their own browser before it is saved. Takes what the preview takes; `page` must be a hosted page, not an email. Nothing is saved. The sign-in and sign-up pages open on `YourPage`, which shows the page as the Environment serves it, with the sign-in methods, social providers, self sign-up and CAPTCHA it has on, and single sign-on when a connection is linked to one of its OAuth clients, or to the one `client_id` names; every other state shows sample data, the same in every Environment. The link opens for two minutes, on the API's own origin; open it in a browser rather than reading it, and make a new one once it has expired. The page runs with `sandbox allow-scripts` and `form-action 'none'`, so its forms submit nowhere and a page template's scripts reach no cookie or storage. Returns `400` (`branding.preview_link_page_unknown`) for a page or state that is not a hosted page's, `validation` for a malformed branding value, or `branding.image_not_uploaded` for an image field that holds anything but an uploaded image, and `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization.
          */
         post: operations["ApiBrandingController_previewLink"];
         delete?: never;
@@ -4155,21 +4155,21 @@ export interface paths {
         };
         /**
          * Get OAuth client details
-         * @description Returns a single OAuth client by `id`, scoped to the current Environment — a client that exists in a sibling Environment reads as `404`. The `client_secret` is never included.
+         * @description Returns a single OAuth client of the current Environment. `id` in the path is the client's `client_id`, not the `id` field of a client response, which answers `404` here. A client that exists in a sibling Environment reads as `404` too. The `client_secret` is never included.
          */
         get: operations["ApiOAuthClientsController_get"];
         put?: never;
         post?: never;
         /**
          * Delete OAuth client
-         * @description Deletes an OAuth client from the current Environment by `id`. Responds `204 No Content` on success, or `404` when the client is not found in this Environment.
+         * @description Deletes an OAuth client from the current Environment. `id` in the path is the client's `client_id`, not the `id` field of a client response, which answers `404` here. Responds `204 No Content` on success, or `404` when the client is not found in this Environment.
          */
         delete: operations["ApiOAuthClientsController_remove"];
         options?: never;
         head?: never;
         /**
          * Update OAuth client
-         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`, and for a web client `branding`, the settings it carries over its Environment's branding; for a machine client `allowed_audiences` and `token_exchange`, which adds or removes the token-exchange grant in its `grant_types`), scoped to the current Environment. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). Setting a `branding` value answers `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization, `400` (`oauth.machine_client_branding_invalid`) on a machine client, and `400` (`oauth.client_page_template_invalid`) for `page_template` or `page_template_sources`, which belong to the Environment; returning one to the Environment's with `null` is always allowed. The secret is not rotated here.
+         * @description Updates an OAuth client's mutable fields (`name`, `redirect_uris`, `post_logout_redirect_uris`, `backchannel_logout_uri`, `scopes`, `is_active`, `invite_redirect_url`, `initiate_login_uri`, and for a web client `branding`, the settings it carries over its Environment's branding; for a machine client `allowed_audiences` and `token_exchange`, which adds or removes the token-exchange grant in its `grant_types`), scoped to the current Environment. `id` in the path is the client's `client_id`, not the `id` field of a client response, which answers `404` here. A `scopes` value outside `openid`, `profile`, `email`, `org` and `permissions` is refused with `400` (`oauth.client_scope_unknown`). Returns the updated client, or `404` when the client is not found in this Environment. Send `If-Match` with the client's `version` to refuse a stale write (`409 version_mismatch`). Setting a `branding` value answers `403` (`plan_feature_unavailable`) when the Account's plan does not include hosted page customization, `400` (`oauth.machine_client_branding_invalid`) on a machine client, and `400` (`oauth.client_page_template_invalid`) for `page_template` or `page_template_sources`, which belong to the Environment; returning one to the Environment's with `null` is always allowed. The secret is not rotated here.
          */
         patch: operations["ApiOAuthClientsController_update"];
         trace?: never;
@@ -4185,7 +4185,7 @@ export interface paths {
         put?: never;
         /**
          * Rotate an OAuth client's secret
-         * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret. The replaced secret keeps working for 24 hours (`previous_secret_expires_at` says until when) so the systems using it can move over; send `expire_previous: "now"` to stop it at once, for a secret that has leaked. Rotating again inside the overlap replaces the secret still in its overlap. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment, and `409` (`oauth.client_public_has_no_secret`) for a public client, which has no secret.
+         * @description Rotates the OAuth client's `client_secret`, generating and hashing a new secret. `id` in the path is the client's `client_id`, not the `id` field of a client response, which answers `404` here. The replaced secret keeps working for 24 hours (`previous_secret_expires_at` says until when) so the systems using it can move over; send `expire_previous: "now"` to stop it at once, for a secret that has leaked. Rotating again inside the overlap replaces the secret still in its overlap. The new raw secret is returned in this response only and cannot be retrieved again. Returns `404` when the client is not found in the current Environment, and `409` (`oauth.client_public_has_no_secret`) for a public client, which has no secret.
          */
         post: operations["ApiOAuthClientsController_rotateSecret"];
         delete?: never;
@@ -6240,6 +6240,8 @@ export interface components {
              * @enum {string}
              */
             grantable_roles_source: "organization" | "environment" | "none";
+            /** @description Whether the Environment sets a list of its own, which the organization falls back to when its own list is removed. When false, removing the list leaves no role people arrive with, which a connected directory refuses. */
+            environment_grantable_roles_set: boolean;
         };
         ScimTokenResponseDto: {
             id: string;
@@ -7450,6 +7452,11 @@ export interface components {
             id: string;
             /** @example Wrong password */
             label: string;
+            /**
+             * @description `false` for `YourPage`, the state of the sign-in and sign-up pages that is drawn from the Environment's own sign-in settings: the methods, social providers, self sign-up and CAPTCHA it has on, and single sign-on when a connection is linked to one of its OAuth clients. `true` for every other state, which is drawn from sample data and shows the same thing in every Environment.
+             * @example true
+             */
+            sample: boolean;
         };
         BrandingPreviewPageDto: {
             /** @example login */
@@ -7557,7 +7564,7 @@ export interface components {
              */
             page: string;
             /**
-             * @description One of that page's states, by the `id` the preview list returns. An email has a single state, `default`.
+             * @description One of that page's states, by the `id` the preview list returns. `YourPage`, on the sign-in and sign-up pages, shows the page as the Environment serves it; every other state shows sample data. An email has a single state, `default`.
              * @example WrongPassword
              */
             state: string;
@@ -7574,6 +7581,8 @@ export interface components {
              * @enum {string}
              */
             language?: "en" | "es" | "fr" | "de" | "pt-br" | "it" | "nl" | "ja" | "ko" | "zh-hans" | "ar" | "he";
+            /** @description The app (OAuth client) to draw the state `YourPage` for, by its `client_id`. Hosted sign-in offers single sign-on per app, so with it the page offers single sign-on only when a connection is linked to that app; left out, when one is linked to any app of the Environment. A `client_id` that is not an active app of the Environment offers none. Every other state ignores it. */
+            client_id?: string;
         };
         BrandingPreviewLinkResponseDto: {
             /**
@@ -8615,7 +8624,9 @@ export interface components {
             expire_previous?: "now" | "window";
         };
         OAuthClientCreatedResponseDto: {
+            /** @description The client record's id. No route takes it in its path: the single-client routes take `client_id`. */
             id: string;
+            /** @description The client's public identifier: the `client_id` of the OAuth flows, and the value the single-client routes (`/oauth-clients/{id}`) take in their path. */
             client_id: string;
             name: string;
             /**
@@ -8723,7 +8734,9 @@ export interface components {
             initiate_login_uri?: string;
         };
         OAuthClientResponseDto: {
+            /** @description The client record's id. No route takes it in its path: the single-client routes take `client_id`. */
             id: string;
+            /** @description The client's public identifier: the `client_id` of the OAuth flows, and the value the single-client routes (`/oauth-clients/{id}`) take in their path. */
             client_id: string;
             name: string;
             /**
@@ -43929,6 +43942,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
             };
             cookie?: never;
@@ -44009,7 +44023,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment */
+            /** @description No OAuth client with that `client_id` exists in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -44020,7 +44034,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "GET"
@@ -44040,6 +44054,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
             };
             cookie?: never;
@@ -44116,7 +44131,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment */
+            /** @description No OAuth client with that `client_id` exists in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -44127,7 +44142,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "DELETE"
@@ -44149,6 +44164,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
             };
             cookie?: never;
@@ -44233,7 +44249,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment */
+            /** @description No OAuth client with that `client_id` exists in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -44244,7 +44260,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}",
                      *         "method": "PATCH"
@@ -44290,6 +44306,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
             };
             cookie?: never;
@@ -44374,7 +44391,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment */
+            /** @description No OAuth client with that `client_id` exists in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -44385,7 +44402,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/rotate-secret",
                      *         "method": "POST"
@@ -44479,6 +44496,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
             };
             cookie?: never;
@@ -44560,7 +44578,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment */
+            /** @description No OAuth client with that `client_id` exists in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -44571,7 +44589,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
                      *         "method": "GET"
@@ -44596,6 +44614,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
             };
             cookie?: never;
@@ -44680,7 +44699,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
+            /** @description No OAuth client with that `client_id` exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -44691,7 +44710,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments",
                      *         "method": "POST"
@@ -44774,6 +44793,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
                 assignmentId: string;
             };
@@ -44851,7 +44871,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
+            /** @description No OAuth client with that `client_id` exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -44862,7 +44882,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
                      *         "method": "DELETE"
@@ -44905,6 +44925,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
                 assignmentId: string;
             };
@@ -44990,7 +45011,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
+            /** @description No OAuth client with that `client_id` exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -45001,7 +45022,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment, the node or role does not exist in it, or the assignment is not one this client holds",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/assignments/{assignmentId}",
                      *         "method": "PATCH"
@@ -45051,6 +45072,7 @@ export interface operations {
                 "X-Canopy-Environment"?: string;
             };
             path: {
+                /** @description The OAuth client's `client_id`. The `id` field of a client response is a different value and answers `404` here. */
                 id: string;
             };
             cookie?: never;
@@ -45143,7 +45165,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseDto"];
                 };
             };
-            /** @description No OAuth client with that id exists in this Environment */
+            /** @description No OAuth client with that `client_id` exists in this Environment */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -45154,7 +45176,7 @@ export interface operations {
                      *       "error": {
                      *         "statusCode": 404,
                      *         "code": "request.not_found",
-                     *         "message": "No OAuth client with that id exists in this Environment",
+                     *         "message": "No OAuth client with that `client_id` exists in this Environment",
                      *         "timestamp": "2026-04-20T12:00:00.000Z",
                      *         "path": "/api/v1/oauth-clients/{id}/grants",
                      *         "method": "GET"
